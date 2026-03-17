@@ -31,6 +31,17 @@ cmake --build build-release -j$(nproc)
 sudo apt install libsdl2-dev libglm-dev libentt-dev
 ```
 
+**Using Nix (Optional):**
+If you have [Nix](https://nixos.org/) installed, you don't need to install dependencies manually. You can build and run the game using the provided flake:
+
+```bash
+# Run the game directly
+nix run .
+
+# Enter a development shell with all dependencies available
+nix develop
+```
+
 ---
 
 ## Progress

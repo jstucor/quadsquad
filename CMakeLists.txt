@@ -29,6 +29,7 @@ find_package(EnTT QUIET)
 if(NOT EnTT_FOUND)
     add_library(EnTT INTERFACE)
     target_include_directories(EnTT INTERFACE /usr/include)
+    add_library(EnTT::EnTT ALIAS EnTT)
 endif()
 
 # GLAD — compile the single-file loader bundled in vendor/
@@ -48,5 +49,7 @@ target_link_libraries(quadsquad PRIVATE
     SDL2::SDL2
     OpenGL::GL
     glm::glm
-    EnTT
+    EnTT::EnTT
 )
+
+install(TARGETS quadsquad DESTINATION bin)
