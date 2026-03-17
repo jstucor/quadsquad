@@ -1,5 +1,5 @@
 {
-  description = "quadsquad - A C++20 project using SDL2, OpenGL, GLM, and EnTT";
+  description = "QuadSquad - A 4-player local co-op FPS";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
