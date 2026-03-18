@@ -13,6 +13,7 @@
 #include "physics/CollisionSystem.hpp"
 #include "ui/HUD.hpp"
 #include "systems/ProjectileSystem.hpp"
+#include "systems/GrenadeSystem.hpp"
 #include "renderer/PostProcess.hpp"
 #include "systems/EnemySystem.hpp"
 #include "systems/PickupSystem.hpp"
@@ -32,26 +33,16 @@
 #include <cstdlib>
 #include <algorithm>
 #include <vector>
+#include <random>
+#include <cmath>
 
 static constexpr int WINDOW_W = 1280;
 static constexpr int WINDOW_H = 720;
 
 enum class GameState { MainMenu, Playing, GameOver };
 
-// Each quadrant is exactly half the window in both dimensions.
-static constexpr int VP_W = WINDOW_W / 2;   // 640
-static constexpr int VP_H = WINDOW_H / 2;   // 360
-
-// Viewport origins in OpenGL window-space (y=0 at the bottom).
-//   P1 top-left | P2 top-right
-//   P3 bot-left | P4 bot-right
-struct ViewportRect { int x, y; };
-static constexpr ViewportRect k_viewports[4] = {
-    {0,    VP_H},   // P1 — top-left   (keyboard + mouse)
-    {VP_W, VP_H},   // P2 — top-right  (static)
-    {0,    0   },   // P3 — bottom-left  (static)
-    {VP_W, 0   },   // P4 — bottom-right (static)
-};
+// GL-space viewport rectangle (bottom-left origin, y up).
+struct VPRect { int x, y, w, h; };
 
 // ── GLSL shader sources ───────────────────────────────────────────────────────
 
@@ -166,10 +157,12 @@ int main()
         weapon.applyClass(PlayerClass::Soldier);  // default: Soldier
         camera.classSpeedMult = weapon.classSpeedMult;
         camera.canZoom        = weapon.canZoom;
+        camera.adsZoomFOV     = weapon.adsZoomFOV;
 
         int playerScores[4]  = {};
         GameState gameState  = GameState::MainMenu;
         int menuSelectedMap  = 0;
+        int activePlayers    = 1;  // 1–4; chosen on the main menu
 
         // Map catalogue — add new .lvl files here to extend the selection list.
         struct MapEntry { const char* displayName; const char* filePath; };
@@ -201,6 +194,7 @@ int main()
             weapon.applyClass(PlayerClass::Soldier);
             camera.classSpeedMult = weapon.classSpeedMult;
             camera.canZoom        = weapon.canZoom;
+            camera.adsZoomFOV     = weapon.adsZoomFOV;
             EnemySystem::spawn(registry, levelMgr.spawnerPositions(),
                                levelMgr.collisionAABBs());
             std::fill(std::begin(playerScores), std::end(playerScores), 0);
@@ -218,6 +212,7 @@ int main()
             weapon.applyClass(nc);
             camera.classSpeedMult = weapon.classSpeedMult;
             camera.canZoom        = weapon.canZoom;
+            camera.adsZoomFOV     = weapon.adsZoomFOV;
             camera.physicsPos     = levelMgr.playerStartPos(0);
             camera.yaw            = levelMgr.playerStartYaw(0);
             camera.velocity       = glm::vec3{0.f};
@@ -225,12 +220,6 @@ int main()
             SDL_SetRelativeMouseMode(SDL_TRUE);
             p1Respawn.isDead = false;
         };
-
-        // Aspect ratio is per-quadrant, not the full window.
-        const float k_aspect   = static_cast<float>(VP_W) / static_cast<float>(VP_H);
-        // Static projection for P2-P4 observer cameras.
-        const glm::mat4 staticProj = glm::perspective(
-            glm::radians(70.f), k_aspect, 0.05f, 200.f);
 
         // Static view matrices for P2, P3, P4 — scaled for the 30×30 m arena.
         const glm::mat4 k_staticViews[3] = {
@@ -301,6 +290,7 @@ int main()
                                 weapon.applyClass(PlayerClass::Soldier);
                                 camera.classSpeedMult = weapon.classSpeedMult;
                                 camera.canZoom        = weapon.canZoom;
+                                camera.adsZoomFOV     = weapon.adsZoomFOV;
                             }
                             break;
                         case SDLK_2:
@@ -308,6 +298,7 @@ int main()
                                 weapon.applyClass(PlayerClass::Sniper);
                                 camera.classSpeedMult = weapon.classSpeedMult;
                                 camera.canZoom        = weapon.canZoom;
+                                camera.adsZoomFOV     = weapon.adsZoomFOV;
                             }
                             break;
                         case SDLK_3:
@@ -315,6 +306,7 @@ int main()
                                 weapon.applyClass(PlayerClass::Heavy);
                                 camera.classSpeedMult = weapon.classSpeedMult;
                                 camera.canZoom        = weapon.canZoom;
+                                camera.adsZoomFOV     = weapon.adsZoomFOV;
                             }
                             break;
                         default: break;
@@ -370,16 +362,61 @@ int main()
                     camera.update(p0, dt);
                     CollisionSystem::resolve(camera, levelMgr.collisionAABBs());
 
-                    // -- Weapon heat cooldown --
-                    weapon.tick(dt);
+                    // -- Weapon heat cooldown + spin-up --
+                    weapon.tick(dt, p0.isFiring);
 
                     // -- Spawn bolt on fire --
                     if (p0.isFiring
                         && camera.moveState != Camera::MoveState::Sprinting
                         && weapon.tryFire())
                     {
+                        static std::mt19937 fireRng{std::random_device{}()};
+                        static std::uniform_real_distribution<float> unitDist(-1.f, 1.f);
+                        static std::uniform_real_distribution<float> pitchKickDist(1.5f, 3.0f);
+                        static std::uniform_real_distribution<float> yawShakeDist(-0.3f, 0.3f);
+
+                        // Hip-fire spread scales with stance; ADS zeroes it entirely.
+                        float effectiveSpread = weapon.spread;
+                        if (camera.zoomLevel() > 0.05f) {
+                            effectiveSpread = 0.f;          // ADS — 100% accurate
+                        } else if (!camera.isOnGround) {
+                            effectiveSpread *= 2.5f;        // airborne — very inaccurate
+                        } else if (std::abs(p0.moveX) + std::abs(p0.moveY) > 0.1f) {
+                            effectiveSpread *= 1.5f;        // moving  — moderately inaccurate
+                        }
+
+                        // Apply spread by deflecting the aim direction.
+                        glm::vec3 shotDir = camera.getFront();
+                        if (effectiveSpread > 0.f) {
+                            const float spreadRad = glm::radians(effectiveSpread);
+                            const glm::vec3 right = glm::normalize(
+                                glm::cross(shotDir, glm::vec3{0.f, 1.f, 0.f}));
+                            const glm::vec3 up = glm::cross(right, shotDir);
+                            shotDir = glm::normalize(
+                                shotDir
+                                + right * (unitDist(fireRng) * std::tan(spreadRad))
+                                + up    * (unitDist(fireRng) * std::tan(spreadRad)));
+                        }
+
                         ProjectileSystem::spawn(registry, camera.eyePosition(),
-                                                camera.getFront(), /*ownerID=*/0);
+                                                shotDir, /*ownerID=*/0,
+                                                weapon.boltColor, weapon.boltSpeed);
+
+                        // Procedural recoil: random vertical kick + horizontal shake.
+                        // 50% of the kick springs back in ~0.2 s; 50% stays as drift.
+                        camera.applyRecoil(pitchKickDist(fireRng),
+                                           yawShakeDist(fireRng));
+                    }
+
+                    // -- Throw grenade (Q/G, Soldier class only) --
+                    if (p0.isThrowingGrenade
+                        && weapon.playerClass == PlayerClass::Soldier)
+                    {
+                        const glm::vec3 throwOrigin =
+                            camera.eyePosition() + camera.getFront() * 0.5f;
+                        const glm::vec3 throwVel =
+                            camera.getFront() * 15.f + glm::vec3{0.f, 5.f, 0.f};
+                        GrenadeSystem::spawn(registry, throwOrigin, throwVel);
                     }
 
                     // -- Hit detection: droid bolts vs player --
@@ -425,6 +462,16 @@ int main()
 
                 // -- Hit detection: player bolts vs droids --
                 EnemySystem::checkHits(registry, dt, playerScores, particles);
+
+                // -- Grenade physics, bouncing, and explosions --
+                {
+                    const float grenadeDmg = GrenadeSystem::update(
+                        registry, dt,
+                        levelMgr.collisionAABBs(), particles,
+                        camera.physicsPos, playerScores);
+                    if (grenadeDmg > 0.f && !p1Respawn.isDead)
+                        weapon.currentHp = std::max(0.f, weapon.currentHp - grenadeDmg);
+                }
 
                 // -- Particle simulation --
                 particles.update(dt);
@@ -482,17 +529,44 @@ int main()
 
                     EnemySystem::render(registry, shader, cubeMesh, vp);
                     PickupSystem::render(registry, shader, cubeMesh, vp);
+                    GrenadeSystem::render(registry, shader, cubeMesh, vp);
                     particles.render(vp, camRight, camUp);
                     ProjectileSystem::render(registry, boltShader, cubeMesh, vp);
                 };
 
-                // P1 FOV varies each frame with zoom lerp; P2-P4 use a fixed 70°.
-                const glm::mat4 p1Proj = glm::perspective(
-                    glm::radians(camera.zoomFOV()), k_aspect, 0.05f, 200.f);
+                // Build GL-space viewport rects for the active player count.
+                // Layouts:
+                //   1p  — full screen
+                //   2p  — top half (P1) / bottom half (P2)
+                //   3-4p— 2×2 grid; 3p skips bottom-right quadrant
+                VPRect glVPs[4]{};
+                int vpW = 0, vpH = 0;
 
-                for (int p = 0; p < 4; ++p) {
-                    const auto& vpr = k_viewports[p];
-                    glViewport(vpr.x, vpr.y, VP_W, VP_H);
+                if (activePlayers == 1) {
+                    vpW = WINDOW_W; vpH = WINDOW_H;
+                    glVPs[0] = {0, 0, vpW, vpH};
+                } else if (activePlayers == 2) {
+                    vpW = WINDOW_W; vpH = WINDOW_H / 2;
+                    glVPs[0] = {0, vpH, vpW, vpH};  // top
+                    glVPs[1] = {0, 0,   vpW, vpH};  // bottom
+                } else {
+                    vpW = WINDOW_W / 2; vpH = WINDOW_H / 2;
+                    glVPs[0] = {0,   vpH, vpW, vpH};
+                    glVPs[1] = {vpW, vpH, vpW, vpH};
+                    glVPs[2] = {0,   0,   vpW, vpH};
+                    glVPs[3] = {vpW, 0,   vpW, vpH};
+                }
+
+                const float vpAspect = static_cast<float>(vpW)
+                                     / static_cast<float>(vpH);
+                const glm::mat4 p1Proj = glm::perspective(
+                    glm::radians(camera.zoomFOV()), vpAspect, 0.05f, 200.f);
+                const glm::mat4 staticProj = glm::perspective(
+                    glm::radians(70.f), vpAspect, 0.05f, 200.f);
+
+                for (int p = 0; p < activePlayers; ++p) {
+                    const auto& vpr = glVPs[p];
+                    glViewport(vpr.x, vpr.y, vpr.w, vpr.h);
 
                     const glm::mat4 view = (p == 0)
                         ? camera.viewMatrix()
@@ -541,13 +615,18 @@ int main()
                     (weapon.playerClass == PlayerClass::Sniper)  ? "SNIPER"  : "HEAVY";
 
                 HUD::draw(players, io.Framerate, WINDOW_W, WINDOW_H,
-                          EnemySystem::count(registry));
+                          EnemySystem::count(registry), activePlayers);
 
-                // Respawn overlay — drawn inside P1's viewport quadrant when dead
+                // Respawn overlay — drawn inside P1's ImGui-space viewport.
+                // ImGui uses top-left origin; P1 is always the top-left quadrant.
                 if (p1Respawn.isDead) {
-                    HUD::drawRespawnOverlay(
-                        0.f, 0.f,
-                        static_cast<float>(VP_W), static_cast<float>(VP_H),
+                    const float p1VpW = (activePlayers >= 3)
+                        ? static_cast<float>(WINDOW_W / 2)
+                        : static_cast<float>(WINDOW_W);
+                    const float p1VpH = (activePlayers == 1)
+                        ? static_cast<float>(WINDOW_H)
+                        : static_cast<float>(WINDOW_H / 2);
+                    HUD::drawRespawnOverlay(0.f, 0.f, p1VpW, p1VpH,
                         p1Respawn.respawnTimer, p1Respawn.selectedClass);
                 }
             }
@@ -610,6 +689,31 @@ int main()
                         if (selected) ImGui::PopStyleColor();
                     }
                     ImGui::EndChild();
+
+                    ImGui::Spacing(); ImGui::Spacing();
+
+                    // Player count selector
+                    {
+                        const char* plLabel = "PLAYERS";
+                        ImGui::SetCursorPosX(
+                            (W - ImGui::CalcTextSize(plLabel).x) * 0.5f);
+                        ImGui::TextColored({0.6f, 0.6f, 0.7f, 1.0f}, "%s", plLabel);
+
+                        ImGui::Spacing();
+
+                        // Four radio buttons for 1–4 players, row-centred.
+                        // Measured width: each radio button is ~30 px wide + gap.
+                        constexpr float RADIO_GAP = 50.f;
+                        ImGui::SetCursorPosX((W - RADIO_GAP * 4.f) * 0.5f);
+                        for (int n = 1; n <= 4; ++n) {
+                            char buf[4];
+                            std::snprintf(buf, sizeof(buf), "%d", n);
+                            if (ImGui::RadioButton(buf, &activePlayers, n) && n < 4)
+                                {} // selection handled by RadioButton
+                            if (n < 4) ImGui::SameLine(0.f, RADIO_GAP
+                                - ImGui::CalcTextSize(buf).x - 16.f);
+                        }
+                    }
 
                     ImGui::Spacing(); ImGui::Spacing();
 

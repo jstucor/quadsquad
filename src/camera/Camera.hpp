@@ -2,6 +2,7 @@
 
 #include "input/PlayerInput.hpp"
 #include "physics/AABB.hpp"
+#include "components/RecoilState.hpp"
 
 #include <glm/glm.hpp>
 
@@ -34,15 +35,20 @@ public:
     static constexpr float JUMP_SPEED        =  8.f;   // m/s upward impulse
     static constexpr float EYE_STAND         =  1.7f;  // eye height standing
     static constexpr float EYE_CROUCH        =  0.6f;  // eye height crouching
-    static constexpr float ZOOM_FOV_NORMAL   = 70.f;   // degrees unzoomed
-    static constexpr float ZOOM_FOV_MAX      = 20.f;   // degrees fully zoomed (Sniper ADS)
+    static constexpr float ZOOM_FOV_NORMAL   = 90.f;   // degrees unzoomed (hip)
+    float                  adsZoomFOV        = 60.f;   // degrees at full ADS (set per class)
 
     // Integrate look, movement state, gravity, jump, bob, and crouch lerp.
     // Resets isOnGround; CollisionSystem::resolve() restores it.
     void update(const PlayerInput& input, float dt);
 
+    // Apply a procedural recoil kick (degrees).  pitchDeg kicks the view up;
+    // yawDeg adds horizontal shake.  50% springs back automatically over ~0.2 s;
+    // 50% stays as drift requiring manual correction.  Does NOT modify pitch/yaw.
+    void applyRecoil(float pitchDeg, float yawDeg);
+
     glm::vec3 eyePosition() const;  // includes bob offset and crouch lerp
-    glm::vec3 getFront()    const;  // full 3-D forward vector (respects pitch)
+    glm::vec3 getFront()    const;  // full 3-D forward vector (respects pitch + recoil)
     glm::mat4 viewMatrix()  const;
     AABB      getAABB()     const;  // AABB that shrinks smoothly during crouch
 
@@ -56,5 +62,6 @@ private:
     float m_crouchLerp   = 0.f;    // 0 = standing, 1 = crouching (smoothly interpolated)
     float m_bobPhase     = 0.f;    // oscillation phase (radians), advances with distance walked
     float m_bobAmplitude = 0.f;    // current bob amplitude (smoothly lerped to avoid pop)
-    float m_zoomLerp     = 0.f;    // 0 = not zoomed, 1 = fully zoomed (ADS)
+    float       m_zoomLerp = 0.f;   // 0 = not zoomed, 1 = fully zoomed (ADS)
+    RecoilState m_recoil;           // per-shot procedural recoil (bounce + drift + yaw)
 };

@@ -52,10 +52,13 @@ void InputManager::pollKeyboard()
     p0.lookX = static_cast<float>(mx);
     p0.lookY = static_cast<float>(my);
 
-    // Fire: rising-edge on left mouse button (true for exactly one frame on click).
-    const bool fireNow = (buttons & SDL_BUTTON(SDL_BUTTON_LEFT)) != 0;
-    p0.isFiring = fireNow && !m_prevFire;
-    m_prevFire  = fireNow;
+    // Fire: continuous while left mouse button is held.
+    p0.isFiring = (buttons & SDL_BUTTON(SDL_BUTTON_LEFT)) != 0;
+
+    // Grenade throw: Q or G key, rising-edge so exactly one throw per press.
+    const bool grenadeNow       = (keys[SDL_SCANCODE_Q] || keys[SDL_SCANCODE_G]) != 0;
+    p0.isThrowingGrenade        = grenadeNow && !m_prevGrenade;
+    m_prevGrenade               = grenadeNow;
 
     // Zoom: held right mouse button (continuous, no edge detection needed).
     p0.isZooming = (buttons & SDL_BUTTON(SDL_BUTTON_RIGHT)) != 0;

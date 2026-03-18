@@ -27,6 +27,10 @@ public:
     // Omnidirectional burst when a droid is destroyed.
     void spawnExplosion(const glm::vec3& pos);
 
+    // Large orange/white fireball when a thermal detonator detonates.
+    // Significantly bigger and longer-lived than a droid explosion.
+    void spawnGrenadeExplosion(const glm::vec3& pos);
+
     // Advance all live particles: integrate velocity, apply gravity, age out.
     void update(float dt);
 

@@ -23,7 +23,7 @@ private:
     void pollKeyboard();
 
     // Rising-edge state — previous-frame key states for edge detection.
-    bool m_prevFire        = false;  // left mouse button
+    bool m_prevGrenade     = false;  // Q / G key
     bool m_prevMenuPrev    = false;  // W key
     bool m_prevMenuNext    = false;  // S key
     bool m_prevMenuConfirm = false;  // Space key

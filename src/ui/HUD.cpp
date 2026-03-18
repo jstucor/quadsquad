@@ -394,32 +394,51 @@ void HUD::drawRespawnOverlay(float vpX, float vpY, float vpW, float vpH,
 }
 
 void HUD::draw(const PlayerState players[4], float fps,
-               int windowW, int windowH, int droidsAlive)
+               int windowW, int windowH, int droidsAlive, int activePlayers)
 {
-    const float vpW = static_cast<float>(windowW) * 0.5f;
-    const float vpH = static_cast<float>(windowH) * 0.5f;
+    const float fw = static_cast<float>(windowW);
+    const float fh = static_cast<float>(windowH);
+    const float hw = fw * 0.5f;
+    const float hh = fh * 0.5f;
 
-    // ImGui uses top-left origin; glViewport uses bottom-left.
-    // The visual quadrant mapping is:
-    //   P1: ImGui (0,   0  )   P2: ImGui (vpW, 0  )
-    //   P3: ImGui (0,   vpH)   P4: ImGui (vpW, vpH)
-    const float originX[4] = {0.f,  vpW,  0.f,  vpW};
-    const float originY[4] = {0.f,  0.f,  vpH,  vpH};
+    // Compute per-player ImGui-space viewport origins and dimensions.
+    // ImGui uses top-left origin; layouts mirror the GL split:
+    //   1p  — full screen
+    //   2p  — P1 top half, P2 bottom half
+    //   3-4p— 2×2 grid: P1 top-left, P2 top-right, P3 bot-left, P4 bot-right
+    float vpW[4]{}, vpH_[4]{};
+    float originX[4]{}, originY[4]{};
+
+    if (activePlayers == 1) {
+        vpW[0] = fw; vpH_[0] = fh;
+        originX[0] = 0.f; originY[0] = 0.f;
+    } else if (activePlayers == 2) {
+        vpW[0] = fw; vpH_[0] = hh;  originX[0] = 0.f; originY[0] = 0.f;
+        vpW[1] = fw; vpH_[1] = hh;  originX[1] = 0.f; originY[1] = hh;
+    } else {
+        for (int p = 0; p < 4; ++p) { vpW[p] = hw; vpH_[p] = hh; }
+        originX[0] = 0.f; originY[0] = 0.f;
+        originX[1] = hw;  originY[1] = 0.f;
+        originX[2] = 0.f; originY[2] = hh;
+        originX[3] = hw;  originY[3] = hh;
+    }
 
     ImDrawList* dl = ImGui::GetForegroundDrawList();
 
     // ── Per-viewport HUD ──────────────────────────────────────────────────────
-    for (int p = 0; p < 4; ++p) {
-        const float ox = originX[p];
-        const float oy = originY[p];
+    for (int p = 0; p < activePlayers; ++p) {
+        const float ox  = originX[p];
+        const float oy  = originY[p];
+        const float pvW = vpW[p];
+        const float pvH = vpH_[p];
 
-        drawCrosshair(dl, ox + vpW * 0.5f, oy + vpH * 0.5f,
+        drawCrosshair(dl, ox + pvW * 0.5f, oy + pvH * 0.5f,
                       players[p].crosshairScale,
                       players[p].zoomLevel,
                       players[p].isOverheated,
                       players[p].lockoutTimer);
-        drawHealthBar(dl, ox, oy, vpW, vpH, players[p].health);
-        drawHeatBar(dl, ox, oy, vpW, vpH,
+        drawHealthBar(dl, ox, oy, pvW, pvH, players[p].health);
+        drawHeatBar(dl, ox, oy, pvW, pvH,
                     players[p].heat,
                     players[p].isOverheated,
                     players[p].lockoutTimer);
@@ -427,10 +446,12 @@ void HUD::draw(const PlayerState players[4], float fps,
     }
 
     // ── Viewport dividers ─────────────────────────────────────────────────────
-    const float fw = static_cast<float>(windowW);
-    const float fh = static_cast<float>(windowH);
-    drawDivider(dl, vpW, 0.f,  vpW, fh);   // vertical centre line
-    drawDivider(dl, 0.f, vpH,  fw,  vpH);  // horizontal centre line
+    if (activePlayers == 2) {
+        drawDivider(dl, 0.f, hh, fw, hh);           // horizontal only
+    } else if (activePlayers >= 3) {
+        drawDivider(dl, hw,  0.f, hw,  fh);         // vertical
+        drawDivider(dl, 0.f, hh,  fw,  hh);         // horizontal
+    }
 
     // ── Developer Menu ────────────────────────────────────────────────────────
     // Anchored to the top-right corner of the window (inside P2 viewport).

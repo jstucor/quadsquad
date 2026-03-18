@@ -176,7 +176,9 @@ void EnemySystem::update(entt::registry& reg,
 
                 if (hasLOS) {
                     const glm::vec3 aimDir = glm::normalize(playerEye - muzzle);
-                    ProjectileSystem::spawn(reg, muzzle, aimDir, /*ownerID=*/1);
+                    ProjectileSystem::spawn(reg, muzzle, aimDir, /*ownerID=*/1,
+                                           /*color=*/glm::vec3{0.12f, 1.f, 0.28f},
+                                           /*speed=*/150.f);
                     ai.attackCooldown = DroidAI::FIRE_INTERVAL;
                 }
                 // If no LOS: leave cooldown ≤ 0 so the droid fires the moment

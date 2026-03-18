@@ -28,9 +28,20 @@ void Camera::update(const PlayerInput& input, float dt) {
     constexpr float BOB_FADE_RATE = 7.f;   // lerp rate for bob amplitude fade
     constexpr float ZOOM_RATE     = 8.f;   // lerp rate for ADS zoom
 
-    // -- Zoom (Sniper ADS: right mouse while canZoom is set) --
-    const float zoomTarget = (input.isZooming && canZoom) ? 1.f : 0.f;
+    // -- ADS: all classes can zoom; adsZoomFOV controls target depth --
+    const float zoomTarget = input.isZooming ? 1.f : 0.f;
     m_zoomLerp += (zoomTarget - m_zoomLerp) * std::min(ZOOM_RATE * dt, 1.f);
+
+    // -- Recoil recovery --
+    // bounce: elastic kick, springs to 0 in ~0.2 s
+    // drift:  accumulated half-kick, decays over ~1 s (manual mouse correction)
+    // yaw:    horizontal shake, fully recovers in ~0.1 s
+    constexpr float BOUNCE_RATE = 12.f;
+    constexpr float DRIFT_RATE  =  3.5f;
+    constexpr float YAW_RATE    = 20.f;
+    m_recoil.bounce *= std::max(0.f, 1.f - BOUNCE_RATE * dt);
+    m_recoil.drift  *= std::max(0.f, 1.f - DRIFT_RATE  * dt);
+    m_recoil.yaw    *= std::max(0.f, 1.f - YAW_RATE    * dt);
 
     // -- Look (sensitivity scales to 25% at full zoom for precision aiming) --
     const float effectiveSens = LOOK_SENS * (1.f - 0.75f * m_zoomLerp);
@@ -55,7 +66,7 @@ void Camera::update(const PlayerInput& input, float dt) {
     const glm::vec3 rightXZ = glm::normalize(glm::cross(frontXZ, glm::vec3(0.f, 1.f, 0.f)));
     // classSpeedMult applies the Heavy/Sniper speed penalty.
     // zoomMoveMult halves movement speed at full ADS zoom.
-    const float zoomMoveMult = 1.f - 0.5f * m_zoomLerp;
+    const float zoomMoveMult = 1.f - 0.4f * m_zoomLerp;  // 40% speed penalty at full ADS
     const glm::vec3 hMove   = (frontXZ * input.moveY + rightXZ * input.moveX)
                              * MOVE_SPEED * spdMult * classSpeedMult * zoomMoveMult;
     const float     hSpeed  = glm::length(glm::vec2(hMove.x, hMove.z));
@@ -99,9 +110,22 @@ glm::vec3 Camera::eyePosition() const {
     return physicsPos + glm::vec3(bobX, eyeH + bobY, 0.f);
 }
 
+void Camera::applyRecoil(float pitchDeg, float yawDeg) {
+    // Split the kick: half springs back automatically (bounce),
+    // half accumulates as drift the player must correct.
+    m_recoil.bounce += pitchDeg * 0.5f;
+    m_recoil.drift  += pitchDeg * 0.5f;
+    m_recoil.yaw    += yawDeg;
+}
+
 glm::vec3 Camera::getFront() const {
-    const float pr = glm::radians(pitch);
-    const float yr = glm::radians(yaw);
+    // Recoil offsets the view direction without touching stored pitch/yaw,
+    // so mouse movement always feels consistent regardless of recoil state.
+    const float effectivePitch = std::clamp(
+        pitch + m_recoil.bounce + m_recoil.drift, -89.f, 89.f);
+    const float effectiveYaw = yaw + m_recoil.yaw;
+    const float pr = glm::radians(effectivePitch);
+    const float yr = glm::radians(effectiveYaw);
     return glm::normalize(glm::vec3(
         std::cos(pr) * std::cos(yr),
         std::sin(pr),
@@ -116,7 +140,7 @@ glm::mat4 Camera::viewMatrix() const {
 }
 
 float Camera::zoomFOV() const {
-    return ZOOM_FOV_NORMAL - (ZOOM_FOV_NORMAL - ZOOM_FOV_MAX) * m_zoomLerp;
+    return ZOOM_FOV_NORMAL - (ZOOM_FOV_NORMAL - adsZoomFOV) * m_zoomLerp;
 }
 
 AABB Camera::getAABB() const {

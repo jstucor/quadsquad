@@ -64,6 +64,7 @@ add_executable(quadsquad
     src/systems/ProjectileSystem.cpp
     src/systems/EnemySystem.cpp
     src/systems/PickupSystem.cpp
+    src/systems/GrenadeSystem.cpp
     src/level/LevelManager.cpp
     src/particle/ParticleSystem.cpp
 )

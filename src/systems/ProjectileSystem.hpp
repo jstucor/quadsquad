@@ -14,12 +14,14 @@ class Camera;
 // All state lives in the entt::registry; this file contains only free functions.
 namespace ProjectileSystem {
 
-    // Create a bolt at `origin` travelling in `forward` at 150 units/sec.
-    // Bolt despawns after 3 seconds.
+    // Create a bolt at `origin` travelling in `forward` at `speed` units/sec.
+    // `color` is used for rendering and impact sparks.  Bolt despawns after 3 s.
     entt::entity spawn(entt::registry& reg,
                        const glm::vec3& origin,
                        const glm::vec3& forward,
-                       int ownerID);
+                       int ownerID,
+                       const glm::vec3& color,
+                       float speed);
 
     // Advance positions and destroy expired bolts.
     // Tests swept-segment bolt paths against `obstacles`; on hit, spawns impact

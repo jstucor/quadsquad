@@ -23,8 +23,9 @@ namespace HUD {
     // Call between ImGui::NewFrame() and ImGui::Render().
     // Draws per-viewport HUD elements (crosshair, health bar, player label)
     // and the floating Developer Menu window.
+    // activePlayers (1–4) controls the viewport split layout.
     void draw(const PlayerState players[4], float fps,
-              int windowW, int windowH, int droidsAlive);
+              int windowW, int windowH, int droidsAlive, int activePlayers);
 
     // Respawn class-selection overlay for one player's viewport quadrant.
     // Renders entirely via the foreground draw-list — no ImGui windows or input.

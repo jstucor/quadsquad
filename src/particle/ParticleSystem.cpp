@@ -212,6 +212,51 @@ void ParticleSystem::spawnExplosion(const glm::vec3& pos)
     }
 }
 
+void ParticleSystem::spawnGrenadeExplosion(const glm::vec3& pos)
+{
+    // ── Primary fireball: large orange/white chunks ───────────────────────────
+    const int primary = static_cast<int>(randF(60.f, 80.f));
+    for (int i = 0; i < primary; ++i) {
+        const float cosP  = randF(-1.f, 1.f);
+        const float sinP  = std::sqrt(std::max(0.f, 1.f - cosP * cosP));
+        const float theta = randF(0.f, 6.2832f);
+        const glm::vec3 d{sinP * std::cos(theta), cosP, sinP * std::sin(theta)};
+        const float speed = randF(4.f, 16.f);
+
+        // Inner core: white-yellow; outer shell: orange → dark red
+        glm::vec3 c;
+        if (randF(0.f, 1.f) < 0.25f) {
+            c = glm::mix(glm::vec3{1.f, 1.f, 0.9f},    // white-yellow core
+                         glm::vec3{1.f, 0.85f, 0.1f},  // yellow
+                         randF(0.f, 1.f));
+        } else {
+            c = glm::mix(glm::vec3{1.f, 0.50f, 0.02f}, // orange
+                         glm::vec3{0.8f, 0.10f, 0.02f}, // dark red
+                         randF(0.f, 1.f));
+        }
+
+        emit(pos + d * randF(0.f, 1.0f),
+             d * speed, c,
+             randF(0.12f, 0.28f),  // much bigger than bolt sparks
+             randF(0.6f,  1.3f));  // longer lifetime
+    }
+
+    // ── Debris: slower dark particles that drift up as smoke ─────────────────
+    const int debris = static_cast<int>(randF(20.f, 30.f));
+    for (int i = 0; i < debris; ++i) {
+        const glm::vec3 d = glm::normalize(
+            glm::vec3{randF(-1.f, 1.f), randF(0.3f, 2.f), randF(-1.f, 1.f)});
+        const glm::vec3 c = glm::mix(
+            glm::vec3{0.30f, 0.28f, 0.25f},
+            glm::vec3{0.12f, 0.08f, 0.04f},
+            randF(0.f, 1.f));
+        emit(pos + glm::vec3{randF(-0.6f, 0.6f), randF(0.f, 0.6f), randF(-0.6f, 0.6f)},
+             d * randF(1.f, 5.f), c,
+             randF(0.08f, 0.20f),
+             randF(0.9f,  1.8f));
+    }
+}
+
 // ── Update ────────────────────────────────────────────────────────────────────
 
 void ParticleSystem::update(float dt)

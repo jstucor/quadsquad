@@ -10,7 +10,8 @@ struct PlayerInput {
     bool  isFiring    = false;
     bool  isSprinting = false;  // Left Shift (suppressed while crouching)
     bool  isCrouching = false;  // Left Ctrl
-    bool  isZooming   = false;  // Right Mouse (Sniper ADS — hold)
+    bool  isZooming          = false;  // Right Mouse (ADS — hold)
+    bool  isThrowingGrenade  = false;  // Q or G key  (rising-edge, one frame)
 
     // ── Menu / respawn navigation (rising-edge, one true frame per press) ─────
     // When a player is dead these redirect W/S/D-pad-up/down → class cycling

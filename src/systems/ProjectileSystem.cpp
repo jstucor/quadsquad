@@ -48,11 +48,13 @@ static glm::mat4 boltModel(const glm::vec3& pos,
 entt::entity ProjectileSystem::spawn(entt::registry& reg,
                                      const glm::vec3& origin,
                                      const glm::vec3& forward,
-                                     int ownerID)
+                                     int ownerID,
+                                     const glm::vec3& color,
+                                     float speed)
 {
     auto e = reg.create();
     reg.emplace<Transform>(e, origin, forward);
-    reg.emplace<Projectile>(e, forward * 150.f, 10.f, ownerID);
+    reg.emplace<Projectile>(e, forward * speed, color, 10.f, ownerID);
     reg.emplace<Lifetime>(e, 3.f);
     return e;
 }
@@ -80,18 +82,14 @@ void ProjectileSystem::update(entt::registry& reg, float dt,
             continue;
         }
 
-        // Swept-segment vs wall AABBs — prevents tunnelling at 150 m/s
+        // Swept-segment vs wall AABBs — prevents tunnelling at high speed
         for (const auto& aabb : obstacles) {
             if (!aabb.intersectsSegment(oldPos, tf.position)) continue;
 
-            // Spark colour matches the bolt owner: player=red-orange, droid=green
-            const glm::vec3 sparkColor = (pr.ownerID == 0)
-                ? glm::vec3{1.0f, 0.40f, 0.06f}
-                : glm::vec3{0.20f, 1.0f, 0.30f};
-
+            // Spark colour inherits the bolt's own colour
             particles.spawnImpact(tf.position,
                                   glm::normalize(pr.velocity),
-                                  sparkColor);
+                                  pr.color);
             expired.push_back(entity);
             break;
         }
@@ -145,21 +143,11 @@ void ProjectileSystem::render(entt::registry& reg,
 
     shader.use();
 
-    // Colour palette per owner:
-    //   ownerID 0  (player) → warm red-orange
-    //   ownerID 1+ (droid)  → neon green
-    auto boltColors = [](int ownerID,
-                         glm::vec3& outer, glm::vec3& inner, glm::vec3& core) {
-        if (ownerID == 0) {
-            outer = {1.f,   0.28f, 0.06f};
-            inner = {1.f,   0.18f, 0.04f};
-            core  = {1.f,   0.12f, 0.04f};
-        } else {
-            outer = {0.12f, 1.f,   0.28f};
-            inner = {0.08f, 0.88f, 0.20f};
-            core  = {0.06f, 0.72f, 0.16f};
-        }
-    };
+    // Bolt colour comes from Projectile::color (set at spawn from class data).
+    // Three concentric passes:
+    //   outer halo  — wide, very transparent, additive
+    //   inner glow  — narrower, semi-transparent, additive
+    //   core        — full-brightness opaque rod
 
     // ── Pass 1: additive glow shell ───────────────────────────────────────────
     glEnable(GL_BLEND);
@@ -169,10 +157,8 @@ void ProjectileSystem::render(entt::registry& reg,
     for (auto entity : view) {
         const auto& tf   = view.get<Transform>(entity);
         const auto& proj = view.get<Projectile>(entity);
-        glm::vec3 outer, inner, core;
-        boltColors(proj.ownerID, outer, inner, core);
         shader.setMat4("uMVP",   vp * boltModel(tf.position, tf.forward, 3.5f));
-        shader.setVec3("uColor", outer);
+        shader.setVec3("uColor", proj.color * 0.75f);
         shader.setFloat("uAlpha", 0.10f);
         mesh.draw();
     }
@@ -180,10 +166,8 @@ void ProjectileSystem::render(entt::registry& reg,
     for (auto entity : view) {
         const auto& tf   = view.get<Transform>(entity);
         const auto& proj = view.get<Projectile>(entity);
-        glm::vec3 outer, inner, core;
-        boltColors(proj.ownerID, outer, inner, core);
         shader.setMat4("uMVP",   vp * boltModel(tf.position, tf.forward, 1.9f));
-        shader.setVec3("uColor", inner);
+        shader.setVec3("uColor", proj.color * 0.90f);
         shader.setFloat("uAlpha", 0.22f);
         mesh.draw();
     }
@@ -195,10 +179,8 @@ void ProjectileSystem::render(entt::registry& reg,
     for (auto entity : view) {
         const auto& tf   = view.get<Transform>(entity);
         const auto& proj = view.get<Projectile>(entity);
-        glm::vec3 outer, inner, core;
-        boltColors(proj.ownerID, outer, inner, core);
         shader.setMat4("uMVP",   vp * boltModel(tf.position, tf.forward, 1.f));
-        shader.setVec3("uColor", core);
+        shader.setVec3("uColor", proj.color);
         shader.setFloat("uAlpha", 1.f);
         mesh.draw();
     }
