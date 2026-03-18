@@ -27,6 +27,7 @@ endif()
 # EnTT — header-only, vendored single-header
 add_library(EnTT INTERFACE)
 target_include_directories(EnTT INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/vendor)
+add_library(EnTT::EnTT ALIAS EnTT)
 
 # GLAD — compile the single-file loader bundled in vendor/
 add_library(glad STATIC vendor/glad/src/glad.c)
