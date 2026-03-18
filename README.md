@@ -1,6 +1,6 @@
-# QuadSquad
+# QuadSquad: Star Wars Skirmish
 
-4-player local co-op FPS for Linux. Split-screen gameplay targeting Raspberry Pi 5 and Ubuntu x86 laptops.
+4-player local co-op arena FPS for Linux. Split-screen gameplay targeting Raspberry Pi 5 and Ubuntu x86 laptops.
 
 ## Tech Stack
 
@@ -8,10 +8,11 @@
 |---|---|
 | Language | C++20 |
 | Build | CMake 3.20+ |
-| Window/Input | SDL2 |
+| Window / Input | SDL2 |
 | Graphics | OpenGL 3.3 Core Profile (GLAD) |
 | Math | GLM |
-| ECS | EnTT |
+| ECS | EnTT 3.16 |
+| UI | Dear ImGui 1.92 |
 
 ## Build
 
@@ -21,14 +22,26 @@ cmake -B build -DCMAKE_BUILD_TYPE=Debug
 cmake --build build -j$(nproc)
 ./build/quadsquad
 
-# Release (use for Pi 5 performance testing)
+# Release (recommended for Pi 5)
 cmake -B build-release -DCMAKE_BUILD_TYPE=Release
 cmake --build build-release -j$(nproc)
 ```
 
-**Dependencies (Ubuntu/Debian):**
+**Dependencies (Ubuntu / Debian):**
 ```bash
-sudo apt install libsdl2-dev libglm-dev libentt-dev
+sudo apt install libsdl2-dev libglm-dev
+```
+EnTT and Dear ImGui are vendored under `vendor/` — no system install needed.
+
+**Using Nix (Optional):**
+If you have [Nix](https://nixos.org/) installed, you don't need to install dependencies manually. You can build and run the game using the provided flake:
+
+```bash
+# Run the game directly
+nix run .
+
+# Enter a development shell with all dependencies available
+nix develop
 ```
 
 **Using Nix (Optional):**
@@ -44,69 +57,131 @@ nix develop
 
 ---
 
-## Progress
+## Controls (Player 1 — keyboard + mouse)
 
-### Done
+| Input | Action |
+|---|---|
+| W / A / S / D | Move |
+| Mouse | Look |
+| Left Mouse | Fire |
+| Right Mouse (hold) | Aim down sights (Sniper only) |
+| Left Shift | Sprint |
+| Left Ctrl | Crouch |
+| 1 / 2 / 3 | Switch class (Soldier / Sniper / Heavy) |
+| ESC | Quit |
 
-- **CMake build system** — C++20, strict warnings (`-Wall -Wextra -Wpedantic`), Release `-O2` flag, all dependencies wired up
-- **SDL2 window** — 1280×720, titled "QuadSquad", with `SDL_INIT_GAMECONTROLLER` ready for gamepads
-- **OpenGL 3.3 Core context** — double-buffered, 24-bit depth, created and verified
-- **GLAD loader** — OpenGL function pointers loaded successfully; GL version/renderer printed on startup
-- **Adaptive VSync** — tries `-1` (adaptive) first, falls back to `1` (strict vsync)
-- **Main loop skeleton** — polls SDL events, handles `SDL_QUIT` and `ESC`, clears framebuffer each frame, swaps buffers
-- **Vendor GLAD** — bundled in `vendor/glad/` so the build works without a system-installed loader
+**Respawn screen (while dead):**
 
-### Not Yet Started
-
-The application currently opens a dark window and exits cleanly. Everything below is still to be built:
-
-- `src/components/` — `Transform`, `Mesh`, `Camera`, `InputState`, `Health`, `Weapon`, ...
-- `src/systems/` — `InputSystem`, `PhysicsSystem`, `CollisionSystem`, `RenderSystem`
-- Shaders — vertex and fragment GLSL for basic 3D rendering
-- Camera — perspective projection, per-player entity
-- Split-screen — 4× `glViewport` calls dividing the 1280×720 window into quadrants
-- Mesh — triangle/cube geometry, VAO/VBO setup
-- Textures — loading and binding
-- Player spawning — 4 player entities in the ECS registry
-- Weapons and combat
-- Level/arena geometry
+| Input | Action |
+|---|---|
+| W / S | Cycle class up / down |
+| D-pad Up / Down | Cycle class (gamepad) |
+| Space / A-button | Spawn immediately |
+| *(timer)* | Auto-spawns after 5 seconds |
 
 ---
 
-## Before Moving On
+## Features
 
-The following should be confirmed working **before** adding any game systems:
+### Game Loop
+- **Main Menu** — full-screen sci-fi UI, map selection list, keyboard and gamepad navigation (Enter / A-button to deploy)
+- **In-Game** — 4-player split-screen; each quadrant has its own camera and HUD
+- **Game Over** — triggers when all enemy droids are eliminated; shows final score
 
-### Window & Context
-- [ ] Window opens without errors on **Ubuntu x86** (development machine)
-- [ ] Window opens without errors on **Raspberry Pi 5** (target hardware)
-- [ ] OpenGL version printed to stdout is `3.3` or higher on both machines
-- [ ] Renderer string looks correct (Mesa/Vulkan-radv/etc on Ubuntu; V3D on Pi)
-- [ ] Window closes cleanly with both the `X` button and `ESC` — no crash, no SDL error
+### Split-Screen Rendering
+- 1280 × 720 window divided into four 640 × 360 viewports via `glViewport`
+- P1 uses a live FPS camera; P2–P4 use fixed observer cameras (SE corner, NW corner, overhead)
+- Two-pass HDR bloom post-process on the full scene each frame
 
-### VSync
-- [ ] Confirm adaptive vsync (`-1`) is accepted on your GPU/driver; if not, verify the fallback to strict vsync fires without error
-- [ ] No tearing visible on a solid clear color (the dark purple background counts)
+### Camera & Movement
+- Per-player FPS camera with physics position, eye height, and yaw/pitch
+- Three movement states: Walk, Sprint (locked fire), Crouch (reduced crosshair)
+- Zoom lerp for Sniper ADS; FOV adjusts per viewport each frame
 
-### Build
-- [ ] Debug build compiles clean with **zero warnings** (`-Wall -Wextra -Wpedantic`)
-- [ ] Release build compiles clean with `-O2`
-- [ ] Cross-compile or native build works on Pi 5 (note: EnTT and GLM must be available there too)
+### ECS Architecture (EnTT)
+Components (`src/components/`): `Transform`, `DroidAI`, `Projectile`, `Lifetime`, `WeaponComponent`, `RenderMesh`, `Pickup`
 
-### Controller Detection (Groundwork)
-- [ ] Plug in up to 4 gamepads; verify `SDL_INIT_GAMECONTROLLER` doesn't throw errors at startup (actual input handling comes later)
+Systems (`src/systems/`): `EnemySystem`, `ProjectileSystem`, `PickupSystem`
 
-### Frame Timing Baseline
-- [ ] On Pi 5 Release build, confirm the blank render loop holds 60 fps (use `glFinish` + a timer or an external tool like `vblankcount`) — this sets the budget for all future systems
+### Enemy AI
+- Droids spawn at level SPAWNER positions (pushed clear of walls via `resolveBox`)
+- Three-state FSM: **Idle** (gold) → **Patrol** (amber, random waypoints) → **Attack** (orange-red)
+- Line-of-sight gate: casts a segment from muzzle to player eye against all wall AABBs before firing
+- Anti-tunneling: bolt hit-tests use a swept segment each frame, not a point
+
+### Combat
+- **Weapon heat** — fires heat per shot; overheats into a timed lockout
+- **Three classes** with distinct HP, speed, zoom, and heat profiles:
+  | Class | HP | Speed | Heat pool |
+  |---|---|---|---|
+  | Soldier | 100 | Normal | Medium |
+  | Sniper | 60 | Fast | Low (ADS zoom) |
+  | Heavy | 150 | Slow | High |
+- Droid bolts deal damage on hit; death triggers the respawn timer
+
+### Respawn System
+- On death: `isDead` flag set, 5-second countdown starts; game world keeps running
+- Class selection overlay drawn **only inside the dead player's viewport** (pure `ImDrawList`, no ImGui windows)
+- Cyan countdown bar across the top; pulsing "ELIMINATED" heading; three class cards with live highlight
+- W / S or D-pad Up / Down cycle selection (rising-edge via `InputManager`); Space / A-button or timer expiry spawns
+
+### Particle System
+- Ring-buffer pool of 1024 `Particle` structs — no heap allocation per frame
+- **Impact sparks** on bolt–wall hits; **explosion burst** on droid kill
+- Single instanced draw call (`glDrawArraysInstanced`), additive blending for glow
+- Billboard particles: camera right/up extracted from view matrix per viewport
+
+### Level System
+- Text-based `.lvl` format (`assets/maps/`); keywords: `WALL`, `DECO`, `SPAWNER`, `PICKUP`, `PLAYER_START`
+- `LevelManager` parses the file and populates the ECS registry and collision AABB list
+- `CollisionSystem::resolveBox` pushes entities clear of walls (used for player, camera, and droid spawn)
+
+### HUD (Dear ImGui + DrawList)
+- Per-viewport: crosshair (standard 4-bar + full sniper scope at ADS), health bar, weapon heat bar, player label
+- Crosshair scale reflects movement state; heat bar blinks red during lockout
+- Dev console (top-right of P2 viewport): FPS, class, heat %, P1 position, score, droid count
+- Viewport divider lines between quadrants
+
+### Physics & Collision
+- AABB vs swept-segment intersection (slab method) — used for wall hit, LOS checks, and bolt anti-tunneling
+- Per-frame `CollisionSystem::resolve` keeps the player outside all static wall AABBs
+
+---
+
+## Project Structure
+
+```
+src/
+  main.cpp                  — game loop, state machine, viewport rendering
+  camera/Camera             — FPS camera, movement states, zoom
+  components/               — ECS data structs (no logic)
+  input/InputManager        — keyboard + mouse polling, rising-edge detection
+  level/LevelManager        — .lvl file parser
+  particle/ParticleSystem   — instanced GPU particles
+  physics/                  — AABB struct, CollisionSystem
+  renderer/                 — Shader, CubeMesh, PostProcess (bloom)
+  systems/                  — EnemySystem, ProjectileSystem, PickupSystem
+  ui/HUD                    — ImGui HUD, respawn overlay
+
+assets/
+  maps/hangar.lvl           — "Hangar Bay 7" arena (30×30 m, 10 spawn points)
+
+vendor/
+  glad/                     — OpenGL loader (bundled)
+  entt/                     — header-only ECS
+  imgui/                    — Dear ImGui + SDL2/OpenGL3 backends
+```
 
 ---
 
 ## Architecture Notes
 
-All game objects will be entities in an `entt::registry`. Systems are free functions that query the registry each frame. Components are plain data structs with no logic.
+All game objects are entities in an `entt::registry`. Systems are free functions or namespaces that query typed views each frame. Components are plain data structs with no logic.
 
-Main loop order (once implemented): **Input → Physics → Collision → Render**
+Main loop order: **Events → Input → P1 physics (if alive) → World sim (AI / bolts / particles) → Render (4× viewport) → Post-process → ImGui HUD**
 
-Split-screen target: **4 × 540×540** viewports inside the 1080p window, one camera per player entity.
-
-Performance rule of thumb for Pi 5: no heap allocations in per-frame systems, prefer SoA layouts in EnTT views, keep draw calls batched.
+**Performance rules (Pi 5 target):**
+- No heap allocations in per-frame systems
+- Single instanced draw call for all particles
+- Prefer SoA layouts in EnTT views
+- Target: 60 fps at 1280×720 split into 4 × 640×360 viewports

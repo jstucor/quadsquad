@@ -1,0 +1,91 @@
+# QuadSquad — "Hangar Bay 7"
+# Star Wars command-post style arena, ~30x30 m interior.
+# 4 symmetric starting zones, central platform, cover positions.
+#
+# Coordinate convention:  +X = east  +Z = south  +Y = up
+# Player 1 starts SE (high +X, +Z), faces northwest toward centre.
+
+# ── Outer perimeter walls  (neutral durasteel grey-beige, 3 m tall) ───────────
+WALL  0    1.5  -16    15   1.5   1    0.30  0.28  0.25  # North wall
+WALL  0    1.5   16    15   1.5   1    0.30  0.28  0.25  # South wall
+WALL -16   1.5    0     1   1.5  15    0.30  0.28  0.25  # West wall
+WALL  16   1.5    0     1   1.5  15    0.30  0.28  0.25  # East wall
+
+# ── Floor slab (visual only — collision handled by y=0 plane) ─────────────────
+DECO  0   -0.05   0    16   0.05  16   0.17  0.17  0.22  # Blue-grey durasteel
+
+# ── Central raised command platform ───────────────────────────────────────────
+WALL  0    0.25   0     3.5  0.25  3.5  0.36  0.33  0.28  # Raised deck
+
+# ── 4 inner cover pillars flanking the platform ───────────────────────────────
+WALL  4    1.0   -4     0.6  1.0   0.6  0.38  0.35  0.30
+WALL -4    1.0   -4     0.6  1.0   0.6  0.38  0.35  0.30
+WALL  4    1.0    4     0.6  1.0   0.6  0.38  0.35  0.30
+WALL -4    1.0    4     0.6  1.0   0.6  0.38  0.35  0.30
+
+# ── Mid-lane cover (4 walls, one per cardinal approach) ───────────────────────
+WALL  9    0.8    0     0.6  0.8   2.5  0.36  0.33  0.28  # East approach
+WALL -9    0.8    0     0.6  0.8   2.5  0.36  0.33  0.28  # West approach
+WALL  0    0.8    9     2.5  0.8   0.6  0.36  0.33  0.28  # South approach
+WALL  0    0.8   -9     2.5  0.8   0.6  0.36  0.33  0.28  # North approach
+
+# ── Corner starting-zone cover (one L-shaped barrier per zone) ────────────────
+# SE zone (Player 1 — +X, +Z)
+WALL  11   1.0    8     3.5  1.0   0.5  0.26  0.30  0.42  # SE back wall
+WALL  13   1.0   10     0.5  1.0   1.5  0.26  0.30  0.42  # SE side wall
+# NE zone (Player 2 — +X, −Z)
+WALL  11   1.0   -8     3.5  1.0   0.5  0.26  0.30  0.42  # NE back wall
+WALL  13   1.0  -10     0.5  1.0   1.5  0.26  0.30  0.42  # NE side wall
+# SW zone (Player 3 — −X, +Z)
+WALL -11   1.0    8     3.5  1.0   0.5  0.26  0.30  0.42  # SW back wall
+WALL -13   1.0   10     0.5  1.0   1.5  0.26  0.30  0.42  # SW side wall
+# NW zone (Player 4 — −X, −Z)
+WALL -11   1.0   -8     3.5  1.0   0.5  0.26  0.30  0.42  # NW back wall
+WALL -13   1.0  -10     0.5  1.0   1.5  0.26  0.30  0.42  # NW side wall
+
+# ── Scatter crates (diagonal mid-field cover) ─────────────────────────────────
+WALL  6.5  0.5    6.5   0.6  0.5   0.6  0.44  0.38  0.28  # SE crate
+WALL -6.5  0.5    6.5   0.6  0.5   0.6  0.44  0.38  0.28  # SW crate
+WALL  6.5  0.5   -6.5   0.6  0.5   0.6  0.44  0.38  0.28  # NE crate
+WALL -6.5  0.5   -6.5   0.6  0.5   0.6  0.44  0.38  0.28  # NW crate
+
+# ── Decorative: ceiling girders (non-collidable) ──────────────────────────────
+DECO  0    5.5    0    15   0.2   0.4  0.26  0.24  0.20  # E-W girder
+DECO  0    5.5    0     0.4  0.2  15   0.26  0.24  0.20  # N-S girder
+
+# ── Decorative: wall-mounted control panels (subtle bloom — blue accent) ──────
+DECO  0    1.8  -15.4   4.5  0.5   0.2  0.20  0.55  0.92  # North console
+DECO  0    1.8   15.4   4.5  0.5   0.2  0.20  0.55  0.92  # South console
+DECO -15.4  1.8   0     0.2  0.5   4.5  0.20  0.55  0.92  # West console
+DECO  15.4  1.8   0     0.2  0.5   4.5  0.20  0.55  0.92  # East console
+
+# ── Droid spawners (10 total — one per droid spawned at game start) ────────────
+SPAWNER   0  -13    # North corridor
+SPAWNER   0   13    # South corridor
+SPAWNER  13    0    # East corridor
+SPAWNER -13    0    # West corridor
+SPAWNER   8   -8    # NE quadrant
+SPAWNER  -8   -8    # NW quadrant
+SPAWNER   8    8    # SE quadrant
+SPAWNER  -8    8    # SW quadrant
+SPAWNER   3  -12    # North flank patrol
+SPAWNER  -3   12    # South flank patrol
+
+# ── Pickups ────────────────────────────────────────────────────────────────────
+# Health (green) — near centre and corner safe zones
+PICKUP   0   -5   HEALTH  # Centre-north
+PICKUP   0    5   HEALTH  # Centre-south
+PICKUP  11   11   HEALTH  # SE starting zone
+PICKUP -11   11   HEALTH  # SW starting zone
+PICKUP  11  -11   HEALTH  # NE starting zone
+PICKUP -11  -11   HEALTH  # NW starting zone
+# Heat reset (cyan) — mid-field, forces players out of cover to collect
+PICKUP   5    0   HEAT    # Centre-east
+PICKUP  -5    0   HEAT    # Centre-west
+
+# ── Player starting positions (each corner, facing the arena centre) ───────────
+# yaw: atan2(dz, dx) in degrees where dx,dz is direction to (0,0,0) from start
+PLAYER_START  0   11  0   11  -135  # P1 SE — faces NW
+PLAYER_START  1   11  0  -11   135  # P2 NE — faces SW
+PLAYER_START  2  -11  0   11   -45  # P3 SW — faces NE
+PLAYER_START  3  -11  0  -11    45  # P4 NW — faces SE

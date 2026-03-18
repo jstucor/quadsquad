@@ -24,28 +24,54 @@ if(NOT glm_FOUND)
     target_include_directories(glm::glm INTERFACE /usr/include)
 endif()
 
-# EnTT — header-only
-find_package(EnTT QUIET)
-if(NOT EnTT_FOUND)
-    add_library(EnTT INTERFACE)
-    target_include_directories(EnTT INTERFACE /usr/include)
-    add_library(EnTT::EnTT ALIAS EnTT)
-endif()
+# EnTT — header-only, vendored single-header
+add_library(EnTT INTERFACE)
+target_include_directories(EnTT INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/vendor)
 
 # GLAD — compile the single-file loader bundled in vendor/
 add_library(glad STATIC vendor/glad/src/glad.c)
 target_include_directories(glad PUBLIC vendor/glad/include)
 
+# Dear ImGui (vendored v1.92.6) — SDL2 + OpenGL3 backends
+add_library(imgui STATIC
+    vendor/imgui/imgui.cpp
+    vendor/imgui/imgui_draw.cpp
+    vendor/imgui/imgui_tables.cpp
+    vendor/imgui/imgui_widgets.cpp
+    vendor/imgui/backends/imgui_impl_sdl2.cpp
+    vendor/imgui/backends/imgui_impl_opengl3.cpp
+)
+target_include_directories(imgui PUBLIC
+    vendor/imgui
+    vendor/imgui/backends
+)
+target_link_libraries(imgui PUBLIC SDL2::SDL2 OpenGL::GL)
+# Suppress warnings from vendored third-party code
+target_compile_options(imgui PRIVATE -w)
+
 # ── Executable ───────────────────────────────────────────────────────────────
 
 add_executable(quadsquad
     src/main.cpp
+    src/input/InputManager.cpp
+    src/camera/Camera.cpp
+    src/physics/CollisionSystem.cpp
+    src/renderer/Shader.cpp
+    src/renderer/CubeMesh.cpp
+    src/renderer/PostProcess.cpp
+    src/ui/HUD.cpp
+    src/systems/ProjectileSystem.cpp
+    src/systems/EnemySystem.cpp
+    src/systems/PickupSystem.cpp
+    src/level/LevelManager.cpp
+    src/particle/ParticleSystem.cpp
 )
 
 target_include_directories(quadsquad PRIVATE src)
 
 target_link_libraries(quadsquad PRIVATE
     glad
+    imgui
     SDL2::SDL2
     OpenGL::GL
     glm::glm
