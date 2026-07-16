@@ -1,187 +1,85 @@
 # QuadSquad: Star Wars Skirmish
 
-4-player local co-op arena FPS for Linux. Split-screen gameplay targeting Raspberry Pi 5 and Ubuntu x86 laptops.
+4-player local co-op arena FPS for Linux, built in **Godot 4**. Split-screen
+gameplay targeting Raspberry Pi 5 and Ubuntu x86 laptops.
 
-## Tech Stack
+The original custom C++/SDL2/EnTT engine was retired in favor of Godot
+(history is in git if you need it); its feature set lives on as the roadmap
+below.
 
-| Layer | Library |
+## Running
+
+Requires Godot 4.7+ (official binary). The project uses the **GL
+Compatibility** renderer for the Pi 5 target.
+
+```bash
+godot --path godot            # run the game
+godot --editor --path godot   # open the editor
+```
+
+Headless sanity check (catches script/scene parse errors):
+
+```bash
+godot --headless --path godot --import
+```
+
+## Controls
+
+| Input | Player |
 |---|---|
-| Language | C++20 |
-| Build | CMake 3.20+ |
-| Window / Input | SDL2 |
-| Graphics | OpenGL 3.3 Core Profile (GLAD) |
-| Math | GLM |
-| ECS | EnTT 3.16 |
-| UI | Dear ImGui 1.92 |
+| Keyboard + mouse (WASD, Space jump, Shift sprint, LMB fire) | Player 1 |
+| Joypads (left stick move, right stick look, RT/RB fire, A jump, L3 sprint) | Players 2–4 |
 
-## Build
+Click the window to capture the mouse; ESC releases it.
 
-```bash
-# Debug
-cmake -B build -DCMAKE_BUILD_TYPE=Debug
-cmake --build build -j$(nproc)
-./build/quadsquad
+## Current State
 
-# Release (recommended for Pi 5)
-cmake -B build-release -DCMAKE_BUILD_TYPE=Release
-cmake --build build-release -j$(nproc)
-```
-
-**Dependencies (Ubuntu / Debian):**
-```bash
-sudo apt install libsdl2-dev libglm-dev
-```
-EnTT and Dear ImGui are vendored under `vendor/` — no system install needed.
-
-**Using Nix (Optional):**
-If you have [Nix](https://nixos.org/) installed, you don't need to install dependencies manually. You can build and run the game using the provided flake:
-
-```bash
-# Run the game directly
-nix run .
-
-# Enter a development shell with all dependencies available
-nix develop
-```
-
-**Using Nix (Optional):**
-If you have [Nix](https://nixos.org/) installed, you don't need to install dependencies manually. You can build and run the game using the provided flake:
-
-```bash
-# Run the game directly
-nix run .
-
-# Enter a development shell with all dependencies available
-nix develop
-```
-
----
-
-## Controls (Player 1 — keyboard + mouse)
-
-| Input | Action |
-|---|---|
-| W / A / S / D | Move |
-| Mouse | Look |
-| Left Mouse | Fire |
-| Right Mouse (hold) | Aim down sights (Sniper only) |
-| Left Shift | Sprint |
-| Left Ctrl | Crouch |
-| 1 / 2 / 3 | Switch class (Soldier / Sniper / Heavy) |
-| ESC | Quit |
-
-**Respawn screen (while dead):**
-
-| Input | Action |
-|---|---|
-| W / S | Cycle class up / down |
-| D-pad Up / Down | Cycle class (gamepad) |
-| Space / A-button | Spawn immediately |
-| *(timer)* | Auto-spawns after 5 seconds |
-
----
-
-## Features
-
-### Game Loop
-- **Main Menu** — full-screen sci-fi UI, map selection list, keyboard and gamepad navigation (Enter / A-button to deploy)
-- **In-Game** — 4-player split-screen; each quadrant has its own camera and HUD
-- **Game Over** — triggers when all enemy droids are eliminated; shows final score
-
-### Split-Screen Rendering
-- 1280 × 720 window divided into four 640 × 360 viewports via `glViewport`
-- P1 uses a live FPS camera; P2–P4 use fixed observer cameras (SE corner, NW corner, overhead)
-- Two-pass HDR bloom post-process on the full scene each frame
-
-### Camera & Movement
-- Per-player FPS camera with physics position, eye height, and yaw/pitch
-- Three movement states: Walk, Sprint (locked fire), Crouch (reduced crosshair)
-- Zoom lerp for Sniper ADS; FOV adjusts per viewport each frame
-
-### ECS Architecture (EnTT)
-Components (`src/components/`): `Transform`, `DroidAI`, `Projectile`, `Lifetime`, `WeaponComponent`, `RenderMesh`, `Pickup`
-
-Systems (`src/systems/`): `EnemySystem`, `ProjectileSystem`, `PickupSystem`
-
-### Enemy AI
-- Droids spawn at level SPAWNER positions (pushed clear of walls via `resolveBox`)
-- Three-state FSM: **Idle** (gold) → **Patrol** (amber, random waypoints) → **Attack** (orange-red)
-- Line-of-sight gate: casts a segment from muzzle to player eye against all wall AABBs before firing
-- Anti-tunneling: bolt hit-tests use a swept segment each frame, not a point
-
-### Combat
-- **Weapon heat** — fires heat per shot; overheats into a timed lockout
-- **Three classes** with distinct HP, speed, zoom, and heat profiles:
-  | Class | HP | Speed | Heat pool |
-  |---|---|---|---|
-  | Soldier | 100 | Normal | Medium |
-  | Sniper | 60 | Fast | Low (ADS zoom) |
-  | Heavy | 150 | Slow | High |
-- Droid bolts deal damage on hit; death triggers the respawn timer
-
-### Respawn System
-- On death: `isDead` flag set, 5-second countdown starts; game world keeps running
-- Class selection overlay drawn **only inside the dead player's viewport** (pure `ImDrawList`, no ImGui windows)
-- Cyan countdown bar across the top; pulsing "ELIMINATED" heading; three class cards with live highlight
-- W / S or D-pad Up / Down cycle selection (rising-edge via `InputManager`); Space / A-button or timer expiry spawns
-
-### Particle System
-- Ring-buffer pool of 1024 `Particle` structs — no heap allocation per frame
-- **Impact sparks** on bolt–wall hits; **explosion burst** on droid kill
-- Single instanced draw call (`glDrawArraysInstanced`), additive blending for glow
-- Billboard particles: camera right/up extracted from view matrix per viewport
-
-### Level System
-- Text-based `.lvl` format (`assets/maps/`); keywords: `WALL`, `DECO`, `SPAWNER`, `PICKUP`, `PLAYER_START`
-- `LevelManager` parses the file and populates the ECS registry and collision AABB list
-- `CollisionSystem::resolveBox` pushes entities clear of walls (used for player, camera, and droid spawn)
-
-### HUD (Dear ImGui + DrawList)
-- Per-viewport: crosshair (standard 4-bar + full sniper scope at ADS), health bar, weapon heat bar, player label
-- Crosshair scale reflects movement state; heat bar blinks red during lockout
-- Dev console (top-right of P2 viewport): FPS, class, heat %, P1 position, score, droid count
-- Viewport divider lines between quadrants
-
-### Physics & Collision
-- AABB vs swept-segment intersection (slab method) — used for wall hit, LOS checks, and bolt anti-tunneling
-- Per-frame `CollisionSystem::resolve` keeps the player outside all static wall AABBs
-
----
+- Imperial-hangar arena under a procedural starfield (`scenes/levels/hangar.tscn`)
+- 4-way split-screen with one first-person player per quadrant; you never see
+  your own model (render-layer cull masks) but squadmates do
+- Hitscan blasters with glowing bolt tracers; damage → death → **reinforcement
+  ticket** drain → respawn, Battlefront-style
+- Animated trooper NPCs (idle / waypoint patrol) from the rigged-and-animated
+  `p3_heavyglb` model
+- Per-viewport HUD: crosshair, HP, tickets, squad-color player tags
 
 ## Project Structure
 
 ```
-src/
-  main.cpp                  — game loop, state machine, viewport rendering
-  camera/Camera             — FPS camera, movement states, zoom
-  components/               — ECS data structs (no logic)
-  input/InputManager        — keyboard + mouse polling, rising-edge detection
-  level/LevelManager        — .lvl file parser
-  particle/ParticleSystem   — instanced GPU particles
-  physics/                  — AABB struct, CollisionSystem
-  renderer/                 — Shader, CubeMesh, PostProcess (bloom)
-  systems/                  — EnemySystem, ProjectileSystem, PickupSystem
-  ui/HUD                    — ImGui HUD, respawn overlay
-
-assets/
-  maps/hangar.lvl           — "Hangar Bay 7" arena (30×30 m, 10 spawn points)
-
-vendor/
-  glad/                     — OpenGL loader (bundled)
-  entt/                     — header-only ECS
-  imgui/                    — Dear ImGui + SDL2/OpenGL3 backends
+godot/
+  project.godot             — GL Compatibility, autoloads, physics layers
+  scenes/
+    main.tscn               — bootstrap only: split-screen grid + player spawning
+    levels/hangar.tscn      — the arena; levels register SpawnPoints markers
+    actors/player.tscn      — CharacterBody3D FPS player
+    fx/blaster_bolt.tscn    — bolt tracer
+  scripts/
+    main.gd                 — viewport/HUD/player bootstrap
+    game_state.gd           — autoload: teams, tickets, spawn registry, input map
+    player.gd               — movement, per-device input, health, respawn
+    weapon.gd               — hitscan blaster (per-class constants later)
+    trooper.gd              — NPC animation + waypoint patrol (AI slot)
+    hangar.gd               — level spawn-point registration
+  shaders/                  — starfield sky, hangar floor panels
+  assets/models/            — animated trooper GLB
+assets/models/rep/          — original un-animated source GLB
+tools/animate_trooper.py    — headless Blender pipeline: skins + authors
+                              idle/walk animations onto the source model
 ```
 
----
+## Roadmap (parity with the retired C++ prototype, then Battlefront)
 
-## Architecture Notes
+- Class kits — Soldier / Sniper / Heavy: HP, speed, heat pool, ADS zoom
+- Weapon heat + overheat lockout instead of ammo
+- Droid enemies: FSM AI (idle → patrol → attack), line-of-sight checks
+- Respawn overlay with class select and countdown, per dead player's viewport
+- Conquest mode: command posts, spawn-point capture, ticket bleed
+- Main menu with map select; game-over flow
+- Particles (impact sparks, explosions) — instanced, Pi-friendly
 
-All game objects are entities in an `entt::registry`. Systems are free functions or namespaces that query typed views each frame. Components are plain data structs with no logic.
+## Performance rules (Pi 5 target)
 
-Main loop order: **Events → Input → P1 physics (if alive) → World sim (AI / bolts / particles) → Render (4× viewport) → Post-process → ImGui HUD**
-
-**Performance rules (Pi 5 target):**
-- No heap allocations in per-frame systems
-- Single instanced draw call for all particles
-- Prefer SoA layouts in EnTT views
-- Target: 60 fps at 1280×720 split into 4 × 640×360 viewports
+- GL Compatibility renderer; no per-frame heap-happy scripts
+- Keep draw calls low — every mesh renders 4× (once per viewport) plus shadows
+- Directional shadow atlas capped at 2048
+- Target 60 fps at 1080p split into 4 × 960×540 viewports
