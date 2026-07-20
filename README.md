@@ -34,13 +34,15 @@ Click the window to capture the mouse; ESC releases it.
 
 ## Current State
 
-- Imperial-hangar arena under a procedural starfield (`scenes/levels/hangar.tscn`)
+- **Team deathmatch, 2v2** (Republic vs Separatist): kills credit the killer's
+  team, friendly fire off, first team to the score limit wins, then the game
+  rotates to the next map. Team-tinted characters + a per-viewport scoreboard
+- **Three maps on a rotation**: Crossfire and Foundry (built procedurally from
+  `scripts/arena.gd`) plus the Imperial hangar
 - 4-way split-screen with one first-person player per quadrant; you never see
   your own model (render-layer cull masks) but squadmates do
 - Procedural blocky characters built in code (no imported model, no skinning)
   with idle / walk / run / jump — clean box limbs on real joints
-- Hitscan blasters with glowing bolt tracers; damage → death → **reinforcement
-  ticket** drain → respawn, Battlefront-style
 - Eight weapon classes — Soldier rifle, Sniper, Heavy repeater, Revolver,
   T-21 HMG, burst rifle, semi-auto rifle, and the PLX-1 RPG — with AUTO / SEMI /
   BURST fire modes; swap between them in-match
@@ -55,8 +57,8 @@ Click the window to capture the mouse; ESC releases it.
 - Weapon **heat** instead of ammo: sustained fire overheats and locks out until
   it cools (fixed-timestep, so it's framerate-independent on the Pi)
 - Decorative squad NPCs (same procedural character) that idle or patrol
-- Per-viewport HUD: crosshair, HP, tickets, squad-color player tags, weapon
-  name + heat bar
+- Per-viewport HUD: crosshair, HP, team scoreboard, player tag, weapon name +
+  heat bar, and the victory banner
 
 ## Project Structure
 
@@ -64,21 +66,23 @@ Click the window to capture the mouse; ESC releases it.
 godot/
   project.godot             — GL Compatibility, autoloads, physics layers
   scenes/
-    main.tscn               — bootstrap only: split-screen grid + player spawning
-    levels/hangar.tscn      — the arena; levels register SpawnPoints markers
+    main.tscn               — bare bootstrap node (main.gd loads the map)
+    levels/                 — crossfire.tscn, foundry.tscn (procedural), hangar.tscn
     actors/player.tscn      — CharacterBody3D FPS player
-    fx/blaster_bolt.tscn    — bolt tracer
+    fx/                     — blaster_bolt.tscn tracer, rocket.tscn
   scripts/
-    main.gd                 — viewport/HUD/player bootstrap
-    game_state.gd           — autoload: teams, tickets, spawn registry, input map
-    player.gd               — movement, per-device input, health, respawn
+    main.gd                 — map load + split-screen + teams + score HUD + rotation
+    game_state.gd           — autoload: TDM score, teams, spawn registry, input map
+    player.gd               — movement, crouch, recoil, damage/frag attribution
     character.gd            — procedural blocky humanoid + code-built anims
-    weapon.gd               — class-based hitscan blaster: ADS zoom, spread, heat
+    arena.gd                — procedural map base (env/floor/walls/lights/spawns)
+    map_crossfire.gd, map_foundry.gd — map layouts (extend arena)
+    weapon.gd               — 8-class blaster: fire modes, ADS, spread, heat
     viewmodel.gd            — procedural first-person gun + recoil/flash/bob
     rocket.gd               — RPG projectile: travel + splash damage
     trooper.gd              — decorative NPC: extends CharacterModel + patrol
-    hangar.gd               — level spawn-point registration
-  shaders/                  — starfield sky, hangar floor panels
+    hangar.gd               — hangar spawn-point registration (both teams)
+  shaders/                  — starfield sky, floor panels
 assets/models/rep/          — retired Battlefront source GLB (unused)
 tools/animate_trooper.py    — retired Blender rig/animation pipeline (unused)
 ```
