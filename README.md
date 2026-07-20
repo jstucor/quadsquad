@@ -27,8 +27,8 @@ godot --headless --path godot --import
 
 | Input | Player |
 |---|---|
-| Keyboard + mouse (WASD, Space jump, Shift sprint, LMB fire, RMB aim, Q swap weapon) | Player 1 |
-| Joypads (left stick move, right stick look, RT/RB fire, LT/LB aim, Y swap weapon, A jump, L3 sprint) | Players 2–4 |
+| Keyboard + mouse (WASD, Space jump, Shift sprint, Ctrl crouch, LMB fire, RMB aim, Q swap weapon) | Player 1 |
+| Joypads (left stick move, right stick look, RT/RB fire, LT/LB aim, B crouch, Y swap weapon, A jump, L3 sprint) | Players 2–4 |
 
 Click the window to capture the mouse; ESC releases it.
 
@@ -41,8 +41,13 @@ Click the window to capture the mouse; ESC releases it.
   with idle / walk / run / jump — clean box limbs on real joints
 - Hitscan blasters with glowing bolt tracers; damage → death → **reinforcement
   ticket** drain → respawn, Battlefront-style
-- Three weapon classes (Soldier rifle / Sniper / Heavy repeater) with distinct
-  fire rate, damage, range, and spread; swap between them in-match
+- Eight weapon classes — Soldier rifle, Sniper, Heavy repeater, Revolver,
+  T-21 HMG, burst rifle, semi-auto rifle, and the PLX-1 RPG — with AUTO / SEMI /
+  BURST fire modes; swap between them in-match
+- The RPG fires a real travelling rocket with radius splash damage + falloff;
+  the rest are hitscan with fast bolt tracers
+- Camera recoil per shot (settles back), 2x headshots, and crouch (lower
+  profile + smaller hitbox, steadier, slower)
 - First-person weapon viewmodel (procedural, one silhouette per class) with
   recoil kick, muzzle flash, and walk bob — rendered only for its owner
 - Aim-down-sights that zooms the camera, tightens spread, slows look, and
@@ -70,6 +75,7 @@ godot/
     character.gd            — procedural blocky humanoid + code-built anims
     weapon.gd               — class-based hitscan blaster: ADS zoom, spread, heat
     viewmodel.gd            — procedural first-person gun + recoil/flash/bob
+    rocket.gd               — RPG projectile: travel + splash damage
     trooper.gd              — decorative NPC: extends CharacterModel + patrol
     hangar.gd               — level spawn-point registration
   shaders/                  — starfield sky, hangar floor panels
