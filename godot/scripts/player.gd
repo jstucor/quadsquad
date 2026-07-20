@@ -18,6 +18,11 @@ const STICK_LOOK_SPEED := 2.6
 const STICK_DEADZONE := 0.15
 const MAX_HEALTH := 100.0
 const AIM_FOV_LERP := 14.0  # per-second rate the camera eases toward zoom FOV
+# First-person viewmodels live on their own render-layer block (one bit per
+# player) so each gun is seen ONLY by its owner's camera — the inverse of the
+# body layers, which every camera sees except the owner's.
+const VIEWMODEL_BIT := 10
+const VIEWMODEL_SLOTS := 4
 
 @export var player_index := 0
 @export var input_device := -1
@@ -46,11 +51,18 @@ func _ready() -> void:
 	_anim = model.find_child("AnimationPlayer", true, false)
 	for mi in model.find_children("*", "MeshInstance3D", true, false):
 		mi.layers = 1 << (1 + player_index)
+	# Put this player's viewmodel on its private layer (owner-only).
+	for mi in weapon.find_children("*", "MeshInstance3D", true, false):
+		mi.layers = 1 << (VIEWMODEL_BIT + player_index)
 	weapon.set_class(weapon_class as Weapon.Class)
 
 
 func bind_camera(cam: Camera3D) -> void:
 	cam.cull_mask &= ~(1 << (1 + player_index))
+	# See only our own viewmodel: drop the whole viewmodel block, add ours back.
+	for j in VIEWMODEL_SLOTS:
+		cam.cull_mask &= ~(1 << (VIEWMODEL_BIT + j))
+	cam.cull_mask |= 1 << (VIEWMODEL_BIT + player_index)
 	remote_cam.remote_path = remote_cam.get_path_to(cam)
 	_camera = cam
 	_base_fov = cam.fov

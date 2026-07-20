@@ -41,8 +41,10 @@ Click the window to capture the mouse; ESC releases it.
   ticket** drain → respawn, Battlefront-style
 - Three weapon classes (Soldier rifle / Sniper / Heavy repeater) with distinct
   fire rate, damage, range, and spread; swap between them in-match
-- Aim-down-sights that zooms the camera, tightens spread, and slows look; the
-  Sniper adds a scoped overlay on its viewport
+- First-person weapon viewmodel (procedural, one silhouette per class) with
+  recoil kick, muzzle flash, and walk bob — rendered only for its owner
+- Aim-down-sights that zooms the camera, tightens spread, slows look, and
+  raises the viewmodel; the Sniper adds a scoped overlay (and hides its gun)
 - Weapon **heat** instead of ammo: sustained fire overheats and locks out until
   it cools (fixed-timestep, so it's framerate-independent on the Pi)
 - Animated trooper NPCs (idle / waypoint patrol) from the rigged-and-animated
@@ -65,6 +67,7 @@ godot/
     game_state.gd           — autoload: teams, tickets, spawn registry, input map
     player.gd               — movement, per-device input, health, respawn
     weapon.gd               — class-based hitscan blaster: ADS zoom, spread, heat
+    viewmodel.gd            — procedural first-person gun + recoil/flash/bob
     trooper.gd              — NPC animation + waypoint patrol (AI slot)
     hangar.gd               — level spawn-point registration
   shaders/                  — starfield sky, hangar floor panels

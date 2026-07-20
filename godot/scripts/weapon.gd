@@ -25,19 +25,19 @@ const PROFILES := {
 		"name": "DC-15 Rifle", "fire_interval": 0.14, "damage": 20.0,
 		"range": 120.0, "hip_spread": 2.5, "ads_spread": 0.4,
 		"zoom_fov": 48.0, "heat_per_shot": 0.085, "cool_rate": 0.26,
-		"scope": false,
+		"scope": false, "recoil": 0.35,
 	},
 	Class.SNIPER: {
 		"name": "NT-242 Sniper", "fire_interval": 1.1, "damage": 95.0,
 		"range": 400.0, "hip_spread": 7.0, "ads_spread": 0.0,
 		"zoom_fov": 20.0, "heat_per_shot": 0.45, "cool_rate": 0.28,
-		"scope": true,
+		"scope": true, "recoil": 1.0,
 	},
 	Class.HEAVY: {
 		"name": "Z-6 Repeater", "fire_interval": 0.075, "damage": 11.0,
 		"range": 85.0, "hip_spread": 4.5, "ads_spread": 2.0,
 		"zoom_fov": 62.0, "heat_per_shot": 0.06, "cool_rate": 0.22,
-		"scope": false,
+		"scope": false, "recoil": 0.22,
 	},
 }
 
@@ -52,6 +52,8 @@ var _cooldown := 0.0
 var _heat := 0.0
 var _overheated := false
 
+@onready var _viewmodel: Node3D = get_node_or_null("Viewmodel")
+
 
 func set_class(c: Class) -> void:
 	weapon_class = c
@@ -60,6 +62,8 @@ func set_class(c: Class) -> void:
 	_heat = 0.0
 	_overheated = false
 	heat_changed.emit(_heat, _overheated)
+	if _viewmodel:
+		_viewmodel.configure(c)
 
 
 func display_name() -> String:
@@ -94,6 +98,8 @@ func try_fire(shooter: CollisionObject3D) -> void:
 	if _heat >= 1.0:
 		_overheated = true
 	heat_changed.emit(_heat, _overheated)
+	if _viewmodel:
+		_viewmodel.kick(_profile["recoil"])
 
 	var from := global_position
 	var dir := -global_transform.basis.z

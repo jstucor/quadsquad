@@ -1,8 +1,9 @@
-[gd_scene load_steps=5 format=3]
+[gd_scene load_steps=6 format=3]
 
 [ext_resource type="Script" path="res://scripts/player.gd" id="1_player"]
 [ext_resource type="Script" path="res://scripts/weapon.gd" id="2_weapon"]
 [ext_resource type="PackedScene" uid="uid://b608m1tn5e657" path="res://assets/models/p3_heavyglb.glb" id="3_model"]
+[ext_resource type="Script" path="res://scripts/viewmodel.gd" id="4_viewmodel"]
 
 [sub_resource type="CapsuleShape3D" id="BodyShape"]
 radius = 0.35
@@ -27,3 +28,6 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.55, 0)
 [node name="Weapon" type="Node3D" parent="Head"]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.18, -0.12, -0.3)
 script = ExtResource("2_weapon")
+
+[node name="Viewmodel" type="Node3D" parent="Head/Weapon"]
+script = ExtResource("4_viewmodel")
