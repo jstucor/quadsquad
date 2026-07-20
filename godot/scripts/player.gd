@@ -84,7 +84,8 @@ func _physics_process(delta: float) -> void:
 		_apply_look(-look * STICK_LOOK_SPEED * delta)
 
 	var move := _move_input()
-	var speed := SPRINT_SPEED if _sprint_held() else WALK_SPEED
+	var sprinting := _sprint_held()
+	var speed := SPRINT_SPEED if sprinting else WALK_SPEED
 	var dir := global_transform.basis * Vector3(move.x, 0, move.y)
 
 	if not is_on_floor():
@@ -97,7 +98,7 @@ func _physics_process(delta: float) -> void:
 
 	if _fire_held():
 		weapon.try_fire(self)
-	_update_anim(move)
+	_update_anim(move, sprinting)
 
 
 func _move_input() -> Vector2:
@@ -130,9 +131,28 @@ func _fire_held() -> bool:
 		or Input.is_joy_button_pressed(input_device, JOY_BUTTON_RIGHT_SHOULDER)
 
 
-func _update_anim(move: Vector2) -> void:
+func _update_anim(move: Vector2, sprinting: bool) -> void:
 	if _anim == null:
 		return
-	var target := "walk" if move.length() > 0.1 and is_on_floor() else "idle"
-	if _anim.current_animation != target and _anim.has_animation(target):
-		_anim.play(target, 0.25)
+	# Basic Minecraft/Krunker-style state machine: airborne -> jump (held),
+	# moving -> walk/run, else idle. No landing clip on purpose.
+	var target: String
+	if not is_on_floor():
+		target = "jump"
+	elif move.length() > 0.1:
+		target = "run" if sprinting else "walk"
+	else:
+		target = "idle"
+	# assigned_animation (not current_animation) so the one-shot jump keeps
+	# holding its last frame instead of retriggering every tick.
+	if _anim.assigned_animation != target and _anim.has_animation(target):
+		_anim.play(target, 0.12)
+	# Scale locomotion cycles to ground speed so feet don't skate.
+	var ground_speed := Vector2(velocity.x, velocity.z).length()
+	match target:
+		"walk":
+			_anim.speed_scale = clampf(ground_speed / 2.6, 0.6, 2.2)
+		"run":
+			_anim.speed_scale = clampf(ground_speed / 5.0, 0.6, 2.2)
+		_:
+			_anim.speed_scale = 1.0
