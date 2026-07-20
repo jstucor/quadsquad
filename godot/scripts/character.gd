@@ -25,6 +25,9 @@ const HIP_X := 0.11
 const UPPER_ARM := 0.34
 const LOWER_ARM := 0.32
 
+# Held-gun position, spine-local (in front of the chest, barrel toward -Z).
+const GUN_POS := Vector3(0.0, 0.34, -0.24)
+
 const IDLE_LEN := 2.4
 const WALK_LEN := 1.0
 const RUN_LEN := 0.7
@@ -99,6 +102,15 @@ func _build_body() -> void:
 		_box(el, Vector3(0.12, LOWER_ARM, 0.12), Vector3(0, -LOWER_ARM * 0.5, 0), dark)
 		_box(el, Vector3(0.13, 0.10, 0.14), Vector3(0, -LOWER_ARM, 0), dark)  # hand
 
+	# Third-person blaster, held two-handed in front. Other players see this;
+	# the owner sees only the first-person viewmodel. Parented to the spine so
+	# it leans with the torso and the CARRY arm pose keeps the hands on it.
+	var gunmetal := _mat(Color(0.10, 0.10, 0.12))
+	var held := _joint(spine, "HeldGun", GUN_POS)
+	_box(held, Vector3(0.05, 0.06, 0.24), Vector3(0, 0, 0.01), gunmetal)        # receiver
+	_box(held, Vector3(0.028, 0.028, 0.30), Vector3(0, 0.012, -0.22), gunmetal)  # barrel
+	_box(held, Vector3(0.035, 0.10, 0.05), Vector3(0, -0.06, 0.075), gunmetal)   # grip
+
 	for side in [-1, 1]:
 		var ln := "L" if side < 0 else "R"
 		var hip := _joint(hips, "Hip" + ln, Vector3(side * HIP_X, 0, 0))
@@ -152,9 +164,21 @@ func _clip(length: float, loop: bool, samples: int, pose_fn: Callable, bob_fn: C
 	return a
 
 
+# Both hands stay on the blaster in every clip, so the arms hold a fixed CARRY
+# pose (legs do the locomotion). Shoulders come forward + inward and the elbows
+# bend FORWARD (+X — a human elbow bends opposite a knee) to bring the hands
+# together onto the gun in front of the chest.
+func _carry() -> Dictionary:
+	return {
+		"sL": Vector3(deg_to_rad(46), deg_to_rad(-14), deg_to_rad(6)),
+		"sR": Vector3(deg_to_rad(46), deg_to_rad(14), deg_to_rad(-6)),
+		"eL": Vector3(deg_to_rad(64), 0, 0),
+		"eR": Vector3(deg_to_rad(74), 0, 0),
+	}
+
+
 func _idle_pose(_time: float) -> Dictionary:
-	# Near-static; just a hair of elbow bend so the arms aren't board-stiff.
-	return {"eL": Vector3(-deg_to_rad(12), 0, 0), "eR": Vector3(-deg_to_rad(12), 0, 0)}
+	return _carry()  # near-static; hands on the gun
 
 
 func _idle_bob(time: float) -> Vector3:
@@ -167,19 +191,14 @@ func _walk_pose(time: float) -> Dictionary:
 	var c := cos(phase)
 	var hip := deg_to_rad(30)   # whole-leg swing
 	var knee := deg_to_rad(34)  # mid-swing knee lift
-	var arm := deg_to_rad(24)
-	return {
-		"hL": Vector3(hip * s, 0, 0),
-		"hR": Vector3(-hip * s, 0, 0),
-		# Knee flexes (-X) only mid-swing (peak at the leg's passing frame),
-		# straight on contact and through stance — the two-joint gait.
-		"kL": Vector3(-knee * maxf(0.0, c), 0, 0),
-		"kR": Vector3(-knee * maxf(0.0, -c), 0, 0),
-		"sL": Vector3(-arm * s, 0, 0),  # arms counter-swing the same-side leg
-		"sR": Vector3(arm * s, 0, 0),
-		"eL": Vector3(-deg_to_rad(18), 0, 0),
-		"eR": Vector3(-deg_to_rad(18), 0, 0),
-	}
+	var p := _carry()
+	p["hL"] = Vector3(hip * s, 0, 0)
+	p["hR"] = Vector3(-hip * s, 0, 0)
+	# Knee flexes (-X) only mid-swing (peak at the leg's passing frame),
+	# straight on contact and through stance — the two-joint gait.
+	p["kL"] = Vector3(-knee * maxf(0.0, c), 0, 0)
+	p["kR"] = Vector3(-knee * maxf(0.0, -c), 0, 0)
+	return p
 
 
 func _run_pose(time: float) -> Dictionary:
@@ -188,31 +207,22 @@ func _run_pose(time: float) -> Dictionary:
 	var c := cos(phase)
 	var hip := deg_to_rad(45)
 	var knee := deg_to_rad(50)
-	var arm := deg_to_rad(34)
-	return {
-		"spine": Vector3(-deg_to_rad(14), 0, 0),  # lean into the run
-		"head": Vector3(deg_to_rad(10), 0, 0),    # keep the head up
-		"hL": Vector3(hip * s, 0, 0),
-		"hR": Vector3(-hip * s, 0, 0),
-		"kL": Vector3(-knee * maxf(0.0, c), 0, 0),
-		"kR": Vector3(-knee * maxf(0.0, -c), 0, 0),
-		"sL": Vector3(-arm * s, 0, 0),
-		"sR": Vector3(arm * s, 0, 0),
-		"eL": Vector3(-deg_to_rad(50), 0, 0),
-		"eR": Vector3(-deg_to_rad(50), 0, 0),
-	}
+	var p := _carry()
+	p["spine"] = Vector3(-deg_to_rad(14), 0, 0)  # lean into the run
+	p["head"] = Vector3(deg_to_rad(10), 0, 0)    # keep the head up
+	p["hL"] = Vector3(hip * s, 0, 0)
+	p["hR"] = Vector3(-hip * s, 0, 0)
+	p["kL"] = Vector3(-knee * maxf(0.0, c), 0, 0)
+	p["kR"] = Vector3(-knee * maxf(0.0, -c), 0, 0)
+	return p
 
 
 func _jump_pose(_time: float) -> Dictionary:
 	# One simple held tuck (both keys identical): lead knee up, trail leg back,
-	# arms raised. player.gd holds the last frame while airborne.
-	return {
-		"hL": Vector3(deg_to_rad(35), 0, 0),
-		"hR": Vector3(-deg_to_rad(18), 0, 0),
-		"kL": Vector3(-deg_to_rad(55), 0, 0),
-		"kR": Vector3(-deg_to_rad(12), 0, 0),
-		"sL": Vector3(-deg_to_rad(28), 0, 0),
-		"sR": Vector3(-deg_to_rad(28), 0, 0),
-		"eL": Vector3(-deg_to_rad(42), 0, 0),
-		"eR": Vector3(-deg_to_rad(42), 0, 0),
-	}
+	# hands stay on the gun. player.gd holds the last frame while airborne.
+	var p := _carry()
+	p["hL"] = Vector3(deg_to_rad(35), 0, 0)
+	p["hR"] = Vector3(-deg_to_rad(18), 0, 0)
+	p["kL"] = Vector3(-deg_to_rad(55), 0, 0)
+	p["kR"] = Vector3(-deg_to_rad(12), 0, 0)
+	return p
