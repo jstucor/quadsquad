@@ -1,9 +1,6 @@
-[gd_scene load_steps=3 format=3 uid="uid://b1x51y1hab1yf"]
+[gd_scene load_steps=2 format=3 uid="uid://b1x51y1hab1yf"]
 
 [ext_resource type="Script" uid="uid://dmoanlrtuebw1" path="res://scripts/main.gd" id="1_main"]
-[ext_resource type="PackedScene" path="res://scenes/levels/hangar.tscn" id="2_level"]
 
 [node name="Main" type="Node3D"]
 script = ExtResource("1_main")
-
-[node name="Level" parent="." instance=ExtResource("2_level")]

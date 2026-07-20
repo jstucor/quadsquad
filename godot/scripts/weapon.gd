@@ -193,7 +193,7 @@ func _fire_hitscan() -> void:
 		var dmg: float = _profile["damage"]
 		if col.has_method("is_headshot") and col.is_headshot(end):
 			dmg *= HEADSHOT_MULT
-		col.take_damage(dmg)
+		col.take_damage(dmg, shooter)
 
 	var bolt := BOLT_SCENE.instantiate()
 	get_tree().current_scene.add_child(bolt)

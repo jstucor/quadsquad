@@ -13,6 +13,7 @@ extends Node3D
 ## trooper.gd extends this class for decorative NPCs.
 
 var anim_player: AnimationPlayer
+var _suit_mat: StandardMaterial3D  # torso/upper-limb colour, tinted per team
 
 # Proportions in metres. Feet rest at y = 0 and the model faces -Z.
 const HIP_Y := 0.9
@@ -77,8 +78,15 @@ func _box(parent: Node3D, size: Vector3, center: Vector3, mat: Material) -> void
 	parent.add_child(mi)
 
 
+## Tint the suit (torso + upper limbs) so teams are readable at a glance.
+func set_team_color(c: Color) -> void:
+	if _suit_mat:
+		_suit_mat.albedo_color = c
+
+
 func _build_body() -> void:
 	var suit := _mat(Color(0.50, 0.53, 0.60))
+	_suit_mat = suit
 	var dark := _mat(Color(0.28, 0.30, 0.36))
 	var head_mat := _mat(Color(0.82, 0.80, 0.78))
 	var visor := _mat(Color(0.08, 0.09, 0.12))

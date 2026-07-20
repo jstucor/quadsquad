@@ -8,6 +8,7 @@ const SPEED := 48.0
 
 var _dir := Vector3.FORWARD
 var _shooter_rid: RID
+var _shooter: CollisionObject3D  # for kill attribution
 var _splash := 4.5
 var _splash_damage := 90.0
 var _range := 300.0
@@ -21,6 +22,7 @@ func launch(from: Vector3, dir: Vector3, shooter: CollisionObject3D,
 	if absf(_dir.dot(Vector3.UP)) < 0.99:
 		look_at(from + _dir)  # body mesh lies along -Z
 	_shooter_rid = shooter.get_rid()
+	_shooter = shooter
 	_splash = splash
 	_splash_damage = splash_damage
 	_range = rng
@@ -92,7 +94,7 @@ func _explode(pos: Vector3) -> void:
 		hit_once[col] = true
 		var dist: float = col.global_position.distance_to(pos)
 		var falloff := clampf(1.0 - dist / _splash, 0.2, 1.0)
-		col.take_damage(_splash_damage * falloff)
+		col.take_damage(_splash_damage * falloff, _shooter)
 	_spawn_blast(pos)
 	queue_free()
 

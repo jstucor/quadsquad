@@ -1,27 +1,44 @@
 extends Node3D
-## Split-screen bootstrap: builds the 2x2 SubViewport grid, spawns one player
-## per quadrant at a level spawn point, and wires each viewport's camera and
-## HUD to its player. The level itself lives in scenes/levels/ and registers
-## its spawn points with GameState before this runs (child _ready first).
+## Team-deathmatch bootstrap: loads the current map from the rotation, builds
+## the 2x2 SubViewport grid, spawns two players per team at their team's spawn
+## points, wires each viewport's camera + HUD, and rotates to the next map when
+## a team hits the score limit. The map itself (scenes/levels/*) registers its
+## per-team spawn points with GameState before players spawn.
 
 const PLAYER_COUNT := 4
 const PLAYER_SCENE := preload("res://scenes/actors/player.tscn")
 
+# Map rotation. GameState.map_index selects the current one and advances on a win.
+const MAPS: Array[PackedScene] = [
+	preload("res://scenes/levels/crossfire.tscn"),
+	preload("res://scenes/levels/foundry.tscn"),
+	preload("res://scenes/levels/hangar.tscn"),
+]
+
+# 2v2 team assignment and per-player accent colour (for the corner tag).
+const TEAMS: Array[int] = [
+	GameState.Team.REPUBLIC, GameState.Team.REPUBLIC,
+	GameState.Team.CIS, GameState.Team.CIS,
+]
 const PLAYER_COLORS: Array[Color] = [
 	Color(0.9, 0.3, 0.3),
 	Color(0.3, 0.6, 0.9),
 	Color(0.4, 0.85, 0.4),
 	Color(0.95, 0.8, 0.3),
 ]
-
-# Starting weapon class per player (Weapon.Class enum order); a spread across
-# the roster so several show at once. Each player can still cycle with Q / Y.
+# A spread across the weapon roster (Weapon.Class enum order).
 const START_CLASSES: Array[int] = [0, 1, 4, 7]  # Soldier, Sniper, HMG, RPG
 
-@onready var level: Node3D = $Level
+const MATCH_END_DELAY := 4.5  # seconds of victory banner before the next map
+
+var level: Node3D
 
 
 func _ready() -> void:
+	GameState.reset_match()
+	level = MAPS[GameState.map_index].instantiate()
+	add_child(level)  # its _ready registers the team spawn points
+
 	var grid := GridContainer.new()
 	grid.columns = 2
 	grid.set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -45,14 +62,36 @@ func _ready() -> void:
 		var player: Player = PLAYER_SCENE.instantiate()
 		player.player_index = i
 		player.input_device = i - 1  # P1 keyboard/mouse; P2..P4 joypads 0..2
+		player.team = TEAMS[i]
 		player.weapon_class = START_CLASSES[i]
 		level.add_child(player)
-		var spawn := GameState.get_spawn_point(player.team, i)
+		var spawn := GameState.get_spawn_point(player.team, _team_slot(i))
 		if spawn:
 			player.global_transform = spawn.global_transform
 		player.bind_camera(camera)
+		player.model.set_team_color(GameState.TEAM_COLORS[player.team])
 
 		viewport.add_child(_build_hud(player))
+
+	GameState.match_won.connect(_on_match_won)
+
+
+## How many earlier players share this player's team (its spawn index).
+func _team_slot(index: int) -> int:
+	var slot := 0
+	for j in index:
+		if TEAMS[j] == TEAMS[index]:
+			slot += 1
+	return slot
+
+
+func _on_match_won(_team: int) -> void:
+	get_tree().create_timer(MATCH_END_DELAY).timeout.connect(_next_map)
+
+
+func _next_map() -> void:
+	GameState.map_index = (GameState.map_index + 1) % MAPS.size()
+	get_tree().reload_current_scene()
 
 
 func _build_hud(player: Player) -> Control:
@@ -72,9 +111,7 @@ func _build_hud(player: Player) -> Control:
 	crosshair.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	hud.add_child(crosshair)
 
-	# Scope overlay: a black surround with a clear center circle + reticle,
-	# drawn only while a scoped weapon (Sniper) is aimed. Its own reticle
-	# replaces the "+" crosshair, so hide that when the scope is up.
+	# Scope overlay (scoped weapons only, while aiming).
 	var scope := Control.new()
 	scope.set_anchors_preset(Control.PRESET_FULL_RECT)
 	scope.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -88,13 +125,18 @@ func _build_hud(player: Player) -> Control:
 	player.aim_changed.connect(func(_a: bool) -> void: update_scope.call())
 	player.weapon_changed.connect(func(_n: String) -> void: update_scope.call())
 
-	var tickets := _full_rect_label("", 18, Color(1, 1, 1, 0.9))
-	tickets.text = "Tickets %d" % GameState.tickets[player.team]
-	tickets.offset_top = 10.0
-	hud.add_child(tickets)
-	GameState.tickets_changed.connect(func(team: int, count: int) -> void:
-		if team == player.team:
-			tickets.text = "Tickets %d" % count)
+	# Team-deathmatch scoreboard, top-centre.
+	var score := _full_rect_label("", 20, Color(1, 1, 1, 0.95))
+	score.offset_top = 8.0
+	var refresh_score := func() -> void:
+		score.text = "%s  %d   :   %d  %s" % [
+			GameState.TEAM_NAMES[GameState.Team.REPUBLIC],
+			GameState.scores[GameState.Team.REPUBLIC],
+			GameState.scores[GameState.Team.CIS],
+			GameState.TEAM_NAMES[GameState.Team.CIS]]
+	refresh_score.call()
+	GameState.score_changed.connect(func(_t: int, _s: int) -> void: refresh_score.call())
+	hud.add_child(score)
 
 	var health := Label.new()
 	health.text = "HP 100"
@@ -107,8 +149,6 @@ func _build_hud(player: Player) -> Control:
 	player.health_changed.connect(func(hp: float) -> void:
 		health.text = "HP %d" % maxi(roundi(hp), 0))
 
-	# Weapon name (bottom-right) + heat bar beneath it. Heat replaces ammo:
-	# the fill grows with heat and turns red on overheat lockout.
 	var weapon_label := Label.new()
 	weapon_label.text = player.weapon.display_name()
 	weapon_label.add_theme_font_size_override("font_size", 18)
@@ -136,7 +176,6 @@ func _build_hud(player: Player) -> Control:
 	var heat_fill := ColorRect.new()
 	heat_fill.color = Color(0.4, 0.8, 1.0, 0.9)
 	heat_fill.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	# Anchored left with zero offsets; anchor_right (0..1) is the heat fraction.
 	heat_fill.anchor_left = 0.0
 	heat_fill.anchor_top = 0.0
 	heat_fill.anchor_right = 0.0
@@ -146,6 +185,16 @@ func _build_hud(player: Player) -> Control:
 		heat_fill.anchor_right = h
 		heat_fill.color = Color(1.0, 0.3, 0.2, 0.95) if over else Color(0.4, 0.8, 1.0, 0.9))
 
+	# Victory banner (hidden until a team wins).
+	var banner := _full_rect_label("", 40, Color(1, 1, 1, 1))
+	banner.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	banner.visible = false
+	hud.add_child(banner)
+	GameState.match_won.connect(func(team: int) -> void:
+		banner.text = "%s WINS" % GameState.TEAM_NAMES[team]
+		banner.add_theme_color_override("font_color", GameState.TEAM_COLORS[team])
+		banner.visible = true)
+
 	return hud
 
 
@@ -154,10 +203,7 @@ func _draw_scope(c: Control) -> void:
 	var center := s * 0.5
 	var r: float = minf(s.x, s.y) * 0.42
 	var diag := s.length()
-	# Opaque black band from radius r outward past the corners = scope body,
-	# leaving a clear circle in the middle to sight through.
 	c.draw_arc(center, r + diag * 0.5, 0.0, TAU, 96, Color(0, 0, 0, 1.0), diag, false)
-	# Thin scope ring, fine crosshairs, and a small aiming dot.
 	c.draw_arc(center, r, 0.0, TAU, 96, Color(0, 0, 0, 0.9), 2.0, true)
 	c.draw_line(Vector2(center.x, center.y - r), Vector2(center.x, center.y + r), Color(0, 0, 0, 0.5), 1.0)
 	c.draw_line(Vector2(center.x - r, center.y), Vector2(center.x + r, center.y), Color(0, 0, 0, 0.5), 1.0)

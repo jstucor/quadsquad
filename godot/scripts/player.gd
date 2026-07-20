@@ -91,11 +91,14 @@ func bind_camera(cam: Camera3D) -> void:
 	_base_fov = cam.fov
 
 
-func take_damage(amount: float) -> void:
+func take_damage(amount: float, attacker: Node = null) -> void:
+	# Friendly fire is off: teammates deal no damage (self-damage still counts).
+	if attacker is Player and attacker != self and attacker.team == team:
+		return
 	health -= amount
 	health_changed.emit(health)
 	if health <= 0.0:
-		_die()
+		_die(attacker)
 
 
 ## True if a world-space hit point lands in this body's head band (tracks the
@@ -105,16 +108,17 @@ func is_headshot(world_pos: Vector3) -> bool:
 	return world_pos.y - global_position.y >= head_min
 
 
-func _die() -> void:
-	GameState.take_ticket(team)
+func _die(attacker: Node = null) -> void:
+	# Credit the frag to an enemy killer (not suicide/self or a teammate).
+	if attacker is Player and attacker != self and attacker.team != team:
+		GameState.add_frag(attacker.team)
 	health = MAX_HEALTH
 	health_changed.emit(health)
 	velocity = Vector3.ZERO
 	_recoil_pitch = 0.0
 	_recoil_yaw = 0.0
-	# Own marker, never random: respawning onto another player's spawn stacks
-	# bodies. Battlefront's spawn-point picker replaces this later.
-	var spawn := GameState.get_spawn_point(team, player_index)
+	# Respawn at a random spawn on our own team's side.
+	var spawn := GameState.get_spawn_point(team)
 	if spawn:
 		global_transform = spawn.global_transform
 
