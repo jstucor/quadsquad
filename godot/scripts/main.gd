@@ -14,9 +14,9 @@ const PLAYER_COLORS: Array[Color] = [
 	Color(0.95, 0.8, 0.3),
 ]
 
-# Starting weapon class per player (Weapon.Class: 0 Soldier, 1 Sniper, 2 Heavy)
-# so all three show at once; each player can still cycle with switch-weapon.
-const START_CLASSES: Array[int] = [0, 1, 2, 0]
+# Starting weapon class per player (Weapon.Class enum order); a spread across
+# the roster so several show at once. Each player can still cycle with Q / Y.
+const START_CLASSES: Array[int] = [0, 1, 4, 7]  # Soldier, Sniper, HMG, RPG
 
 @onready var level: Node3D = $Level
 

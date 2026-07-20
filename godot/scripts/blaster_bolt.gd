@@ -2,7 +2,7 @@ extends Node3D
 ## Visual-only blaster bolt tracer. The weapon's hitscan already decided the
 ## outcome; this just flies the path and frees itself at the end point.
 
-const SPEED := 90.0
+const SPEED := 400.0  # bolts read as fast energy blasts, not lobbed pellets
 
 var _dir := Vector3.ZERO
 var _remaining := 0.0

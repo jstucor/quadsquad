@@ -10,14 +10,27 @@ signal health_changed(health: float)
 signal weapon_changed(display_name: String)
 signal aim_changed(aiming: bool)
 
-const WALK_SPEED := 5.0
-const SPRINT_SPEED := 7.5
+const WALK_SPEED := 4.0
+const SPRINT_SPEED := 6.0
+const CROUCH_SPEED_MULT := 0.45
 const JUMP_VELOCITY := 4.5
 const MOUSE_SENS := 0.0022
 const STICK_LOOK_SPEED := 2.6
 const STICK_DEADZONE := 0.15
 const MAX_HEALTH := 100.0
 const AIM_FOV_LERP := 14.0  # per-second rate the camera eases toward zoom FOV
+const RECOIL_RECOVER := 12.0  # per-second rate the camera recoil settles back
+# Crouch: lower stance = smaller hitbox, steadier, slower. Values are lerped by
+# _crouch_t between standing and crouched.
+const STAND_HEIGHT := 1.8
+const CROUCH_HEIGHT := 1.1
+const STAND_HEAD_Y := 1.55
+const CROUCH_HEAD_Y := 1.05
+const CROUCH_MODEL_SCALE := 0.62
+# Head-hit band (metres above the body origin) — anything above counts as a
+# headshot; drops with the crouch so it tracks the lowered head.
+const STAND_HEAD_MIN := 1.42
+const CROUCH_HEAD_MIN := 0.85
 # First-person viewmodels live on their own render-layer block (one bit per
 # player) so each gun is seen ONLY by its owner's camera — the inverse of the
 # body layers, which every camera sees except the owner's.
@@ -40,11 +53,17 @@ var _base_fov := 75.0
 var _look_scale := 1.0
 var _prev_aim := false
 var _switch_down := false  # joypad switch-button edge tracking
+var _fire_down := false    # joypad fire-button edge tracking
+var _look_pitch := 0.0     # head pitch from look input (recoil is added on top)
+var _recoil_pitch := 0.0   # transient camera kick, settles back to 0
+var _recoil_yaw := 0.0
+var _crouch_t := 0.0       # 0 standing .. 1 crouched
 
 @onready var head: Node3D = $Head
 @onready var weapon: Weapon = $Head/Weapon
 @onready var remote_cam: RemoteTransform3D = $Head/RemoteTransform3D
 @onready var model: Node3D = $Model
+@onready var _collision: CollisionShape3D = $CollisionShape3D
 
 
 func _ready() -> void:
@@ -54,6 +73,10 @@ func _ready() -> void:
 	# Put this player's viewmodel on its private layer (owner-only).
 	for mi in weapon.find_children("*", "MeshInstance3D", true, false):
 		mi.layers = 1 << (VIEWMODEL_BIT + player_index)
+	# Own copy of the capsule so crouch-resizing one player doesn't resize all.
+	_collision.shape = _collision.shape.duplicate()
+	weapon.shooter = self
+	weapon.fired.connect(_on_weapon_fired)
 	weapon.set_class(weapon_class as Weapon.Class)
 
 
@@ -75,11 +98,20 @@ func take_damage(amount: float) -> void:
 		_die()
 
 
+## True if a world-space hit point lands in this body's head band (tracks the
+## crouch so a crouched head still counts). Weapons use it for bonus damage.
+func is_headshot(world_pos: Vector3) -> bool:
+	var head_min := lerpf(STAND_HEAD_MIN, CROUCH_HEAD_MIN, _crouch_t)
+	return world_pos.y - global_position.y >= head_min
+
+
 func _die() -> void:
 	GameState.take_ticket(team)
 	health = MAX_HEALTH
 	health_changed.emit(health)
 	velocity = Vector3.ZERO
+	_recoil_pitch = 0.0
+	_recoil_yaw = 0.0
 	# Own marker, never random: respawning onto another player's spawn stacks
 	# bodies. Battlefront's spawn-point picker replaces this later.
 	var spawn := GameState.get_spawn_point(team, player_index)
@@ -101,22 +133,39 @@ func _unhandled_input(event: InputEvent) -> void:
 
 func _apply_look(delta_look: Vector2) -> void:
 	rotate_y(delta_look.x * _look_scale)
-	head.rotation.x = clampf(head.rotation.x + delta_look.y * _look_scale,
+	_look_pitch = clampf(_look_pitch + delta_look.y * _look_scale,
 		-PI / 2 + 0.05, PI / 2 - 0.05)
+	_refresh_head()
+
+
+## The camera pitch is look input plus the transient recoil kick; recoil yaw
+## rides on the head so it throws off aim without turning the whole body.
+func _refresh_head() -> void:
+	head.rotation.x = _look_pitch + _recoil_pitch
+	head.rotation.y = _recoil_yaw
 
 
 func _physics_process(delta: float) -> void:
 	if _switch_pressed():
 		_cycle_weapon()
 	_update_aim(delta)
+	_update_crouch(delta)
+
+	# Settle the camera recoil back toward zero.
+	_recoil_pitch = lerpf(_recoil_pitch, 0.0, clampf(delta * RECOIL_RECOVER, 0.0, 1.0))
+	_recoil_yaw = lerpf(_recoil_yaw, 0.0, clampf(delta * RECOIL_RECOVER, 0.0, 1.0))
+	_refresh_head()
 
 	if input_device >= 0:
 		var look := _stick(JOY_AXIS_RIGHT_X, JOY_AXIS_RIGHT_Y)
 		_apply_look(-look * STICK_LOOK_SPEED * delta)
 
 	var move := _move_input()
-	var sprinting := _sprint_held()
+	var crouching := _crouch_held()
+	var sprinting := _sprint_held() and not crouching
 	var speed := SPRINT_SPEED if sprinting else WALK_SPEED
+	if crouching:
+		speed *= CROUCH_SPEED_MULT
 	var dir := global_transform.basis * Vector3(move.x, 0, move.y)
 
 	if not is_on_floor():
@@ -127,9 +176,25 @@ func _physics_process(delta: float) -> void:
 	velocity.z = dir.z * speed
 	move_and_slide()
 
-	if _fire_held():
-		weapon.try_fire(self)
+	weapon.update_fire(_fire_held(), _fire_pressed())
 	_update_anim(move, sprinting)
+
+
+## Ease the stance toward standing/crouched: lowers the camera, shrinks the
+## capsule, and squashes the model so squadmates see the crouch too.
+func _update_crouch(delta: float) -> void:
+	var target := 1.0 if _crouch_held() else 0.0
+	_crouch_t = move_toward(_crouch_t, target, delta / 0.12)
+	head.position.y = lerpf(STAND_HEAD_Y, CROUCH_HEAD_Y, _crouch_t)
+	model.scale.y = lerpf(1.0, CROUCH_MODEL_SCALE, _crouch_t)
+	var cap := _collision.shape as CapsuleShape3D
+	cap.height = lerpf(STAND_HEIGHT, CROUCH_HEIGHT, _crouch_t)
+	_collision.position.y = cap.height * 0.5
+
+
+func _on_weapon_fired(cam_recoil: float) -> void:
+	_recoil_pitch += cam_recoil
+	_recoil_yaw += randf_range(-0.4, 0.4) * cam_recoil
 
 
 ## Hold-to-aim: eases the camera FOV toward the weapon's zoom, tells the weapon
@@ -180,6 +245,23 @@ func _fire_held() -> bool:
 		return Input.is_action_pressed("kb_fire")
 	return Input.get_joy_axis(input_device, JOY_AXIS_TRIGGER_RIGHT) > 0.5 \
 		or Input.is_joy_button_pressed(input_device, JOY_BUTTON_RIGHT_SHOULDER)
+
+
+## Trigger-down edge for semi/burst weapons. Keyboard uses the action's edge;
+## joypad is polled per-device, so we track the previous state ourselves.
+func _fire_pressed() -> bool:
+	if input_device < 0:
+		return Input.is_action_just_pressed("kb_fire")
+	var down := _fire_held()
+	var edge := down and not _fire_down
+	_fire_down = down
+	return edge
+
+
+func _crouch_held() -> bool:
+	if input_device < 0:
+		return Input.is_action_pressed("kb_crouch")
+	return Input.is_joy_button_pressed(input_device, JOY_BUTTON_B)
 
 
 func _ads_held() -> bool:
