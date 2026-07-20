@@ -53,6 +53,7 @@ func _register_kb_actions() -> void:
 		"kb_right": KEY_D,
 		"kb_jump": KEY_SPACE,
 		"kb_sprint": KEY_SHIFT,
+		"kb_switch": KEY_Q,  # cycle weapon class
 	}
 	for action in keys:
 		if InputMap.has_action(action):
@@ -61,8 +62,15 @@ func _register_kb_actions() -> void:
 		var ev := InputEventKey.new()
 		ev.physical_keycode = keys[action]
 		InputMap.action_add_event(action, ev)
-	if not InputMap.has_action("kb_fire"):
-		InputMap.add_action("kb_fire")
+	# Mouse-button actions: left = fire, right = aim down sights.
+	var mouse_actions := {
+		"kb_fire": MOUSE_BUTTON_LEFT,
+		"kb_ads": MOUSE_BUTTON_RIGHT,
+	}
+	for action in mouse_actions:
+		if InputMap.has_action(action):
+			continue
+		InputMap.add_action(action)
 		var mb := InputEventMouseButton.new()
-		mb.button_index = MOUSE_BUTTON_LEFT
-		InputMap.action_add_event("kb_fire", mb)
+		mb.button_index = mouse_actions[action]
+		InputMap.action_add_event(action, mb)

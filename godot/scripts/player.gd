@@ -7,6 +7,8 @@ extends CharacterBody3D
 ## while the other three players (and your shadow) still do.
 
 signal health_changed(health: float)
+signal weapon_changed(display_name: String)
+signal aim_changed(aiming: bool)
 
 const WALK_SPEED := 5.0
 const SPRINT_SPEED := 7.5
@@ -15,15 +17,24 @@ const MOUSE_SENS := 0.0022
 const STICK_LOOK_SPEED := 2.6
 const STICK_DEADZONE := 0.15
 const MAX_HEALTH := 100.0
+const AIM_FOV_LERP := 14.0  # per-second rate the camera eases toward zoom FOV
 
 @export var player_index := 0
 @export var input_device := -1
 @export var team: int = GameState.Team.REPUBLIC
+## Starting weapon class (Weapon.Class); Main assigns a different one per player.
+@export var weapon_class := 0
 
 var health := MAX_HEALTH
 
 var _anim: AnimationPlayer
 var _gravity: float = ProjectSettings.get_setting("physics/3d/default_gravity")
+var _camera: Camera3D
+var _base_fov := 75.0
+# Look sensitivity scales with zoom so aiming down a scope isn't twitchy.
+var _look_scale := 1.0
+var _prev_aim := false
+var _switch_down := false  # joypad switch-button edge tracking
 
 @onready var head: Node3D = $Head
 @onready var weapon: Weapon = $Head/Weapon
@@ -35,11 +46,14 @@ func _ready() -> void:
 	_anim = model.find_child("AnimationPlayer", true, false)
 	for mi in model.find_children("*", "MeshInstance3D", true, false):
 		mi.layers = 1 << (1 + player_index)
+	weapon.set_class(weapon_class as Weapon.Class)
 
 
 func bind_camera(cam: Camera3D) -> void:
 	cam.cull_mask &= ~(1 << (1 + player_index))
 	remote_cam.remote_path = remote_cam.get_path_to(cam)
+	_camera = cam
+	_base_fov = cam.fov
 
 
 func take_damage(amount: float) -> void:
@@ -74,11 +88,16 @@ func _unhandled_input(event: InputEvent) -> void:
 
 
 func _apply_look(delta_look: Vector2) -> void:
-	rotate_y(delta_look.x)
-	head.rotation.x = clampf(head.rotation.x + delta_look.y, -PI / 2 + 0.05, PI / 2 - 0.05)
+	rotate_y(delta_look.x * _look_scale)
+	head.rotation.x = clampf(head.rotation.x + delta_look.y * _look_scale,
+		-PI / 2 + 0.05, PI / 2 - 0.05)
 
 
 func _physics_process(delta: float) -> void:
+	if _switch_pressed():
+		_cycle_weapon()
+	_update_aim(delta)
+
 	if input_device >= 0:
 		var look := _stick(JOY_AXIS_RIGHT_X, JOY_AXIS_RIGHT_Y)
 		_apply_look(-look * STICK_LOOK_SPEED * delta)
@@ -99,6 +118,26 @@ func _physics_process(delta: float) -> void:
 	if _fire_held():
 		weapon.try_fire(self)
 	_update_anim(move, sprinting)
+
+
+## Hold-to-aim: eases the camera FOV toward the weapon's zoom, tells the weapon
+## to tighten its spread cone, and scales look sensitivity down with the zoom.
+func _update_aim(delta: float) -> void:
+	var aiming := _ads_held()
+	weapon.aiming = aiming
+	if aiming != _prev_aim:
+		_prev_aim = aiming
+		aim_changed.emit(aiming)
+	if _camera:
+		var want := weapon.zoom_fov() if aiming else _base_fov
+		_camera.fov = lerpf(_camera.fov, want, clampf(delta * AIM_FOV_LERP, 0.0, 1.0))
+		_look_scale = _camera.fov / _base_fov
+
+
+func _cycle_weapon() -> void:
+	var next := (weapon.weapon_class + 1) % Weapon.PROFILES.size()
+	weapon.set_class(next as Weapon.Class)
+	weapon_changed.emit(weapon.display_name())
 
 
 func _move_input() -> Vector2:
@@ -129,6 +168,25 @@ func _fire_held() -> bool:
 		return Input.is_action_pressed("kb_fire")
 	return Input.get_joy_axis(input_device, JOY_AXIS_TRIGGER_RIGHT) > 0.5 \
 		or Input.is_joy_button_pressed(input_device, JOY_BUTTON_RIGHT_SHOULDER)
+
+
+func _ads_held() -> bool:
+	if input_device < 0:
+		return Input.is_action_pressed("kb_ads")
+	return Input.get_joy_axis(input_device, JOY_AXIS_TRIGGER_LEFT) > 0.5 \
+		or Input.is_joy_button_pressed(input_device, JOY_BUTTON_LEFT_SHOULDER)
+
+
+## Weapon-cycle is edge-triggered. Keyboard uses the InputMap action's own edge
+## detection; joypad buttons are polled per-device (device-scoped, unlike a
+## shared InputMap action), so we track the previous state ourselves.
+func _switch_pressed() -> bool:
+	if input_device < 0:
+		return Input.is_action_just_pressed("kb_switch")
+	var down := Input.is_joy_button_pressed(input_device, JOY_BUTTON_Y)
+	var edge := down and not _switch_down
+	_switch_down = down
+	return edge
 
 
 func _update_anim(move: Vector2, sprinting: bool) -> void:

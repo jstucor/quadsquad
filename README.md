@@ -27,8 +27,8 @@ godot --headless --path godot --import
 
 | Input | Player |
 |---|---|
-| Keyboard + mouse (WASD, Space jump, Shift sprint, LMB fire) | Player 1 |
-| Joypads (left stick move, right stick look, RT/RB fire, A jump, L3 sprint) | Players 2–4 |
+| Keyboard + mouse (WASD, Space jump, Shift sprint, LMB fire, RMB aim, Q swap weapon) | Player 1 |
+| Joypads (left stick move, right stick look, RT/RB fire, LT/LB aim, Y swap weapon, A jump, L3 sprint) | Players 2–4 |
 
 Click the window to capture the mouse; ESC releases it.
 
@@ -39,9 +39,16 @@ Click the window to capture the mouse; ESC releases it.
   your own model (render-layer cull masks) but squadmates do
 - Hitscan blasters with glowing bolt tracers; damage → death → **reinforcement
   ticket** drain → respawn, Battlefront-style
+- Three weapon classes (Soldier rifle / Sniper / Heavy repeater) with distinct
+  fire rate, damage, range, and spread; swap between them in-match
+- Aim-down-sights that zooms the camera, tightens spread, and slows look; the
+  Sniper adds a scoped overlay on its viewport
+- Weapon **heat** instead of ammo: sustained fire overheats and locks out until
+  it cools (fixed-timestep, so it's framerate-independent on the Pi)
 - Animated trooper NPCs (idle / waypoint patrol) from the rigged-and-animated
   `p3_heavyglb` model
-- Per-viewport HUD: crosshair, HP, tickets, squad-color player tags
+- Per-viewport HUD: crosshair, HP, tickets, squad-color player tags, weapon
+  name + heat bar
 
 ## Project Structure
 
@@ -57,7 +64,7 @@ godot/
     main.gd                 — viewport/HUD/player bootstrap
     game_state.gd           — autoload: teams, tickets, spawn registry, input map
     player.gd               — movement, per-device input, health, respawn
-    weapon.gd               — hitscan blaster (per-class constants later)
+    weapon.gd               — class-based hitscan blaster: ADS zoom, spread, heat
     trooper.gd              — NPC animation + waypoint patrol (AI slot)
     hangar.gd               — level spawn-point registration
   shaders/                  — starfield sky, hangar floor panels
@@ -69,8 +76,8 @@ tools/animate_trooper.py    — headless Blender pipeline: skins + authors
 
 ## Roadmap (parity with the retired C++ prototype, then Battlefront)
 
-- Class kits — Soldier / Sniper / Heavy: HP, speed, heat pool, ADS zoom
-- Weapon heat + overheat lockout instead of ammo
+- Class kits — per-class HP + move speed to go with the weapon classes, and a
+  respawn class-select screen (weapons/heat/ADS zoom are in — see Current State)
 - Droid enemies: FSM AI (idle → patrol → attack), line-of-sight checks
 - Respawn overlay with class select and countdown, per dead player's viewport
 - Conquest mode: command posts, spawn-point capture, ticket bleed
