@@ -1,8 +1,8 @@
-extends Node3D
-## Squad trooper NPC. Plays looping animations with a random phase offset so
-## squads don't move in lockstep; optionally patrols between waypoints.
-## Decorative for now (no collision) — Battlefront AI replaces _process
-## movement with a CharacterBody3D + state machine later.
+extends "res://scripts/character.gd"
+## Decorative squad NPC: a procedural CharacterModel that loops an animation
+## (random phase so squads don't march in lockstep) and optionally patrols
+## between waypoints. No collision — Battlefront AI replaces this _process
+## movement with a CharacterBody3D state machine later.
 
 @export var anim := "idle"
 @export var patrol_path: Array[NodePath] = []
@@ -10,20 +10,19 @@ extends Node3D
 
 var _points: Array[Node3D] = []
 var _target := 0
-var _anim_player: AnimationPlayer
 
 
 func _ready() -> void:
-	_anim_player = find_child("AnimationPlayer", true, false)
-	if _anim_player == null:
-		push_warning("Trooper '%s': model has no AnimationPlayer" % name)
+	super()  # CharacterModel builds the box rig + AnimationPlayer
 	for path in patrol_path:
 		var node := get_node_or_null(path)
 		if node is Node3D:
 			_points.append(node)
 	if not _points.is_empty():
 		anim = "walk"
-	_play(anim)
+	if anim_player.has_animation(anim):
+		anim_player.play(anim)
+		anim_player.seek(randf() * anim_player.current_animation_length, true)
 
 
 func _process(delta: float) -> void:
@@ -37,10 +36,3 @@ func _process(delta: float) -> void:
 		return
 	look_at(target)  # model faces -Z, same as look_at
 	global_position += offset.normalized() * walk_speed * delta
-
-
-func _play(anim_name: String) -> void:
-	if _anim_player == null or not _anim_player.has_animation(anim_name):
-		return
-	_anim_player.play(anim_name)
-	_anim_player.seek(randf() * _anim_player.current_animation_length, true)

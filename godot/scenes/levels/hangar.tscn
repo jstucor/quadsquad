@@ -1,9 +1,8 @@
-[gd_scene load_steps=25 format=3]
+[gd_scene load_steps=24 format=3]
 
 [ext_resource type="Script" path="res://scripts/hangar.gd" id="1_hangar"]
 [ext_resource type="Shader" uid="uid://dqhgk44ry5v02" path="res://shaders/starfield_sky.gdshader" id="2_sky"]
 [ext_resource type="Shader" uid="uid://expfscxxy2ly" path="res://shaders/floor_panels.gdshader" id="3_floor"]
-[ext_resource type="PackedScene" uid="uid://b608m1tn5e657" path="res://assets/models/p3_heavyglb.glb" id="4_trooper"]
 [ext_resource type="Script" uid="uid://dlyugoxwh6sj2" path="res://scripts/trooper.gd" id="5_trooper"]
 
 [sub_resource type="ShaderMaterial" id="SkyShaderMat"]
@@ -242,20 +241,20 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 9, 0, -9)
 [node name="EastB" type="Marker3D" parent="PatrolPoints"]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 9, 0, 9)
 
-[node name="Trooper1" parent="." instance=ExtResource("4_trooper")]
+[node name="Trooper1" type="Node3D" parent="."]
 transform = Transform3D(0.707107, 0, 0.707107, 0, 1, 0, -0.707107, 0, 0.707107, 3.5, 0, 3.5)
 script = ExtResource("5_trooper")
 
-[node name="Trooper2" parent="." instance=ExtResource("4_trooper")]
+[node name="Trooper2" type="Node3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -9, 0, 9)
 script = ExtResource("5_trooper")
 patrol_path = Array[NodePath]([NodePath("../PatrolPoints/WestA"), NodePath("../PatrolPoints/WestB")])
 
-[node name="Trooper3" parent="." instance=ExtResource("4_trooper")]
+[node name="Trooper3" type="Node3D" parent="."]
 transform = Transform3D(-0.707107, 0, -0.707107, 0, 1, 0, 0.707107, 0, -0.707107, -3.5, 0, -3.5)
 script = ExtResource("5_trooper")
 
-[node name="Trooper4" parent="." instance=ExtResource("4_trooper")]
+[node name="Trooper4" type="Node3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 9, 0, -9)
 script = ExtResource("5_trooper")
 patrol_path = Array[NodePath]([NodePath("../PatrolPoints/EastA"), NodePath("../PatrolPoints/EastB")])

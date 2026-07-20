@@ -37,6 +37,8 @@ Click the window to capture the mouse; ESC releases it.
 - Imperial-hangar arena under a procedural starfield (`scenes/levels/hangar.tscn`)
 - 4-way split-screen with one first-person player per quadrant; you never see
   your own model (render-layer cull masks) but squadmates do
+- Procedural blocky characters built in code (no imported model, no skinning)
+  with idle / walk / run / jump — clean box limbs on real joints
 - Hitscan blasters with glowing bolt tracers; damage → death → **reinforcement
   ticket** drain → respawn, Battlefront-style
 - Three weapon classes (Soldier rifle / Sniper / Heavy repeater) with distinct
@@ -47,8 +49,7 @@ Click the window to capture the mouse; ESC releases it.
   raises the viewmodel; the Sniper adds a scoped overlay (and hides its gun)
 - Weapon **heat** instead of ammo: sustained fire overheats and locks out until
   it cools (fixed-timestep, so it's framerate-independent on the Pi)
-- Animated trooper NPCs (idle / waypoint patrol) from the rigged-and-animated
-  `p3_heavyglb` model
+- Decorative squad NPCs (same procedural character) that idle or patrol
 - Per-viewport HUD: crosshair, HP, tickets, squad-color player tags, weapon
   name + heat bar
 
@@ -66,15 +67,14 @@ godot/
     main.gd                 — viewport/HUD/player bootstrap
     game_state.gd           — autoload: teams, tickets, spawn registry, input map
     player.gd               — movement, per-device input, health, respawn
+    character.gd            — procedural blocky humanoid + code-built anims
     weapon.gd               — class-based hitscan blaster: ADS zoom, spread, heat
     viewmodel.gd            — procedural first-person gun + recoil/flash/bob
-    trooper.gd              — NPC animation + waypoint patrol (AI slot)
+    trooper.gd              — decorative NPC: extends CharacterModel + patrol
     hangar.gd               — level spawn-point registration
   shaders/                  — starfield sky, hangar floor panels
-  assets/models/            — animated trooper GLB
-assets/models/rep/          — original un-animated source GLB
-tools/animate_trooper.py    — headless Blender pipeline: skins + authors
-                              idle/walk animations onto the source model
+assets/models/rep/          — retired Battlefront source GLB (unused)
+tools/animate_trooper.py    — retired Blender rig/animation pipeline (unused)
 ```
 
 ## Roadmap (parity with the retired C++ prototype, then Battlefront)

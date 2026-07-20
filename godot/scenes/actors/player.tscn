@@ -2,7 +2,7 @@
 
 [ext_resource type="Script" path="res://scripts/player.gd" id="1_player"]
 [ext_resource type="Script" path="res://scripts/weapon.gd" id="2_weapon"]
-[ext_resource type="PackedScene" uid="uid://b608m1tn5e657" path="res://assets/models/p3_heavyglb.glb" id="3_model"]
+[ext_resource type="Script" path="res://scripts/character.gd" id="3_model"]
 [ext_resource type="Script" path="res://scripts/viewmodel.gd" id="4_viewmodel"]
 
 [sub_resource type="CapsuleShape3D" id="BodyShape"]
@@ -18,7 +18,8 @@ script = ExtResource("1_player")
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.9, 0)
 shape = SubResource("BodyShape")
 
-[node name="Model" parent="." instance=ExtResource("3_model")]
+[node name="Model" type="Node3D" parent="."]
+script = ExtResource("3_model")
 
 [node name="Head" type="Node3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.55, 0)
