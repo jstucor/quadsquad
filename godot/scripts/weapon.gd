@@ -89,6 +89,7 @@ var _cooldown := 0.0
 var _heat := 0.0
 var _overheated := false
 var _burst_left := 0
+var _bloom := 0.0  # extra hip-fire spread (deg) built up by sustained fire
 
 @onready var _viewmodel: Node3D = get_node_or_null("Viewmodel")
 
@@ -100,6 +101,7 @@ func set_class(c: Class) -> void:
 	_heat = 0.0
 	_overheated = false
 	_burst_left = 0
+	_bloom = 0.0
 	heat_changed.emit(_heat, _overheated)
 	if _viewmodel:
 		_viewmodel.configure(c)
@@ -117,10 +119,21 @@ func has_scope() -> bool:
 	return _profile["scope"]
 
 
+## The spread cone half-angle (deg) a shot would use right now — hip fire adds
+## the accumulated bloom, aiming stays tight. Used by the bloom crosshair.
+func current_spread_deg() -> float:
+	if aiming:
+		return _profile["ads_spread"]
+	return _profile["hip_spread"] + _bloom
+
+
 # Fixed-timestep so heat/cooldown/burst behave identically regardless of render
 # framerate (important on the Pi) and on the same clock as firing.
 func _physics_process(delta: float) -> void:
 	_cooldown = maxf(_cooldown - delta, 0.0)
+	# Bloom recovers when not actively spraying (scaled to the weapon's spread).
+	if _bloom > 0.0:
+		_bloom = maxf(_bloom - _profile["hip_spread"] * 4.0 * delta, 0.0)
 	if _heat > 0.0:
 		_heat = maxf(_heat - _profile["cool_rate"] * delta, 0.0)
 		if _overheated and _heat <= OVERHEAT_RELEASE:
@@ -167,6 +180,9 @@ func _fire_shot() -> void:
 	if _viewmodel:
 		_viewmodel.kick(_profile["recoil"])
 	fired.emit(_profile["cam_recoil"])
+	# Hip fire blooms the cone; aiming down sights stays precise.
+	if not aiming:
+		_bloom = minf(_bloom + _profile["hip_spread"] * 0.4, _profile["hip_spread"] * 2.2)
 	if _profile.get("projectile", false):
 		_fire_rocket()
 	else:
@@ -176,7 +192,7 @@ func _fire_shot() -> void:
 func _fire_hitscan() -> void:
 	var from := global_position
 	var dir := -global_transform.basis.z
-	var spread: float = _profile["ads_spread"] if aiming else _profile["hip_spread"]
+	var spread := current_spread_deg()
 	if spread > 0.0:
 		var rad := deg_to_rad(spread)
 		dir = dir.rotated(global_transform.basis.x, randf_range(-rad, rad))

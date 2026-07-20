@@ -107,8 +107,13 @@ func _build_hud(player: Player) -> Control:
 	tag.position = Vector2(14, 8)
 	hud.add_child(tag)
 
-	var crosshair := _full_rect_label("+", 24, Color(1, 1, 1, 0.8))
-	crosshair.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	# Dynamic bloom crosshair: four ticks whose gap tracks the live hip-fire
+	# spread cone (grows as you spray, recovers when you stop, tight when aimed).
+	var crosshair := Control.new()
+	crosshair.set_anchors_preset(Control.PRESET_FULL_RECT)
+	crosshair.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	crosshair.draw.connect(_draw_bloom.bind(crosshair, player))
+	get_tree().process_frame.connect(crosshair.queue_redraw)
 	hud.add_child(crosshair)
 
 	# Scope overlay (scoped weapons only, while aiming).
@@ -185,6 +190,36 @@ func _build_hud(player: Player) -> Control:
 		heat_fill.anchor_right = h
 		heat_fill.color = Color(1.0, 0.3, 0.2, 0.95) if over else Color(0.4, 0.8, 1.0, 0.9))
 
+	# Death screen: red dim + "ELIMINATED" + respawn countdown, shown while dead.
+	var death := Control.new()
+	death.set_anchors_preset(Control.PRESET_FULL_RECT)
+	death.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	death.visible = false
+	var dim := ColorRect.new()
+	dim.set_anchors_preset(Control.PRESET_FULL_RECT)
+	dim.color = Color(0.16, 0.0, 0.0, 0.5)
+	dim.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	death.add_child(dim)
+	var elim := _full_rect_label("ELIMINATED", 34, Color(1, 0.4, 0.35))
+	elim.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	elim.offset_bottom = -70.0
+	death.add_child(elim)
+	var countdown := _full_rect_label("", 22, Color(1, 1, 1, 0.9))
+	countdown.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	countdown.offset_top = 70.0
+	death.add_child(countdown)
+	hud.add_child(death)
+	var set_countdown := func(secs: int) -> void:
+		countdown.text = "Respawning in %d" % secs if secs > 0 else "Respawning..."
+	player.died.connect(func(secs: int) -> void:
+		death.visible = true
+		crosshair.visible = false
+		set_countdown.call(secs))
+	player.respawn_countdown.connect(func(secs: int) -> void: set_countdown.call(secs))
+	player.respawned.connect(func() -> void:
+		death.visible = false
+		update_scope.call())
+
 	# Victory banner (hidden until a team wins).
 	var banner := _full_rect_label("", 40, Color(1, 1, 1, 1))
 	banner.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
@@ -196,6 +231,26 @@ func _build_hud(player: Player) -> Control:
 		banner.visible = true)
 
 	return hud
+
+
+## Bloom crosshair: four ticks at a radius that maps the weapon's current
+## spread cone (half-angle) to screen pixels through the camera FOV.
+func _draw_bloom(c: Control, player: Player) -> void:
+	if not c.visible or c.size.y <= 0.0:
+		return
+	var spread := deg_to_rad(player.weapon.current_spread_deg())
+	var fov := deg_to_rad(player.view_fov())
+	var half_h := c.size.y * 0.5
+	var radius := half_h * tan(spread) / maxf(tan(fov * 0.5), 0.001)
+	radius = clampf(radius, 4.0, half_h * 0.92)
+	var center := c.size * 0.5
+	var col := Color(1, 1, 1, 0.85)
+	var tick := 7.0
+	c.draw_line(center + Vector2(0, -radius), center + Vector2(0, -radius - tick), col, 2.0)
+	c.draw_line(center + Vector2(0, radius), center + Vector2(0, radius + tick), col, 2.0)
+	c.draw_line(center + Vector2(-radius, 0), center + Vector2(-radius - tick, 0), col, 2.0)
+	c.draw_line(center + Vector2(radius, 0), center + Vector2(radius + tick, 0), col, 2.0)
+	c.draw_circle(center, 1.5, col)
 
 
 func _draw_scope(c: Control) -> void:

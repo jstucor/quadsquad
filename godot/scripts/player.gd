@@ -9,6 +9,12 @@ extends CharacterBody3D
 signal health_changed(health: float)
 signal weapon_changed(display_name: String)
 signal aim_changed(aiming: bool)
+signal died(seconds: int)             # entered the death/respawn screen
+signal respawn_countdown(seconds: int)  # remaining whole seconds ticked down
+signal respawned()
+
+const CORPSE_SCENE := preload("res://scenes/fx/corpse.tscn")
+const RESPAWN_DELAY := 3.0
 
 const WALK_SPEED := 4.0
 const SPRINT_SPEED := 6.0
@@ -58,6 +64,10 @@ var _look_pitch := 0.0     # head pitch from look input (recoil is added on top)
 var _recoil_pitch := 0.0   # transient camera kick, settles back to 0
 var _recoil_yaw := 0.0
 var _crouch_t := 0.0       # 0 standing .. 1 crouched
+var _dead := false
+var _respawn_timer := 0.0
+var _respawn_secs := -1    # last whole-second value emitted
+var _corpse: Node3D        # the flop spawned on death, freed on respawn
 
 @onready var head: Node3D = $Head
 @onready var weapon: Weapon = $Head/Weapon
@@ -92,6 +102,8 @@ func bind_camera(cam: Camera3D) -> void:
 
 
 func take_damage(amount: float, attacker: Node = null) -> void:
+	if _dead:
+		return  # already eliminated, waiting to respawn
 	# Friendly fire is off: teammates deal no damage (self-damage still counts).
 	if attacker is Player and attacker != self and attacker.team == team:
 		return
@@ -99,6 +111,10 @@ func take_damage(amount: float, attacker: Node = null) -> void:
 	health_changed.emit(health)
 	if health <= 0.0:
 		_die(attacker)
+
+
+func view_fov() -> float:
+	return _camera.fov if _camera else _base_fov
 
 
 ## True if a world-space hit point lands in this body's head band (tracks the
@@ -109,18 +125,61 @@ func is_headshot(world_pos: Vector3) -> bool:
 
 
 func _die(attacker: Node = null) -> void:
+	if _dead:
+		return
 	# Credit the frag to an enemy killer (not suicide/self or a teammate).
 	if attacker is Player and attacker != self and attacker.team != team:
 		GameState.add_frag(attacker.team)
+	_dead = true
+	velocity = Vector3.ZERO
+	weapon.aiming = false
+	if _camera:
+		_camera.fov = _base_fov
+	_spawn_corpse(attacker)
+	# Hide the live body + turn off its collision; the camera stays here as a
+	# death cam while the flop tumbles and the respawn timer counts down.
+	model.visible = false
+	_collision.disabled = true
+	_respawn_timer = RESPAWN_DELAY
+	_respawn_secs = ceili(RESPAWN_DELAY)
+	died.emit(_respawn_secs)
+
+
+func _spawn_corpse(attacker: Node) -> void:
+	_corpse = CORPSE_SCENE.instantiate()
+	get_tree().current_scene.add_child(_corpse)
+	var push := Vector3.ZERO  # shove away from the shooter
+	if attacker is Node3D and attacker != self:
+		push = global_position - (attacker as Node3D).global_position
+	var xform := Transform3D(Basis(Vector3.UP, rotation.y), global_position)
+	_corpse.launch(xform, GameState.TEAM_COLORS[team], push)
+
+
+func _process_dead(delta: float) -> void:
+	_respawn_timer -= delta
+	var s := maxi(ceili(_respawn_timer), 0)
+	if s != _respawn_secs:
+		_respawn_secs = s
+		respawn_countdown.emit(s)
+	if _respawn_timer <= 0.0:
+		_respawn()
+
+
+func _respawn() -> void:
+	_dead = false
+	model.visible = true
+	_collision.disabled = false
 	health = MAX_HEALTH
 	health_changed.emit(health)
-	velocity = Vector3.ZERO
 	_recoil_pitch = 0.0
 	_recoil_yaw = 0.0
-	# Respawn at a random spawn on our own team's side.
 	var spawn := GameState.get_spawn_point(team)
 	if spawn:
 		global_transform = spawn.global_transform
+	if is_instance_valid(_corpse):
+		_corpse.queue_free()
+	_corpse = null
+	respawned.emit()
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -150,6 +209,9 @@ func _refresh_head() -> void:
 
 
 func _physics_process(delta: float) -> void:
+	if _dead:
+		_process_dead(delta)
+		return
 	if _switch_pressed():
 		_cycle_weapon()
 	_update_aim(delta)
