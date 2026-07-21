@@ -29,17 +29,24 @@ const CORPSE_SCENE := preload("res://scenes/fx/corpse.tscn")
 # something that costs nearly three times as much).
 const BOT_WEAPON := Weapon.Class.SOLDIER
 const SKILLS: Array[Dictionary] = [
-	{"aim_error": 9.0, "reaction": 0.85, "sight": 26.0, "hold": 14.0,
+	{"aim_error": 9.0, "reaction": 0.85, "sight": 45.0, "hold": 14.0,
 		"health": 70.0, "speed": 3.2, "turn": 2.4},
-	{"aim_error": 5.0, "reaction": 0.55, "sight": 36.0, "hold": 16.0,
+	{"aim_error": 5.0, "reaction": 0.55, "sight": 62.0, "hold": 16.0,
 		"health": 90.0, "speed": 3.7, "turn": 3.4},
-	{"aim_error": 2.5, "reaction": 0.32, "sight": 48.0, "hold": 20.0,
+	{"aim_error": 2.5, "reaction": 0.32, "sight": 80.0, "hold": 20.0,
 		"health": 110.0, "speed": 4.2, "turn": 4.6},
-	{"aim_error": 1.0, "reaction": 0.15, "sight": 65.0, "hold": 24.0,
+	{"aim_error": 1.0, "reaction": 0.15, "sight": 105.0, "hold": 24.0,
 		"health": 130.0, "speed": 4.6, "turn": 6.0},
 ]
 
 const RETARGET_INTERVAL := 0.35  # seconds between target searches (staggered)
+# With nothing to shoot, a bot pushes for the middle of the map rather than
+# standing on its spawn. Team AI have no owner to follow, so without this they
+# never move at all and a match with few humans looks broken.
+const ROAM_SPREAD := 16.0    # how far around the middle they'll pick a spot
+const ROAM_REPICK := 7.0     # seconds before choosing somewhere new
+const ROAM_ARRIVE := 3.5
+const FOLLOW_DISTANCE := 5.0 # how close a squadmate tucks in behind its owner
 # Sight lines flicker constantly in a firefight — a teammate crosses, the bot
 # strafes behind a trunk. Without memory the bot would drop its target, spin
 # back toward its owner, then re-acquire and restart its reaction timer, and so
@@ -71,6 +78,8 @@ var _reaction_left := 0.0
 var _memory_left := 0.0  # grace left on a target we've lost sight of
 var _aim_offset := Vector2.ZERO  # held aim error (yaw, pitch) in radians
 var _aim_reroll_in := 0.0
+var _roam_target := Vector3.ZERO
+var _roam_left := 0.0
 var _strafe_dir := 1.0
 var _gravity: float = ProjectSettings.get_setting("physics/3d/default_gravity")
 var _dead := false
@@ -158,7 +167,7 @@ func _physics_process(delta: float) -> void:
 	else:
 		_target = null
 		_state = State.HOLD
-		_follow_owner(delta)
+		_patrol(delta)
 
 	if not is_on_floor():
 		velocity.y -= _gravity * delta
@@ -232,23 +241,51 @@ func _fight(delta: float) -> void:
 	weapon.update_fire(may_fire, may_fire)
 
 
-## Fall in behind the owner: close if they're far, otherwise stand easy. Keeps
-## a bought squad with the player who paid for it instead of scattering.
-func _follow_owner(delta: float) -> void:
-	velocity.x = 0.0
-	velocity.z = 0.0
-	if owner_player == null or not is_instance_valid(owner_player) \
-			or not owner_player.is_alive():
+## Nothing to shoot. A bought squadmate falls in behind the player who paid for
+## it; anyone else (team AI, or a squadmate whose owner is down) pushes for the
+## middle of the map, which is where the fighting is on every layout.
+func _patrol(delta: float) -> void:
+	# Ease the gun back to level while nothing is being aimed at.
+	head.rotation.x = lerpf(head.rotation.x, 0.0, clampf(delta * 3.0, 0.0, 1.0))
+	head.rotation.y = lerpf(head.rotation.y, 0.0, clampf(delta * 3.0, 0.0, 1.0))
+
+	var goal := _patrol_goal(delta)
+	var flat := goal - global_position
+	flat.y = 0.0
+	var gap := flat.length()
+	var arrive := FOLLOW_DISTANCE if _has_owner() else ROAM_ARRIVE
+	if gap <= arrive:
+		velocity.x = 0.0
+		velocity.z = 0.0
+		if not _has_owner():
+			_roam_left = 0.0  # arrived: pick somewhere new on the next tick
 		_apply_unstick()
 		return
-	var flat: Vector3 = owner_player.global_position - global_position
-	flat.y = 0.0
-	if flat.length() > 5.0:
-		_face(flat, delta)
-		var step := flat.normalized() * float(_skill["speed"])
-		velocity.x = step.x
-		velocity.z = step.z
+	_state = State.ADVANCE
+	_face(flat, delta)
+	var step := flat.normalized() * float(_skill["speed"])
+	velocity.x = step.x
+	velocity.z = step.z
 	_apply_unstick()
+
+
+func _has_owner() -> bool:
+	return owner_player != null and is_instance_valid(owner_player) \
+		and owner_player.is_alive()
+
+
+func _patrol_goal(delta: float) -> Vector3:
+	if _has_owner():
+		return owner_player.global_position
+	_roam_left -= delta
+	if _roam_left <= 0.0:
+		_roam_left = ROAM_REPICK
+		# Somewhere around the middle, so a squad spreads out instead of all
+		# walking the same line.
+		var angle := randf() * TAU
+		var reach := sqrt(randf()) * ROAM_SPREAD
+		_roam_target = Vector3(cos(angle) * reach, 0.0, sin(angle) * reach)
+	return _roam_target
 
 
 func _face(flat_dir: Vector3, delta: float) -> void:

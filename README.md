@@ -117,8 +117,11 @@ capture the mouse; ESC releases it.
     own, and can be shot down.
 
 - **AI squadmates** fight for your team: they acquire the nearest enemy they can
-  actually see, close to their engagement range, strafe and shoot, and fall in
-  behind you when there's nothing to fight. Skill is what you're paying for —
+  actually see (45–105 m by skill), close to their engagement range, strafe and
+  shoot. With nothing to fight, a bought squadmate falls in behind the player
+  who paid for it, and anyone else — team AI, or a squadmate whose owner is
+  down — pushes for the middle of the map, so a match with one human still
+  plays itself out. Skill is what you're paying for —
   aim error, reaction time, sight range, turn speed and toughness all scale with
   the tier, and every tier carries the same rifle so intelligence is the only
   variable. They don't respawn; your next deploy tops the squad back up to the
