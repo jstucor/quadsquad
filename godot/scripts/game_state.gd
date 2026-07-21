@@ -26,6 +26,8 @@ const MAPS: Array[Dictionary] = [
 		"scene": preload("res://scenes/levels/foundry.tscn")},
 	{"name": "OVERGROWTH", "blurb": "Wide outdoor jungle, temple ruins",
 		"scene": preload("res://scenes/levels/overgrowth.tscn")},
+	{"name": "HIGHRIDGE", "blurb": "Jungle mountain, tunnel and a flag on the peak",
+		"scene": preload("res://scenes/levels/highridge.tscn")},
 	{"name": "HANGAR", "blurb": "Imperial deck, close quarters",
 		"scene": preload("res://scenes/levels/hangar.tscn")},
 ]
@@ -41,6 +43,39 @@ var map_index := 0  # index into MAPS; the menu sets it
 ## Menu choice: true = play the whole roster in order (rotating on each win),
 ## false = replay the chosen map, then back to the menu.
 var rotate_maps := false
+
+## Match setup, all chosen on the menu.
+## `human_players` is how many split-screen humans are at the couch, and decides
+## the viewport layout. `team_size` is the headcount PER TEAM: humans fill the
+## slots first and AI makes up the difference, so 2 humans at a team size of 3
+## is a 3v3 with four bots in it. `ai_skill` indexes Loadout.SQUAD_SKILLS.
+var human_players := 4
+var team_size := 2
+var ai_skill := 1
+
+const MIN_HUMANS := 1
+const MAX_HUMANS := 4
+const MIN_TEAM_SIZE := 1
+const MAX_TEAM_SIZE := 6
+
+
+## Which team a given human player lands on: the first half of them hold the
+## Republic side, the rest are Separatists, so 4 humans is 2v2 and 2 is 1v1.
+func team_for_player(index: int) -> int:
+	return Team.REPUBLIC if index < ceili(human_players / 2.0) else Team.CIS
+
+
+func humans_on_team(team: int) -> int:
+	var count := 0
+	for i in human_players:
+		if team_for_player(i) == team:
+			count += 1
+	return count
+
+
+## How many AI are needed to bring a team up to the chosen size.
+func ai_needed(team: int) -> int:
+	return maxi(team_size - humans_on_team(team), 0)
 ## Every body that can be shot, shove or be shoved, and block a spawn marker:
 ## players and their bought AI squads alike. They register in _ready and drop
 ## out in _exit_tree; spawn picking and the anti-stacking push both walk this

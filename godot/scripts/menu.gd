@@ -40,7 +40,9 @@ func _build() -> void:
 
 	column.add_child(_label("QUADSQUAD", 52, ACCENT))
 	column.add_child(_label("SELECT MAP", 22, DIM))
-	column.add_child(_spacer(18))
+	column.add_child(_spacer(14))
+	_build_setup_rows(column)
+	column.add_child(_spacer(14))
 
 	var first: Button = null
 	for i in GameState.MAPS.size():
@@ -57,11 +59,52 @@ func _build() -> void:
 
 	column.add_child(_spacer(20))
 	column.add_child(_label(
-		"Arrows / left stick to move    Enter / A to select    P1 is keyboard + mouse",
+		"Arrows / left stick to move    Enter / A to select or change    P1 is keyboard + mouse",
 		15, Color(0.42, 0.46, 0.52)))
 
 	if first:
 		first.grab_focus()
+
+
+## Match setup: how many humans are on the couch, how big each team is, and how
+## good the AI filling the empty slots are. Each row cycles on press, and the
+## summary underneath spells out what you'll actually get, since "2 humans at
+## team size 3" is not obviously a 3v3.
+func _build_setup_rows(column: VBoxContainer) -> void:
+	var summary := _label("", 16, Color(0.68, 0.72, 0.78))
+
+	var players_button := _row(column, "", "Humans at the couch")
+	var size_button := _row(column, "", "Headcount per team, AI fill the rest")
+	var skill_button := _row(column, "", "How good the AI teammates are")
+
+	var refresh := func() -> void:
+		players_button.text = "PLAYERS  %d" % GameState.human_players
+		size_button.text = "TEAM SIZE  %d" % GameState.team_size
+		skill_button.text = "AI SKILL  %s" % Loadout.SQUAD_SKILLS[GameState.ai_skill]["name"]
+		var ai_total: int = GameState.ai_needed(GameState.Team.REPUBLIC) \
+			+ GameState.ai_needed(GameState.Team.CIS)
+		summary.text = "%d human%s + %d AI     %d v %d" % [
+			GameState.human_players, "" if GameState.human_players == 1 else "s",
+			ai_total, GameState.team_size, GameState.team_size]
+
+	players_button.pressed.connect(func() -> void:
+		GameState.human_players = wrapi(GameState.human_players + 1,
+			GameState.MIN_HUMANS, GameState.MAX_HUMANS + 1)
+		# A team can never be smaller than the humans standing in it.
+		GameState.team_size = maxi(GameState.team_size,
+			GameState.humans_on_team(GameState.Team.REPUBLIC))
+		refresh.call())
+	size_button.pressed.connect(func() -> void:
+		var floor_size: int = maxi(GameState.humans_on_team(GameState.Team.REPUBLIC), 1)
+		GameState.team_size = wrapi(GameState.team_size + 1,
+			floor_size, GameState.MAX_TEAM_SIZE + 1)
+		refresh.call())
+	skill_button.pressed.connect(func() -> void:
+		GameState.ai_skill = wrapi(GameState.ai_skill + 1, 0, Loadout.SQUAD_SKILLS.size())
+		refresh.call())
+
+	column.add_child(summary)
+	refresh.call()
 
 
 func _start(index: int, rotate: bool) -> void:

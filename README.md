@@ -42,13 +42,28 @@ capture the mouse; ESC releases it.
 - **Team deathmatch, 2v2** (Republic vs Separatist): kills credit the killer's
   team, friendly fire off, first team to the score limit wins, then the game
   rotates to the next map. Team-tinted characters + a per-viewport scoreboard
-- **Map-select menu** on launch: pick any of the four maps, or "Map Rotation"
-  to play the whole roster in order. Driven by keyboard, mouse, or any joypad;
-  a single-map match returns to the menu when it ends
-- **Four maps**: Crossfire, Foundry and the outdoor jungle Overgrowth (built
-  procedurally from `scripts/arena.gd`) plus the Imperial hangar. Overgrowth is
-  the biggest and the only rectangular one — 86 x 68 m of daylight jungle whose
-  64-tree forest is two MultiMeshes, i.e. two draw calls for the whole canopy
+- **Map-select menu** on launch: pick any map, or "Map Rotation" to play the
+  whole roster in order. Driven by keyboard, mouse, or any joypad; a single-map
+  match returns to the menu when it ends. It also sets up the match:
+  - **Players** (1–4) — how many humans are at the couch. One is full-screen,
+    two split left/right, three or four go 2x2.
+  - **Team size** (per team) — humans fill the slots first and **AI make up the
+    difference**, so 2 humans at team size 3 is a 3v3 with four bots in it.
+    Team AI respawn, so a side never bleeds out.
+  - **AI skill** — which tier those teammates fight at.
+- **Five maps**: Crossfire, Foundry, the jungle Overgrowth and the mountain
+  **Highridge** (all procedural, from `scripts/arena.gd`) plus the Imperial
+  hangar.
+  - **Highridge** is the one with real terrain: a generated heightfield
+    mountain you can walk up (steepest face 27 degrees, measured), a flat
+    plateau at the peak with a flag on it, a **tunnel bored straight through
+    the mountain**, and shipping containers and trees scattered across the
+    basin. The tunnel is a hollow rather than a carve — a heightfield is only a
+    skin, so the space under it is already empty; the mouths are cut where the
+    ground would rise into the corridor.
+  - **Overgrowth** is 86 x 68 m of flat daylight jungle. Both jungle maps grow
+    their forests through `scripts/foliage.gd`: two MultiMeshes, i.e. two draw
+    calls for the whole canopy
 - 4-way split-screen with one first-person player per quadrant; you never see
   your own model (render-layer cull masks) but squadmates do
 - Procedural blocky characters built in code (no imported model, no skinning)
@@ -126,7 +141,7 @@ godot/
   scenes/
     menu.tscn               — map-select menu (the main scene)
     main.tscn               — bare bootstrap node (main.gd loads the map)
-    levels/                 — crossfire/foundry/overgrowth.tscn (procedural), hangar.tscn
+    levels/                 — crossfire/foundry/overgrowth/highridge.tscn, hangar.tscn
     actors/player.tscn      — CharacterBody3D FPS player
     actors/bot.tscn         — CharacterBody3D AI squadmate
     actors/turret.tscn      — placed auto-turret
@@ -144,7 +159,9 @@ godot/
     character.gd            — procedural blocky humanoid + code-built anims
     arena.gd                — procedural map base (env/floor/walls/lights/spawns),
                               square or rectangular (size x depth)
-    map_crossfire.gd, map_foundry.gd, map_overgrowth.gd — map layouts (extend arena)
+    map_crossfire.gd, map_foundry.gd, map_overgrowth.gd, map_highridge.gd
+                            — map layouts (extend arena)
+    foliage.gd              — shared jungle forest builder (MultiMesh trees)
     weapon.gd               — 9-weapon blaster: fire modes, ADS, spread, heat
     viewmodel.gd            — procedural first-person gun + recoil/flash/bob
     rocket.gd               — RPG projectile: travel + splash damage

@@ -1,19 +1,15 @@
 extends Node3D
-## Team-deathmatch bootstrap: loads the current map from the rotation, builds
-## the 2x2 SubViewport grid, spawns two players per team at their team's spawn
-## points, wires each viewport's camera + HUD, and rotates to the next map when
-## a team hits the score limit. The map itself (scenes/levels/*) registers its
-## per-team spawn points with GameState before players spawn.
+## Team-deathmatch bootstrap: loads the current map from the rotation, builds a
+## SubViewport per human player, fills both teams up to the chosen size with AI,
+## spawns everyone at their team's spawn points, wires each viewport's camera +
+## HUD, and rotates to the next map when a team hits the score limit. The map
+## itself (scenes/levels/*) registers its per-team spawn points before anyone
+## spawns. Player count, team size and AI skill all come from the menu.
 
-const PLAYER_COUNT := 4
 const PLAYER_SCENE := preload("res://scenes/actors/player.tscn")
+const BOT_SCENE := preload("res://scenes/actors/bot.tscn")
 const MENU_SCENE := "res://scenes/menu.tscn"
-
-# 2v2 team assignment and per-player accent colour (for the corner tag).
-const TEAMS: Array[int] = [
-	GameState.Team.REPUBLIC, GameState.Team.REPUBLIC,
-	GameState.Team.CIS, GameState.Team.CIS,
-]
+const AI_RESPAWN_DELAY := 4.0  # team AI come back, unlike a player's bought squad
 const PLAYER_COLORS: Array[Color] = [
 	Color(0.9, 0.3, 0.3),
 	Color(0.3, 0.6, 0.9),
@@ -47,11 +43,12 @@ func _ready() -> void:
 	add_child(level)  # its _ready registers the team spawn points
 
 	var grid := GridContainer.new()
-	grid.columns = 2
+	# One human is full-screen, two split left/right, three or four go 2x2.
+	grid.columns = 1 if GameState.human_players == 1 else 2
 	grid.set_anchors_preset(Control.PRESET_FULL_RECT)
 	add_child(grid)
 
-	for i in PLAYER_COUNT:
+	for i in GameState.human_players:
 		var container := SubViewportContainer.new()
 		container.stretch = true
 		container.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -69,7 +66,7 @@ func _ready() -> void:
 		var player: Player = PLAYER_SCENE.instantiate()
 		player.player_index = i
 		player.input_device = i - 1  # P1 keyboard/mouse; P2..P4 joypads 0..2
-		player.team = TEAMS[i]
+		player.team = GameState.team_for_player(i)
 		level.add_child(player)
 		var spawn := GameState.get_spawn_point(player.team, _team_slot(i))
 		if spawn:
@@ -80,6 +77,7 @@ func _ready() -> void:
 		viewport.add_child(_build_hud(player))
 		player.begin_deploy()  # after the HUD exists, so it sees the select screen
 
+	_fill_teams_with_ai()
 	GameState.score_changed.connect(_refresh_scores)
 	GameState.match_won.connect(_show_victory)
 	GameState.match_won.connect(_on_match_won)
@@ -90,9 +88,38 @@ func _ready() -> void:
 func _team_slot(index: int) -> int:
 	var slot := 0
 	for j in index:
-		if TEAMS[j] == TEAMS[index]:
+		if GameState.team_for_player(j) == GameState.team_for_player(index):
 			slot += 1
 	return slot
+
+
+## Bring both teams up to the chosen size with AI. These are the match's own
+## bots, not a player's bought squad: they have no owner and they respawn, so a
+## 1v1 with a team size of 4 stays a 4v4 all match.
+func _fill_teams_with_ai() -> void:
+	for team in [GameState.Team.REPUBLIC, GameState.Team.CIS]:
+		for n in GameState.ai_needed(team):
+			_spawn_team_bot(team)
+
+
+func _spawn_team_bot(team: int) -> void:
+	if level == null or not is_instance_valid(level):
+		return
+	var bot: Bot = BOT_SCENE.instantiate()
+	level.add_child(bot)
+	bot.setup(null, team, GameState.ai_skill)  # no owner: it fights for the team
+	var spawn := GameState.get_spawn_point(team)
+	if spawn:
+		bot.global_transform = GameState.clear_of_bodies(spawn.global_transform)
+	bot.tree_exited.connect(_on_team_bot_lost.bind(team))
+
+
+func _on_team_bot_lost(team: int) -> void:
+	# Also fires while the scene is being torn down, when there's no tree to
+	# schedule against and nothing left to reinforce.
+	if not is_inside_tree() or GameState.match_over:
+		return
+	get_tree().create_timer(AI_RESPAWN_DELAY).timeout.connect(_spawn_team_bot.bind(team))
 
 
 func _on_match_won(_team: int) -> void:
