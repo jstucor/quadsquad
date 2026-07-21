@@ -15,14 +15,20 @@ extends "res://scripts/arena.gd"
 ## wall the corridor's sides, so you walk a passage instead of the whole hollow
 ## interior.
 
-const GROUND_SHADER := preload("res://shaders/jungle_ground.gdshader")
+const GROUND_SHADER := preload("res://shaders/terrain_ground.gdshader")
 
 const SEED := 20260722
 const HILL_CENTRE := Vector2(0.0, 0.0)
-const HILL_RADIUS := 26.0
-const PLATEAU_RADIUS := 7.5   # flat top: the objective, and a sniper's perch
-const HILL_HEIGHT := 6.2
-const ROLL := 0.15            # gentle noise on the flanks, too small to trip on
+const HILL_RADIUS := 33.0
+const PLATEAU_RADIUS := 9.0   # flat top: the objective, and a sniper's perch
+const HILL_HEIGHT := 7.0
+const ROLL := 0.12            # gentle noise on the flanks, too small to trip on
+# Spurs and gullies, so the hill isn't a cone. This varies how far the slope
+# REACHES, not how tall it is: varying the height leaves the flat-topped plateau
+# standing proud of its own flanks, which is a cliff, not a hill (it measured 60
+# degrees at the plateau edge). Reaching further out just makes that spur
+# gentler, and the pinched side is what the slope budget is sized for.
+const LOBE := 0.10
 const CELL := 1.8             # heightfield resolution in metres
 
 # The tunnel runs along X, through the middle of the hill.
@@ -33,7 +39,8 @@ const TUNNEL_CEILING := 3.4   # skin below this inside the corridor is cut away
 const GROUND_TILE_M := 1.6
 const TREE_COUNT := 46
 const TREE_SPACING := 3.4
-const CONTAINER_COUNT := 14
+const CONTAINER_COUNT := 13
+const BOULDER_COUNT := 16
 
 
 func _configure() -> void:
@@ -57,17 +64,34 @@ func _configure() -> void:
 ## Ground height at a world XZ. The single source of truth for the terrain: the
 ## mesh, the collision, and every prop that has to sit on the ground all read it.
 func height_at(x: float, z: float) -> float:
-	var r := Vector2(x, z).distance_to(HILL_CENTRE)
-	if r >= HILL_RADIUS:
-		return 0.0
+	var offset := Vector2(x, z) - HILL_CENTRE
+	var r := offset.length()
 	if r <= PLATEAU_RADIUS:
 		return HILL_HEIGHT  # dead flat on top, so the peak is holdable
-	var t := (r - PLATEAU_RADIUS) / (HILL_RADIUS - PLATEAU_RADIUS)
+	var reach := HILL_RADIUS * _lobe(offset)
+	if r >= reach:
+		return 0.0
+	var t := (r - PLATEAU_RADIUS) / (reach - PLATEAU_RADIUS)
 	var h := HILL_HEIGHT * (1.0 - smoothstep(0.0, 1.0, t))
 	# A little roll so the flanks aren't a perfect cone; kept tiny on purpose,
 	# since steep noise would break the walkable-slope guarantee.
 	h += sin(x * 0.19) * cos(z * 0.17) * ROLL * (1.0 - t)
 	return maxf(h, 0.0)
+
+
+## Ridge/gully multiplier around the hill, 1 +/- LOBE.
+func _lobe(offset: Vector2) -> float:
+	var angle := atan2(offset.y, offset.x)
+	return 1.0 + LOBE * (sin(angle * 3.0 + 0.7) * 0.65 + sin(angle * 5.0 - 1.3) * 0.35)
+
+
+## How steep the ground is here, 0 (flat) to 1 (at the walkable limit). Fed to
+## the terrain shader as vertex colour so rock shows through on the steep faces.
+func steepness_at(x: float, z: float) -> float:
+	const E := 0.9
+	var dx := (height_at(x + E, z) - height_at(x - E, z)) / (2.0 * E)
+	var dz := (height_at(x, z + E) - height_at(x, z - E)) / (2.0 * E)
+	return clampf(Vector2(dx, dz).length() / 0.6, 0.0, 1.0)
 
 
 ## True where the corridor needs the skin removed: inside the tunnel's width and
@@ -125,11 +149,16 @@ func _build_terrain() -> void:
 				Vector3(x1, height_at(x1, z1), z1),
 				Vector3(x0, height_at(x0, z1), z1),
 			]
-			# Flat ground is left to the base plane, or the two would z-fight.
+			# Cells that are entirely flat are left to the base plane, or the two
+			# z-fight. Anything with even one raised corner IS emitted, though:
+			# with a height cutoff the skin's leading edge becomes a lip hanging
+			# above the plane, and players walk under the mountain instead of up
+			# it. Emitting from the first raised corner puts the skin's outer
+			# edge exactly on y=0, continuous with the plane.
 			var tallest := 0.0
 			for c: Vector3 in corners:
 				tallest = maxf(tallest, c.y)
-			if tallest <= 0.05:
+			if tallest <= 0.0:
 				continue
 			if _is_tunnel_mouth(x0, z0) or _is_tunnel_mouth(x1, z1):
 				continue
@@ -205,18 +234,37 @@ func _mouth_x(side: float) -> float:
 func _quad(st: SurfaceTool, a: Vector3, b: Vector3, c: Vector3, d: Vector3) -> void:
 	# Wound counter-clockwise seen from above, so the surface faces up.
 	for v: Vector3 in [a, d, c, a, c, b]:
+		st.set_color(Color(steepness_at(v.x, v.z), 0.0, 0.0))
 		st.set_uv(Vector2(v.x, v.z) / GROUND_TILE_M)
 		st.add_vertex(v)
 
 
+## The flat base plane. A PlaneMesh's UVs run 0..1 across the WHOLE plane, so
+## the noise has to be told the map's size — left at 1, the entire 96 m of
+## ground samples a single noise cell and renders as one flat wash of colour.
 func _floor_material() -> Material:
+	var mat := _ground_material()
+	mat.set_shader_parameter("uv_tiles", Vector2(size, depth) / GROUND_TILE_M)
+	mat.set_shader_parameter("slope_mix", 0.0)  # no vertex colours on a PlaneMesh
+	return mat
+
+
+## The mountain skin, whose UVs are already in tile units and which carries a
+## per-vertex slope in its vertex colours.
+func _terrain_material() -> Material:
+	var mat := _ground_material()
+	mat.set_shader_parameter("uv_tiles", Vector2.ONE)
+	mat.set_shader_parameter("slope_mix", 1.0)
+	return mat
+
+
+func _ground_material() -> ShaderMaterial:
 	var mat := ShaderMaterial.new()
 	mat.shader = GROUND_SHADER
 	mat.set_shader_parameter("moss_col", floor_color)
-	mat.set_shader_parameter("dirt_col", Color(0.24, 0.18, 0.12))
+	mat.set_shader_parameter("dirt_col", Color(0.26, 0.20, 0.13))
+	mat.set_shader_parameter("rock_col", Color(0.35, 0.34, 0.31))
 	mat.set_shader_parameter("deep_col", Color(0.06, 0.12, 0.06))
-	# UVs are already in tile units, so the shader shouldn't scale them again.
-	mat.set_shader_parameter("tiles", Vector2.ONE)
 	return mat
 
 
@@ -239,7 +287,7 @@ func _build_environment() -> void:
 	env.glow_intensity = 0.3
 	env.fog_enabled = true
 	env.fog_light_color = Color(0.55, 0.66, 0.52)
-	env.fog_density = 0.008
+	env.fog_density = 0.005
 	env.fog_sky_affect = 0.2
 	var we := WorldEnvironment.new()
 	we.environment = env
@@ -269,6 +317,7 @@ func _decorate() -> void:
 	rng.seed = SEED
 	Foliage.grow(self, _tree_spots(rng), rng)
 	_build_containers(rng)
+	_build_boulders(rng)
 	_build_flag()
 
 
@@ -308,38 +357,113 @@ func _build_containers(rng: RandomNumberGenerator) -> void:
 			continue
 		if Vector2(x, z).distance_to(HILL_CENTRE) < PLATEAU_RADIUS + 2.0:
 			continue
+		if steepness_at(x, z) > 0.35:
+			continue  # too steep to sit level: that ground gets boulders instead
 		var pos := Vector3(x, height_at(x, z), z)
-		if _too_close(pos, placed, 9.0) or _blocks_play(pos):
+		if _too_close(pos, placed, 11.0) or _blocks_play(pos):
 			continue
 		placed.append(pos)
 		_container(pos, rng)
 
 
+## One container, or a stack of two. Rust reds and faded blues rather than the
+## washed-out pastels they had before, an end panel so you can tell which way a
+## container faces, and 20ft/40ft variants so a scatter doesn't look cloned.
 func _container(pos: Vector3, rng: RandomNumberGenerator) -> void:
 	const PALETTE := [
-		Color(0.45, 0.26, 0.2), Color(0.2, 0.34, 0.42),
-		Color(0.44, 0.42, 0.24), Color(0.28, 0.36, 0.28),
+		Color(0.42, 0.17, 0.13), Color(0.13, 0.27, 0.38),
+		Color(0.46, 0.38, 0.14), Color(0.2, 0.32, 0.22), Color(0.34, 0.33, 0.32),
 	]
+	var yaw := rng.randf_range(0.0, TAU)
+	var stack: int = 2 if rng.randf() < 0.35 else 1
+	for level_index in stack:
+		var long_one := rng.randf() < 0.4
+		var box_size := Vector3(12.2 if long_one else 6.1, 2.6, 2.44)
+		var colour: Color = PALETTE[rng.randi() % PALETTE.size()]
+		var body := StaticBody3D.new()
+		body.position = pos + Vector3.UP * (1.3 + level_index * 2.62)
+		# A stacked container sits a little askew, like it was dropped there.
+		body.rotation.y = yaw + (rng.randf_range(-0.12, 0.12) if level_index > 0 else 0.0)
+		add_child(body)
+		_container_shell(body, box_size, colour)
+
+
+func _container_shell(body: StaticBody3D, box_size: Vector3, colour: Color) -> void:
 	var mat := StandardMaterial3D.new()
-	mat.albedo_color = PALETTE[rng.randi() % PALETTE.size()]
+	mat.albedo_color = colour
 	mat.metallic = 0.12  # keep low: a dark sky reflects into metal (Gotchas)
-	mat.roughness = 0.65
-	var body := StaticBody3D.new()
-	body.position = pos + Vector3.UP * 1.3
-	body.rotation.y = rng.randf_range(0.0, TAU)
-	add_child(body)
-	var box_size := Vector3(6.1, 2.6, 2.44)  # roughly a 20ft container
+	mat.roughness = 0.62
 	var mesh := MeshInstance3D.new()
 	var bm := BoxMesh.new()
 	bm.size = box_size
 	mesh.mesh = bm
 	mesh.material_override = mat
 	body.add_child(mesh)
+
+	# Darker doors on one end, so the box reads as a container.
+	var door_mat := StandardMaterial3D.new()
+	door_mat.albedo_color = colour.darkened(0.35)
+	door_mat.metallic = 0.12
+	door_mat.roughness = 0.7
+	var doors := MeshInstance3D.new()
+	var dm := BoxMesh.new()
+	dm.size = Vector3(0.12, box_size.y * 0.86, box_size.z * 0.9)
+	doors.mesh = dm
+	doors.position = Vector3(box_size.x * 0.5, 0.0, 0.0)
+	doors.material_override = door_mat
+	doors.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	body.add_child(doors)
+
 	var shape := CollisionShape3D.new()
 	var cb := BoxShape3D.new()
 	cb.size = box_size
 	shape.shape = cb
 	body.add_child(shape)
+
+
+## Boulders, mostly up on the steep ground where containers can't sit level.
+## They break the hill's silhouette and give the climb something to hide behind.
+func _build_boulders(rng: RandomNumberGenerator) -> void:
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = Color(0.33, 0.32, 0.3)
+	mat.metallic = 0.0
+	mat.roughness = 0.9
+	var limit := half_extents() - Vector2.ONE * 5.0
+	var placed: Array = []
+	var attempts := 0
+	while placed.size() < BOULDER_COUNT and attempts < BOULDER_COUNT * 60:
+		attempts += 1
+		var x := rng.randf_range(-limit.x, limit.x)
+		var z := rng.randf_range(-limit.y, limit.y)
+		if absf(z - TUNNEL_Z) < TUNNEL_HALF_WIDTH + 2.0:
+			continue
+		if Vector2(x, z).distance_to(HILL_CENTRE) < PLATEAU_RADIUS + 1.0:
+			continue
+		var pos := Vector3(x, height_at(x, z), z)
+		if _too_close(pos, placed, 7.0):
+			continue
+		placed.append(pos)
+		var radius := rng.randf_range(0.8, 2.1)
+		var body := StaticBody3D.new()
+		# Sunk slightly, so they sit in the ground rather than on it.
+		body.position = pos + Vector3.UP * radius * 0.55
+		body.rotation = Vector3(rng.randf_range(0, TAU), rng.randf_range(0, TAU),
+			rng.randf_range(0, TAU))
+		add_child(body)
+		var mesh := MeshInstance3D.new()
+		var sphere := SphereMesh.new()
+		sphere.radius = radius
+		sphere.height = radius * 1.7
+		sphere.radial_segments = 6  # faceted, to match the blocky art
+		sphere.rings = 3
+		mesh.mesh = sphere
+		mesh.material_override = mat
+		body.add_child(mesh)
+		var shape := CollisionShape3D.new()
+		var sp := SphereShape3D.new()
+		sp.radius = radius * 0.9
+		shape.shape = sp
+		body.add_child(shape)
 
 
 ## The flag on the plateau: the landmark that says "this is the high ground".

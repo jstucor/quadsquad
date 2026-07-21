@@ -55,10 +55,11 @@ capture the mouse; ESC releases it.
   **Highridge** (all procedural, from `scripts/arena.gd`) plus the Imperial
   hangar.
   - **Highridge** is the one with real terrain: a generated heightfield
-    mountain you can walk up (steepest face 27 degrees, measured), a flat
-    plateau at the peak with a flag on it, a **tunnel bored straight through
-    the mountain**, and shipping containers and trees scattered across the
-    basin. The tunnel is a hollow rather than a carve — a heightfield is only a
+    mountain you can walk up (steepest face 26.6 degrees, measured), with
+    spurs and gullies rather than a smooth cone, bare rock showing through on
+    the steep faces, a flat plateau at the peak with a flag on it, a **tunnel
+    bored straight through the mountain**, and boulders, trees and stacked
+    shipping containers scattered across the basin. The tunnel is a hollow rather than a carve — a heightfield is only a
     skin, so the space under it is already empty; the mouths are cut where the
     ground would rise into the corridor.
   - **Overgrowth** is 86 x 68 m of flat daylight jungle. Both jungle maps grow
