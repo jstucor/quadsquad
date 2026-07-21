@@ -144,6 +144,9 @@ func _die(attacker: Node) -> void:
 func _physics_process(delta: float) -> void:
 	if _dead:
 		return
+	if not GameState.match_live:
+		weapon.update_fire(false, false)  # hold until the match is called on
+		return
 	_retarget_in -= delta
 	_memory_left = maxf(_memory_left - delta, 0.0)
 	if _retarget_in <= 0.0:

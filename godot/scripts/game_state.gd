@@ -6,6 +6,11 @@ extends Node
 
 signal score_changed(team: int, score: int)
 signal match_won(team: int)
+## The match proper hasn't begun until everyone has picked a loadout and the
+## start countdown has run. `match_countdown` ticks whole seconds (0 = FIGHT),
+## and nobody can move or shoot until `match_live` is true.
+signal match_countdown(seconds: int)
+signal match_began()
 
 enum Team { REPUBLIC, CIS }
 
@@ -49,6 +54,11 @@ var rotate_maps := false
 ## the viewport layout. `team_size` is the headcount PER TEAM: humans fill the
 ## slots first and AI makes up the difference, so 2 humans at a team size of 3
 ## is a 3v3 with four bots in it. `ai_skill` indexes Loadout.SQUAD_SKILLS.
+## False from map load until the start countdown finishes. Everything that can
+## act checks it, so the opening seconds are a real hold rather than a free hit
+## for whoever loads fastest.
+var match_live := false
+
 var human_players := 4
 var team_size := 2
 var ai_skill := 1
@@ -95,6 +105,7 @@ func _init() -> void:
 func reset_match() -> void:
 	scores = {Team.REPUBLIC: 0, Team.CIS: 0}
 	match_over = false
+	match_live = false
 	_spawns.clear()
 	combatants.clear()
 

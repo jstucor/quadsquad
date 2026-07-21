@@ -71,6 +71,9 @@ func _destroy(attacker: Node) -> void:
 func _physics_process(delta: float) -> void:
 	if _dead:
 		return
+	if not GameState.match_live:
+		weapon.update_fire(false, false)
+		return
 	_retarget_in -= delta
 	if _retarget_in <= 0.0:
 		_retarget_in = RETARGET_INTERVAL

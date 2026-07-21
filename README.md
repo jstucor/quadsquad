@@ -68,6 +68,12 @@ capture the mouse; ESC releases it.
   your own model (render-layer cull masks) but squadmates do
 - Procedural blocky characters built in code (no imported model, no skinning)
   with idle / walk / run / jump — clean box limbs on real joints
+- **The match waits for everyone.** Nobody moves or shoots until every human
+  has bought a loadout and deployed; the last one in starts a GET READY
+  countdown, and only then does the match go live. Players, AI and turrets are
+  all held by the same flag. The deploy lock counts itself down out loud
+  ("ready in 3...") so a locked button never reads as a hung match.
+
 - **Buy screen instead of classes.** Every life you get **200 tokens** and spec
   a build: a gun, upgrades bolted to it, an armour frame, and consumables.
   Nothing is earned or banked — the budget resets each life — and your build

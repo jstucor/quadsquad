@@ -212,6 +212,11 @@ func is_alive() -> bool:
 
 ## True once the buy screen's minimum wait has elapsed and the deploy button
 ## will actually do something.
+## Seconds left on the buy screen's deploy lock, 0 once the button is live.
+func deploy_wait() -> float:
+	return maxf(_deploy_wait, 0.0)
+
+
 ## Seconds until the wrist cable is usable again, 0 when it's ready.
 func cable_cooldown() -> float:
 	return _cable_cd
@@ -400,10 +405,13 @@ func _spawn_corpse(attacker: Node) -> void:
 
 func _process_dead(delta: float) -> void:
 	if not _deploy_armed:
+		var whole_before := ceili(_deploy_wait)
 		_deploy_wait -= delta
 		if _deploy_wait <= 0.0:
 			_deploy_armed = true
 			deploy_ready.emit()
+		elif ceili(_deploy_wait) != whole_before:
+			buy_changed.emit(buy_row)  # so the "ready in N" line actually counts
 	_update_buy_input()
 
 
@@ -460,6 +468,16 @@ func _refresh_head() -> void:
 func _physics_process(delta: float) -> void:
 	if _dead:
 		_process_dead(delta)
+		return
+	# Deployed, but the match hasn't been called on yet: stand still and hold
+	# fire until the start countdown finishes.
+	if not GameState.match_live:
+		velocity.x = 0.0
+		velocity.z = 0.0
+		if not is_on_floor():
+			velocity.y -= _gravity * delta
+		move_and_slide()
+		_update_anim(Vector2.ZERO, false)
 		return
 	_update_gear()
 	_update_aim(delta)

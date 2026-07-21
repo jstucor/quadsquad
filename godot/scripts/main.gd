@@ -10,6 +10,7 @@ const PLAYER_SCENE := preload("res://scenes/actors/player.tscn")
 const BOT_SCENE := preload("res://scenes/actors/bot.tscn")
 const MENU_SCENE := "res://scenes/menu.tscn"
 const AI_RESPAWN_DELAY := 4.0  # team AI come back, unlike a player's bought squad
+const MATCH_START_COUNTDOWN := 3  # seconds of GET READY once everyone has deployed
 const PLAYER_COLORS: Array[Color] = [
 	Color(0.9, 0.3, 0.3),
 	Color(0.3, 0.6, 0.9),
@@ -35,6 +36,9 @@ var level: Node3D
 # rotation. Player/weapon signals are exempt: they die with the same scene.
 var _score_labels: Array[Label] = []
 var _victory_banners: Array[Label] = []
+var _countdown_labels: Array[Label] = []
+var _deployed := {}          # players who have finished their loadout at least once
+var _countdown_running := false
 
 
 func _ready() -> void:
@@ -75,13 +79,38 @@ func _ready() -> void:
 		player.model.set_team_color(GameState.TEAM_COLORS[player.team])
 
 		viewport.add_child(_build_hud(player))
+		# The match waits for everyone's first deploy, so watch for it.
+		player.respawned.connect(_on_player_deployed.bind(player))
 		player.begin_deploy()  # after the HUD exists, so it sees the select screen
 
 	_fill_teams_with_ai()
+	GameState.match_countdown.connect(_show_countdown)
 	GameState.score_changed.connect(_refresh_scores)
 	GameState.match_won.connect(_show_victory)
 	GameState.match_won.connect(_on_match_won)
 	_refresh_scores()
+
+
+## Nobody fights until every human has bought a loadout and deployed. The last
+## one in starts a short countdown, and only then does GameState.match_live go
+## true — which is what unfreezes players, bots and turrets alike.
+func _on_player_deployed(player: Player) -> void:
+	if GameState.match_live or _countdown_running:
+		return
+	_deployed[player] = true
+	if _deployed.size() < GameState.human_players:
+		return
+	_countdown_running = true
+	_tick_countdown(MATCH_START_COUNTDOWN)
+
+
+func _tick_countdown(seconds: int) -> void:
+	GameState.match_countdown.emit(seconds)
+	if seconds <= 0:
+		GameState.match_live = true
+		GameState.match_began.emit()
+		return
+	get_tree().create_timer(1.0).timeout.connect(_tick_countdown.bind(seconds - 1))
 
 
 ## How many earlier players share this player's team (its spawn index).
@@ -152,6 +181,7 @@ func _build_hud(player: Player) -> Control:
 	_add_gear_readout(hud, player, color)
 	hud.add_child(_build_buy_screen(player, color))
 	_add_victory_banner(hud)
+	_add_countdown(hud)
 	return hud
 
 
@@ -262,6 +292,31 @@ func _add_weapon_readout(hud: Control, player: Player, color: Color) -> void:
 	player.weapon.heat_changed.connect(func(heat: float, over: bool) -> void:
 		heat_fill.anchor_right = heat
 		heat_fill.color = HEAT_OVER_COLOR if over else HEAT_COOL_COLOR)
+
+
+## The GET READY / FIGHT call at the start of a match. Like the scoreboard, it
+## is fed by ONE connection to the autoload rather than a lambda per viewport.
+func _add_countdown(hud: Control) -> void:
+	var label := _full_rect_label("", 44, Color(1, 0.93, 0.6))
+	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	label.offset_top = -60.0
+	label.visible = false
+	hud.add_child(label)
+	_countdown_labels.append(label)
+
+
+func _show_countdown(seconds: int) -> void:
+	for label in _countdown_labels:
+		label.visible = true
+		label.text = "GET READY   %d" % seconds if seconds > 0 else "FIGHT!"
+	if seconds <= 0:
+		# Let FIGHT! sit for a beat, then clear it.
+		get_tree().create_timer(0.9).timeout.connect(_hide_countdown)
+
+
+func _hide_countdown() -> void:
+	for label in _countdown_labels:
+		label.visible = false
 
 
 ## Hidden until a team wins, then shown in every viewport by _show_victory.
@@ -408,8 +463,10 @@ func _refresh_buy_screen(player: Player, color: Color, rows: Array[Label],
 		rows[i].add_theme_color_override("font_color", tint)
 		values[i].add_theme_color_override("font_color", tint)
 	blurb.text = build.row_blurb(player.buy_row)
+	# Count the lock down out loud: a silent "standby" for five seconds reads
+	# exactly like a match that has failed to start.
 	prompt.text = "%s  to deploy" % player.deploy_button_name() \
-		if player.deploy_armed() else "standby..."
+		if player.deploy_armed() else "ready in %d..." % ceili(player.deploy_wait())
 	prompt.add_theme_color_override("font_color",
 		Color(0.85, 0.95, 0.8) if player.deploy_armed() else Color(0.55, 0.58, 0.62))
 
