@@ -6,11 +6,18 @@
 // exact analytic gradient at every vertex. `slope_mix` turns it off for the
 // flat base plane, which has no vertex colours of its own.
 shader_type spatial;
+// Double-sided on purpose. The terrain is a one-sided skin over a hollow hill,
+// so anywhere the camera ends up UNDER it — the tunnel, the cutting, the
+// hollow itself — the whole mountain is culled away and you see sky with the
+// boulders that sit on it floating in mid-air. Rendering both faces costs one
+// mesh's worth of extra fragments and needs no extra geometry.
+render_mode cull_disabled;
 
 uniform vec3 moss_col : source_color = vec3(0.14, 0.27, 0.11);
 uniform vec3 dirt_col : source_color = vec3(0.26, 0.20, 0.13);
 uniform vec3 rock_col : source_color = vec3(0.34, 0.33, 0.30);
 uniform vec3 deep_col : source_color = vec3(0.05, 0.11, 0.06);
+uniform vec3 cave_col : source_color = vec3(0.13, 0.12, 0.11);
 uniform vec2 uv_tiles = vec2(1.0, 1.0);
 uniform float slope_mix = 1.0;
 
@@ -41,8 +48,15 @@ void fragment() {
 	// threshold so the transition breaks up instead of reading as a contour.
 	float rock = smoothstep(0.30, 0.74, steep + (n - 0.5) * 0.28);
 	col = mix(col, rock_col * (0.82 + n * 0.36), rock);
+	// Seen from beneath — the tunnel roof — it's bare rock, and the normal has to
+	// be flipped or the underside lights as though it still faced the sky.
+	// (Godot forbids an early `return` in fragment, so this is a branchless
+	// select rather than a guard clause.)
+	float under = FRONT_FACING ? 0.0 : 1.0;
+	NORMAL = mix(NORMAL, -NORMAL, under);
+	col = mix(col, cave_col * (0.75 + vnoise(uv * 2.1) * 0.5), under);
 	ALBEDO = col;
 	METALLIC = 0.0;
-	ROUGHNESS = mix(0.95, 0.72, rock);
+	ROUGHNESS = mix(mix(0.95, 0.72, rock), 0.95, under);
 	SPECULAR = 0.15;
 }

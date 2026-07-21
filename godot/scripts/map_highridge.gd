@@ -203,7 +203,22 @@ func _build_tunnel_walls() -> void:
 				continue
 			var wall_h: float = minf(h, TUNNEL_CEILING)
 			_wall(Vector3(x, wall_h * 0.5, wall_z), Vector3(CELL, wall_h, 0.3), mat)
+	_build_tunnel_ceiling(mat)
 	_build_portals(mat)
+
+
+## A slab roof over the covered stretch of the corridor. Without it the tunnel's
+## ceiling is the mountain's own underside, metres above and lit from the wrong
+## side — you end up staring into the hollow hill rather than at rock.
+func _build_tunnel_ceiling(mat: Material) -> void:
+	var half := half_extents()
+	var steps := int(size / CELL)
+	for i in steps:
+		var x := -half.x + i * CELL + CELL * 0.5
+		if height_at(x, TUNNEL_Z) < TUNNEL_CEILING:
+			continue  # still open to the sky here: this is the approach cutting
+		_wall(Vector3(x, TUNNEL_CEILING + 0.15, TUNNEL_Z),
+			Vector3(CELL, 0.3, TUNNEL_HALF_WIDTH * 2.0 + 0.6), mat)
 
 
 ## A frame at each mouth, so the opening reads as an engineered tunnel rather
