@@ -15,7 +15,7 @@ extends Node3D
 signal heat_changed(heat: float, overheated: bool)
 signal fired(cam_recoil: float)
 
-enum Class { SOLDIER, SNIPER, HEAVY, REVOLVER, HMG, BURST, SEMI, RPG }
+enum Class { SOLDIER, SNIPER, HEAVY, REVOLVER, HMG, BURST, SEMI, RPG, PISTOL }
 enum FireMode { AUTO, SEMI, BURST }
 
 # spread = fire-cone half-angle (deg); zoom_fov = FOV while aiming; heat_per_shot
@@ -65,6 +65,12 @@ const PROFILES := {
 		"range": 200.0, "hip_spread": 1.0, "ads_spread": 0.0, "zoom_fov": 45.0,
 		"heat_per_shot": 0.11, "cool_rate": 0.3, "scope": false,
 		"recoil": 0.6, "cam_recoil": 0.024, "mode": FireMode.SEMI,
+	},
+	Class.PISTOL: {
+		"name": "DL-44 Pistol", "fire_interval": 0.26, "damage": 32.0,
+		"range": 90.0, "hip_spread": 1.8, "ads_spread": 0.35, "zoom_fov": 56.0,
+		"heat_per_shot": 0.13, "cool_rate": 0.34, "scope": false,
+		"recoil": 0.65, "cam_recoil": 0.028, "mode": FireMode.SEMI,
 	},
 	Class.RPG: {
 		"name": "PLX-1 RPG", "fire_interval": 1.6, "damage": 0.0,

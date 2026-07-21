@@ -11,8 +11,11 @@ const SKY_SHADER := preload("res://shaders/starfield_sky.gdshader")
 const FLOOR_SHADER := preload("res://shaders/floor_panels.gdshader")
 
 # Overridden by each map in _configure().
-var size := 50.0
+var size := 50.0   # width along X
+var depth := 0.0   # length along Z; left at 0 the arena is square (size x size)
 var floor_color := Color(0.17, 0.18, 0.21)
+var wall_color := Color(0.19, 0.21, 0.25)
+var cover_color := Color(0.23, 0.24, 0.27)
 var republic_spawns: Array[Vector3] = []
 var cis_spawns: Array[Vector3] = []
 var cover_boxes: Array = []  # [{pos = Vector3 (base at y=0), size = Vector3}, ...]
@@ -20,17 +23,40 @@ var cover_boxes: Array = []  # [{pos = Vector3 (base at y=0), size = Vector3}, .
 
 func _ready() -> void:
 	_configure()
+	if depth <= 0.0:
+		depth = size
 	_build_environment()
 	_build_lights()
 	_build_floor()
 	_build_walls()
 	_build_cover()
+	_decorate()
 	_register_spawns()
 
 
 ## Override in the map script to fill in the layout.
 func _configure() -> void:
 	pass
+
+
+## Override to add map-specific props (trees, crates) after the base geometry.
+func _decorate() -> void:
+	pass
+
+
+## The floor surface. Override for a map that isn't a metal deck.
+func _floor_material() -> Material:
+	var mat := ShaderMaterial.new()
+	mat.shader = FLOOR_SHADER
+	mat.set_shader_parameter("base_col", floor_color)
+	mat.set_shader_parameter("seam_col", floor_color.darkened(0.7))
+	mat.set_shader_parameter("panels", roundf(size / 2.0))
+	return mat
+
+
+## Half-extents of the playable floor, XZ.
+func half_extents() -> Vector2:
+	return Vector2(size, depth) * 0.5
 
 
 func _build_environment() -> void:
@@ -77,18 +103,13 @@ func _build_floor() -> void:
 	add_child(body)
 	var mesh := MeshInstance3D.new()
 	var plane := PlaneMesh.new()
-	plane.size = Vector2(size, size)
+	plane.size = Vector2(size, depth)
 	mesh.mesh = plane
-	var mat := ShaderMaterial.new()
-	mat.shader = FLOOR_SHADER
-	mat.set_shader_parameter("base_col", floor_color)
-	mat.set_shader_parameter("seam_col", floor_color.darkened(0.7))
-	mat.set_shader_parameter("panels", roundf(size / 2.0))
-	mesh.material_override = mat
+	mesh.material_override = _floor_material()
 	body.add_child(mesh)
 	var shape := CollisionShape3D.new()
 	var box := BoxShape3D.new()
-	box.size = Vector3(size, 1.0, size)
+	box.size = Vector3(size, 1.0, depth)
 	shape.shape = box
 	shape.position.y = -0.5
 	body.add_child(shape)
@@ -96,16 +117,16 @@ func _build_floor() -> void:
 
 func _build_walls() -> void:
 	var mat := StandardMaterial3D.new()
-	mat.albedo_color = Color(0.19, 0.21, 0.25)
+	mat.albedo_color = wall_color
 	mat.metallic = 0.12
 	mat.roughness = 0.55
 	var h := 6.0
-	var half := size / 2.0
+	var half := half_extents()
 	# N, S run along X; E, W run along Z.
-	_wall(Vector3(0, h * 0.5, -half), Vector3(size, h, 0.6), mat)
-	_wall(Vector3(0, h * 0.5, half), Vector3(size, h, 0.6), mat)
-	_wall(Vector3(-half, h * 0.5, 0), Vector3(0.6, h, size), mat)
-	_wall(Vector3(half, h * 0.5, 0), Vector3(0.6, h, size), mat)
+	_wall(Vector3(0, h * 0.5, -half.y), Vector3(size, h, 0.6), mat)
+	_wall(Vector3(0, h * 0.5, half.y), Vector3(size, h, 0.6), mat)
+	_wall(Vector3(-half.x, h * 0.5, 0), Vector3(0.6, h, depth), mat)
+	_wall(Vector3(half.x, h * 0.5, 0), Vector3(0.6, h, depth), mat)
 
 
 func _wall(center: Vector3, box_size: Vector3, mat: Material) -> void:
@@ -127,7 +148,7 @@ func _wall(center: Vector3, box_size: Vector3, mat: Material) -> void:
 
 func _build_cover() -> void:
 	var mat := StandardMaterial3D.new()
-	mat.albedo_color = Color(0.23, 0.24, 0.27)
+	mat.albedo_color = cover_color
 	mat.metallic = 0.1
 	mat.roughness = 0.5
 	for c in cover_boxes:

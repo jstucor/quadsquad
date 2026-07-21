@@ -1,6 +1,7 @@
 class_name Player
 extends CharacterBody3D
-## First-person player: movement, per-player device input, health, respawn.
+## First-person player: movement, per-player device input, health, class kits,
+## and the deploy/respawn class-select flow.
 ## input_device -1 = keyboard + mouse (player 1); >= 0 = that joypad device.
 ## Each player's model renders on layer (2 + player_index); bind_camera()
 ## clears that bit from the viewport camera so you never see your own body
@@ -9,12 +10,16 @@ extends CharacterBody3D
 signal health_changed(health: float)
 signal weapon_changed(display_name: String)
 signal aim_changed(aiming: bool)
-signal died(seconds: int)             # entered the death/respawn screen
+## Entered the class-select screen. `eliminated` is false for the very first
+## deploy of the match (nobody died, so the HUD says DEPLOY, not ELIMINATED).
+signal died(seconds: int, eliminated: bool)
 signal respawn_countdown(seconds: int)  # remaining whole seconds ticked down
 signal respawned()
+signal kit_previewed(kit_index: int)    # highlighted a class on the select screen
 
 const CORPSE_SCENE := preload("res://scenes/fx/corpse.tscn")
 const RESPAWN_DELAY := 3.0
+const DEPLOY_DELAY := 5.0  # match-start class select, before anyone can shoot
 
 const WALK_SPEED := 4.0
 const SPRINT_SPEED := 6.0
@@ -23,7 +28,7 @@ const JUMP_VELOCITY := 4.5
 const MOUSE_SENS := 0.0022
 const STICK_LOOK_SPEED := 2.6
 const STICK_DEADZONE := 0.15
-const MAX_HEALTH := 100.0
+const SELECT_DEADZONE := 0.6  # stick push that counts as a class-select step
 const AIM_FOV_LERP := 14.0  # per-second rate the camera eases toward zoom FOV
 const RECOIL_RECOVER := 12.0  # per-second rate the camera recoil settles back
 # Crouch: lower stance = smaller hitbox, steadier, slower. Values are lerped by
@@ -42,14 +47,24 @@ const CROUCH_HEAD_MIN := 0.85
 # body layers, which every camera sees except the owner's.
 const VIEWMODEL_BIT := 10
 const VIEWMODEL_SLOTS := 4
+# Two capsules that end up inside each other are depenetrated by the solver
+# straight upwards, and the pair rides that ladder out of the map forever (it
+# never falls back: move_and_slide zeroes the gravity it just accumulated). So
+# nudge overlapping players apart horizontally before the solver can, and treat
+# anything that still leaves the map as a death.
+const UNSTICK_RADIUS := 0.8   # < two capsule radii (0.35 each) + margin
+const UNSTICK_SPEED := 5.0
+const BOUNDS_MIN_Y := -30.0
+const BOUNDS_MAX_Y := 60.0
 
 @export var player_index := 0
 @export var input_device := -1
 @export var team: int = GameState.Team.REPUBLIC
-## Starting weapon class (Weapon.Class); Main assigns a different one per player.
-@export var weapon_class := 0
+## Class this player deploys with; Main highlights a different one per player.
+@export var kit_index := 0
 
-var health := MAX_HEALTH
+var health := 100.0
+var max_health := 100.0
 
 var _anim: AnimationPlayer
 var _gravity: float = ProjectSettings.get_setting("physics/3d/default_gravity")
@@ -65,6 +80,12 @@ var _recoil_pitch := 0.0   # transient camera kick, settles back to 0
 var _recoil_yaw := 0.0
 var _crouch_t := 0.0       # 0 standing .. 1 crouched
 var _dead := false
+var _weapons: Array = []      # this kit's Weapon.Class list, cycled by _cycle_weapon
+var _weapon_slot := 0
+var _pending_kit := 0         # class highlighted on the select screen
+var _speed_mult := 1.0        # from the kit: scales walk + sprint
+var _jump_mult := 1.0         # from the kit: scales jump velocity
+var _select_latched := false  # stick/key held: one step per push, not per frame
 var _respawn_timer := 0.0
 var _respawn_secs := -1    # last whole-second value emitted
 var _corpse: Node3D        # the flop spawned on death, freed on respawn
@@ -77,6 +98,7 @@ var _corpse: Node3D        # the flop spawned on death, freed on respawn
 
 
 func _ready() -> void:
+	GameState.register_player(self)  # spawn picking skips the markers we occupy
 	_anim = model.find_child("AnimationPlayer", true, false)
 	for mi in model.find_children("*", "MeshInstance3D", true, false):
 		mi.layers = 1 << (1 + player_index)
@@ -87,7 +109,17 @@ func _ready() -> void:
 	_collision.shape = _collision.shape.duplicate()
 	weapon.shooter = self
 	weapon.fired.connect(_on_weapon_fired)
-	weapon.set_class(weapon_class as Weapon.Class)
+	_apply_kit(kit_index)
+
+
+## Match start: everyone picks a class before they can shoot. Main calls this
+## once the viewport HUD is wired — _ready() would emit `died` into nothing.
+func _exit_tree() -> void:
+	GameState.unregister_player(self)
+
+
+func begin_deploy() -> void:
+	_enter_select(DEPLOY_DELAY, false)
 
 
 func bind_camera(cam: Camera3D) -> void:
@@ -113,6 +145,50 @@ func take_damage(amount: float, attacker: Node = null) -> void:
 		_die(attacker)
 
 
+## False while eliminated (collision off, waiting to respawn). GameState uses it
+## to skip corpses-in-waiting when it looks for a clear spawn marker.
+func is_alive() -> bool:
+	return not _dead
+
+
+## Adopt a class: its stat block and its weapon list. Called on deploy and on
+## every respawn, so a mid-match class change is just the next spawn.
+func _apply_kit(index: int) -> void:
+	kit_index = wrapi(index, 0, Kit.count())
+	var kit := Kit.get_kit(kit_index)
+	max_health = kit["health"]
+	_speed_mult = kit["speed"]
+	_jump_mult = kit["jump"]
+	_weapons = kit["weapons"]
+	_weapon_slot = 0
+	health = max_health  # only ever called on deploy/respawn, never mid-life
+	weapon.set_class(_weapons[0] as Weapon.Class)
+	weapon_changed.emit(weapon.display_name())
+
+
+## Class-select input while dead: a left/right push steps the highlight. Reuses
+## the movement axis (A/D, left stick) so there's nothing new to bind, plus the
+## d-pad on joypads. Latched, so holding a direction moves one step, not many.
+func _update_kit_choice() -> void:
+	var step := 0
+	var x := _move_input().x
+	if input_device >= 0:
+		if Input.is_joy_button_pressed(input_device, JOY_BUTTON_DPAD_LEFT):
+			x = -1.0
+		elif Input.is_joy_button_pressed(input_device, JOY_BUTTON_DPAD_RIGHT):
+			x = 1.0
+	if absf(x) >= SELECT_DEADZONE:
+		if not _select_latched:
+			step = signi(x)
+			_select_latched = true
+	else:
+		_select_latched = false
+	if step == 0:
+		return
+	_pending_kit = wrapi(_pending_kit + step, 0, Kit.count())
+	kit_previewed.emit(_pending_kit)
+
+
 func view_fov() -> float:
 	return _camera.fov if _camera else _base_fov
 
@@ -130,19 +206,33 @@ func _die(attacker: Node = null) -> void:
 	# Credit the frag to an enemy killer (not suicide/self or a teammate).
 	if attacker is Player and attacker != self and attacker.team != team:
 		GameState.add_frag(attacker.team)
+	_spawn_corpse(attacker)
+	_enter_select(RESPAWN_DELAY, true)
+
+
+## Go to the class-select screen for `delay` seconds, then deploy with whatever
+## class is highlighted. Shared by the match-start deploy and every death, so
+## the pick always happens the same way.
+func _enter_select(delay: float, eliminated: bool) -> void:
 	_dead = true
 	velocity = Vector3.ZERO
 	weapon.aiming = false
 	if _camera:
 		_camera.fov = _base_fov
-	_spawn_corpse(attacker)
-	# Hide the live body + turn off its collision; the camera stays here as a
-	# death cam while the flop tumbles and the respawn timer counts down.
+	# Hide the live body + turn off its collision; the camera stays put as a
+	# death cam while the flop tumbles and the countdown runs.
 	model.visible = false
+	weapon.visible = false  # no gun in hand while you're still choosing one
 	_collision.disabled = true
-	_respawn_timer = RESPAWN_DELAY
-	_respawn_secs = ceili(RESPAWN_DELAY)
-	died.emit(_respawn_secs)
+	_pending_kit = kit_index
+	kit_previewed.emit(_pending_kit)
+	# Forget any held trigger/button: the new life starts on a fresh press.
+	_select_latched = false
+	_fire_down = false
+	_switch_down = false
+	_respawn_timer = delay
+	_respawn_secs = ceili(delay)
+	died.emit(_respawn_secs, eliminated)
 
 
 func _spawn_corpse(attacker: Node) -> void:
@@ -156,6 +246,7 @@ func _spawn_corpse(attacker: Node) -> void:
 
 
 func _process_dead(delta: float) -> void:
+	_update_kit_choice()
 	_respawn_timer -= delta
 	var s := maxi(ceili(_respawn_timer), 0)
 	if s != _respawn_secs:
@@ -166,16 +257,23 @@ func _process_dead(delta: float) -> void:
 
 
 func _respawn() -> void:
-	_dead = false
-	model.visible = true
-	_collision.disabled = false
-	health = MAX_HEALTH
-	health_changed.emit(health)
-	_recoil_pitch = 0.0
-	_recoil_yaw = 0.0
+	# Place the body BEFORE clearing _dead: while we still read as dead, the
+	# spawn picker skips us, so we don't treat the body we just left as an
+	# obstacle and shove ourselves off our own marker.
 	var spawn := GameState.get_spawn_point(team)
 	if spawn:
-		global_transform = spawn.global_transform
+		global_transform = GameState.clear_of_bodies(spawn.global_transform)
+	_dead = false
+	model.visible = true
+	weapon.visible = true
+	_collision.disabled = false
+	# Whatever we were doing when we died (falling, jumping) must not carry over
+	# into the new body at the spawn point.
+	velocity = Vector3.ZERO
+	_recoil_pitch = 0.0
+	_recoil_yaw = 0.0
+	_apply_kit(_pending_kit)
+	health_changed.emit(health)
 	if is_instance_valid(_corpse):
 		_corpse.queue_free()
 	_corpse = null
@@ -229,7 +327,7 @@ func _physics_process(delta: float) -> void:
 	var move := _move_input()
 	var crouching := _crouch_held()
 	var sprinting := _sprint_held() and not crouching
-	var speed := SPRINT_SPEED if sprinting else WALK_SPEED
+	var speed := (SPRINT_SPEED if sprinting else WALK_SPEED) * _speed_mult
 	if crouching:
 		speed *= CROUCH_SPEED_MULT
 	var dir := global_transform.basis * Vector3(move.x, 0, move.y)
@@ -237,13 +335,37 @@ func _physics_process(delta: float) -> void:
 	if not is_on_floor():
 		velocity.y -= _gravity * delta
 	elif _jump_pressed():
-		velocity.y = JUMP_VELOCITY
-	velocity.x = dir.x * speed
-	velocity.z = dir.z * speed
+		velocity.y = JUMP_VELOCITY * _jump_mult
+	var unstick := _unstick_push()
+	velocity.x = dir.x * speed + unstick.x
+	velocity.z = dir.z * speed + unstick.z
 	move_and_slide()
+	if global_position.y > BOUNDS_MAX_Y or global_position.y < BOUNDS_MIN_Y:
+		_die()  # launched or fell out of the map: respawn through the normal flow
+		return
 
 	weapon.update_fire(_fire_held(), _fire_pressed())
 	_update_anim(move, sprinting)
+
+
+## Horizontal shove away from any living player we're standing inside, so the
+## overlap resolves sideways instead of ejecting both of us upwards. Scales with
+## how deep the overlap is; zero in the normal case of nobody nearby.
+func _unstick_push() -> Vector3:
+	var push := Vector3.ZERO
+	for p in GameState.players:
+		if p == self or not p.is_alive():
+			continue
+		var away := global_position - p.global_position
+		away.y = 0.0
+		var gap := away.length()
+		if gap >= UNSTICK_RADIUS:
+			continue
+		if gap < 0.01:  # exactly stacked: any direction beats staying put
+			away = Vector3(randf_range(-1.0, 1.0), 0.0, randf_range(-1.0, 1.0))
+			gap = 0.01
+		push += away.normalized() * (1.0 - gap / UNSTICK_RADIUS) * UNSTICK_SPEED
+	return push
 
 
 ## Ease the stance toward standing/crouched: lowers the camera, shrinks the
@@ -277,9 +399,13 @@ func _update_aim(delta: float) -> void:
 		_look_scale = _camera.fov / _base_fov
 
 
+## Q / Y swaps between the weapons of the class you deployed with — you never
+## reach another class's guns without respawning into it.
 func _cycle_weapon() -> void:
-	var next := (weapon.weapon_class + 1) % Weapon.PROFILES.size()
-	weapon.set_class(next as Weapon.Class)
+	if _weapons.size() < 2:
+		return
+	_weapon_slot = (_weapon_slot + 1) % _weapons.size()
+	weapon.set_class(_weapons[_weapon_slot] as Weapon.Class)
 	weapon_changed.emit(weapon.display_name())
 
 

@@ -24,6 +24,8 @@ var aiming_source: Node3D    # the parent Weapon (aiming / has_scope live here)
 var _player: CharacterBody3D
 var _scope: MeshInstance3D
 var _drum: MeshInstance3D
+var _stock: MeshInstance3D
+var _foregrip: MeshInstance3D
 var _flash: MeshInstance3D
 
 var _kick := 0.0             # current recoil amount (0..~1.2), springs to 0
@@ -56,10 +58,10 @@ func _build() -> void:
 
 	_box(Vector3(0.05, 0.07, 0.26), Vector3(0, 0, -0.03), gun)       # receiver
 	_box(Vector3(0.028, 0.028, 0.30), Vector3(0, 0.012, -0.28), gun)  # barrel
-	_box(Vector3(0.02, 0.03, 0.05), Vector3(0, -0.052, -0.10), gun)   # fore grip
+	_foregrip = _box(Vector3(0.02, 0.03, 0.05), Vector3(0, -0.052, -0.10), gun)
 	var grip := _box(Vector3(0.035, 0.11, 0.05), Vector3(0, -0.07, 0.03), gun)
 	grip.rotation.x = -0.25                                           # pistol grip
-	_box(Vector3(0.04, 0.055, 0.10), Vector3(0, -0.008, 0.13), gun)   # stock
+	_stock = _box(Vector3(0.04, 0.055, 0.10), Vector3(0, -0.008, 0.13), gun)
 	_box(Vector3(0.02, 0.018, 0.04), Vector3(0, 0.052, -0.02), accent)  # power cell
 
 	# Sniper scope (hidden unless configured): tube + mount.
@@ -129,6 +131,13 @@ func configure(class_id: int) -> void:
 		_scope.visible = class_id == Weapon.Class.SNIPER
 	if _drum:
 		_drum.visible = class_id == Weapon.Class.HEAVY
+	# Sidearms drop the stock and fore grip, so the same base gun reads as a
+	# one-handed pistol rather than a rifle.
+	var sidearm := class_id == Weapon.Class.REVOLVER or class_id == Weapon.Class.PISTOL
+	if _stock:
+		_stock.visible = not sidearm
+	if _foregrip:
+		_foregrip.visible = not sidearm
 
 
 ## Called on each shot; strength scales the kick per weapon class.
