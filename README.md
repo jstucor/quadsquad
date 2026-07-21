@@ -133,8 +133,9 @@ capture the mouse; ESC releases it.
   is a metre of barrel, the T-21 and NT-242 carry bipods, the Z-6 and R-90 sit
   on drums, the R-90 has a four-barrel cluster and the PLX-1 is a fat tube
 - **Kill streak per life**: your kills on the current life show under your
-  player tag and the screen washes red on each one, harder the longer the
-  streak. Dying resets it
+  player tag, popping on each one. Dying resets it
+- **Damage indicator**: your own screen washes red when YOU get hit, harder the
+  bigger the hit — a sniper round reads very differently from a stray pellet
 - The RPG fires a real travelling rocket with radius splash damage + falloff;
   the rest are hitscan with fast bolt tracers
 - Camera recoil per shot (settles back), 2x headshots, and crouch (lower

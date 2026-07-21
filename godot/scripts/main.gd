@@ -25,7 +25,7 @@ const HEAT_OVER_COLOR := Color(1.0, 0.3, 0.2, 0.95)
 const ELIMINATED_COLOR := Color(1.0, 0.4, 0.35)
 const DEATH_DIM := Color(0.16, 0.0, 0.0, 0.5)
 const DEPLOY_DIM := Color(0.0, 0.0, 0.0, 0.55)
-const KILL_FLASH_COLOR := Color(0.85, 0.05, 0.05)
+const DAMAGE_FLASH_COLOR := Color(0.85, 0.05, 0.05)
 const KILL_STREAK_COLOR := Color(1.0, 0.35, 0.3)
 
 var level: Node3D
@@ -182,6 +182,7 @@ func _build_hud(player: Player) -> Control:
 	_add_weapon_readout(hud, player, color)
 	_add_gear_readout(hud, player, color)
 	_add_kill_streak(hud, player)
+	_add_damage_flash(hud, player)
 	hud.add_child(_build_buy_screen(player, color))
 	_add_victory_banner(hud)
 	_add_countdown(hud)
@@ -334,35 +335,46 @@ func _hide_countdown() -> void:
 
 
 ## Hidden until a team wins, then shown in every viewport by _show_victory.
-## Kills on this life, with a red wash across the screen each time you take one.
-## The streak sits under the player tag and only appears once you're on the
-## board, so a clean life has no dead HUD text.
+## Kills on this life, under the player tag. It only appears once you're on the
+## board, so a clean life has no dead HUD text. Getting a kill pops the label
+## rather than washing the screen — the red wash means YOU are being hit.
 func _add_kill_streak(hud: Control, player: Player) -> void:
-	var flash := ColorRect.new()
-	flash.set_anchors_preset(Control.PRESET_FULL_RECT)
-	flash.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	flash.color = KILL_FLASH_COLOR
-	flash.modulate.a = 0.0
-	hud.add_child(flash)
-
 	var label := Label.new()
 	label.add_theme_font_size_override("font_size", 20)
 	label.add_theme_color_override("font_color", KILL_STREAK_COLOR)
 	label.position = Vector2(14, 42)
+	label.pivot_offset = Vector2(0, 10)
 	label.visible = false
 	hud.add_child(label)
 
 	player.killed_someone.connect(func(streak: int) -> void:
 		label.visible = true
 		label.text = "%d KILL%s" % [streak, "" if streak == 1 else "S"]
-		# Brighter wash the longer the streak, so a spree really shows.
-		var peak: float = minf(0.22 + streak * 0.06, 0.5)
-		flash.modulate.a = peak
-		var fade := hud.create_tween()
-		fade.tween_property(flash, "modulate:a", 0.0, 0.45))
+		label.scale = Vector2(1.45, 1.45)
+		var pop := hud.create_tween()
+		pop.tween_property(label, "scale", Vector2.ONE, 0.22) \
+			.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT))
 	player.respawned.connect(func() -> void:
 		label.visible = false
-		flash.modulate.a = 0.0)
+		label.scale = Vector2.ONE)
+
+
+## The damage indicator: the screen washes red when YOU get hit, harder the
+## bigger the hit, so a sniper round reads very differently from a stray pellet.
+func _add_damage_flash(hud: Control, player: Player) -> void:
+	var flash := ColorRect.new()
+	flash.set_anchors_preset(Control.PRESET_FULL_RECT)
+	flash.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	flash.color = DAMAGE_FLASH_COLOR
+	flash.modulate.a = 0.0
+	hud.add_child(flash)
+
+	player.damaged.connect(func(amount: float) -> void:
+		var share: float = amount / maxf(player.max_health, 1.0)
+		flash.modulate.a = clampf(0.16 + share * 0.7, 0.16, 0.62)
+		var fade := hud.create_tween()
+		fade.tween_property(flash, "modulate:a", 0.0, 0.4))
+	player.respawned.connect(func() -> void: flash.modulate.a = 0.0)
 
 
 ## Consumables you're carrying, above the weapon name. Hidden when you bought

@@ -18,6 +18,7 @@ signal buy_changed(row: int)     # cursor moved or the build changed; redraw
 signal deploy_ready()            # the minimum wait elapsed; the button is live
 signal gear_changed(grenades: int, medkits: int)
 signal killed_someone(streak: int)  # a kill this life; streak resets on death
+signal damaged(amount: float)       # took a hit: drives the red screen flash
 signal squad_changed(alive: int)  # squadmates mustered or lost
 
 const CORPSE_SCENE := preload("res://scenes/fx/corpse.tscn")
@@ -204,6 +205,7 @@ func take_damage(amount: float, attacker: Node = null) -> void:
 		return
 	health -= amount
 	health_changed.emit(health)
+	damaged.emit(amount)
 	if health <= 0.0:
 		_die(attacker)
 
