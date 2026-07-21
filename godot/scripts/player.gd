@@ -1,7 +1,7 @@
 class_name Player
 extends CharacterBody3D
-## First-person player: movement, per-player device input, health, class kits,
-## and the deploy/respawn class-select flow.
+## First-person player: movement, per-player device input, health, the bought
+## loadout, and the buy-screen/deploy flow.
 ## input_device -1 = keyboard + mouse (player 1); >= 0 = that joypad device.
 ## Each player's model renders on layer (2 + player_index); bind_camera()
 ## clears that bit from the viewport camera so you never see your own body
@@ -10,16 +10,23 @@ extends CharacterBody3D
 signal health_changed(health: float)
 signal weapon_changed(display_name: String)
 signal aim_changed(aiming: bool)
-## Entered the class-select screen. `eliminated` is false for the very first
-## deploy of the match (nobody died, so the HUD says DEPLOY, not ELIMINATED).
-signal died(seconds: int, eliminated: bool)
-signal respawn_countdown(seconds: int)  # remaining whole seconds ticked down
+## Entered the buy screen. `eliminated` is false for the very first deploy of
+## the match (nobody died, so the HUD says DEPLOY, not ELIMINATED).
+signal died(eliminated: bool)
 signal respawned()
-signal kit_previewed(kit_index: int)    # highlighted a class on the select screen
+signal buy_changed(row: int)     # cursor moved or the build changed; redraw
+signal deploy_ready()            # the minimum wait elapsed; the button is live
+signal gear_changed(grenades: int, medkits: int)
 
 const CORPSE_SCENE := preload("res://scenes/fx/corpse.tscn")
-const RESPAWN_DELAY := 3.0
-const DEPLOY_DELAY := 5.0  # match-start class select, before anyone can shoot
+const GRENADE_SCENE := preload("res://scenes/fx/grenade.tscn")
+# You deploy on a button press, not a timer. These are only the floor before the
+# button goes live: long enough at match start for everyone to spec a build, and
+# short enough after a death that you're never sat waiting on a decision made.
+const DEPLOY_FLOOR := 5.0
+const RESPAWN_FLOOR := 2.0
+const GRENADE_THROW_SPEED := 13.0
+const GRENADE_LOB := 0.28  # upward share of the throw, so it arcs
 
 const WALK_SPEED := 4.0
 const SPRINT_SPEED := 6.0
@@ -28,7 +35,7 @@ const JUMP_VELOCITY := 4.5
 const MOUSE_SENS := 0.0022
 const STICK_LOOK_SPEED := 2.6
 const STICK_DEADZONE := 0.15
-const SELECT_DEADZONE := 0.6  # stick push that counts as a class-select step
+const BUY_DEADZONE := 0.6  # stick push that counts as one buy-screen step
 const AIM_FOV_LERP := 14.0  # per-second rate the camera eases toward zoom FOV
 const RECOIL_RECOVER := 12.0  # per-second rate the camera recoil settles back
 # Crouch: lower stance = smaller hitbox, steadier, slower. Values are lerped by
@@ -60,11 +67,15 @@ const BOUNDS_MAX_Y := 60.0
 @export var player_index := 0
 @export var input_device := -1
 @export var team: int = GameState.Team.REPUBLIC
-## Class this player deploys with; Main highlights a different one per player.
-@export var kit_index := 0
-
 var health := 100.0
 var max_health := 100.0
+## The build bought on the buy screen. `loadout` is what you deployed with and
+## persists across deaths; `pending` is what the buy screen is editing.
+var loadout := Loadout.starter()
+var pending := Loadout.starter()
+var buy_row := 0
+var grenades_left := 0
+var medkits_left := 0
 
 var _anim: AnimationPlayer
 var _gravity: float = ProjectSettings.get_setting("physics/3d/default_gravity")
@@ -73,21 +84,20 @@ var _base_fov := 75.0
 # Look sensitivity scales with zoom so aiming down a scope isn't twitchy.
 var _look_scale := 1.0
 var _prev_aim := false
-var _switch_down := false  # joypad switch-button edge tracking
+var _grenade_down := false # joypad gear-button edge tracking
+var _medkit_down := false
 var _fire_down := false    # joypad fire-button edge tracking
 var _look_pitch := 0.0     # head pitch from look input (recoil is added on top)
 var _recoil_pitch := 0.0   # transient camera kick, settles back to 0
 var _recoil_yaw := 0.0
 var _crouch_t := 0.0       # 0 standing .. 1 crouched
 var _dead := false
-var _weapons: Array = []      # this kit's Weapon.Class list, cycled by _cycle_weapon
-var _weapon_slot := 0
-var _pending_kit := 0         # class highlighted on the select screen
-var _speed_mult := 1.0        # from the kit: scales walk + sprint
-var _jump_mult := 1.0         # from the kit: scales jump velocity
-var _select_latched := false  # stick/key held: one step per push, not per frame
-var _respawn_timer := 0.0
-var _respawn_secs := -1    # last whole-second value emitted
+var _speed_mult := 1.0     # from the armour frame: scales walk + sprint
+var _jump_mult := 1.0      # from the armour frame: scales jump velocity
+var _buy_latch := Vector2.ZERO  # stick/key held: one step per push, not per frame
+var _deploy_wait := 0.0    # seconds until the deploy button goes live
+var _deploy_armed := false # ...and whether it already has
+var _deploy_latch := false # deploy must be a fresh press, not one held from before
 var _corpse: Node3D        # the flop spawned on death, freed on respawn
 
 @onready var head: Node3D = $Head
@@ -109,7 +119,7 @@ func _ready() -> void:
 	_collision.shape = _collision.shape.duplicate()
 	weapon.shooter = self
 	weapon.fired.connect(_on_weapon_fired)
-	_apply_kit(kit_index)
+	_apply_loadout()
 
 
 ## Match start: everyone picks a class before they can shoot. Main calls this
@@ -119,7 +129,7 @@ func _exit_tree() -> void:
 
 
 func begin_deploy() -> void:
-	_enter_select(DEPLOY_DELAY, false)
+	_enter_buy_screen(DEPLOY_FLOOR, false)
 
 
 func bind_camera(cam: Camera3D) -> void:
@@ -151,42 +161,81 @@ func is_alive() -> bool:
 	return not _dead
 
 
-## Adopt a class: its stat block and its weapon list. Called on deploy and on
-## every respawn, so a mid-match class change is just the next spawn.
-func _apply_kit(index: int) -> void:
-	kit_index = wrapi(index, 0, Kit.count())
-	var kit := Kit.get_kit(kit_index)
-	max_health = kit["health"]
-	_speed_mult = kit["speed"]
-	_jump_mult = kit["jump"]
-	_weapons = kit["weapons"]
-	_weapon_slot = 0
-	health = max_health  # only ever called on deploy/respawn, never mid-life
-	weapon.set_class(_weapons[0] as Weapon.Class)
+## True once the buy screen's minimum wait has elapsed and the deploy button
+## will actually do something.
+func deploy_armed() -> bool:
+	return _deploy_armed
+
+
+## What to call the deploy button in this player's prompt.
+func deploy_button_name() -> String:
+	return "SPACE" if input_device < 0 else "A"
+
+
+## Take on the bought build: armour stats, the gun with its upgrades fitted, and
+## a fresh set of consumables. Called on every deploy, never mid-life.
+func _apply_loadout() -> void:
+	loadout = pending.duplicate_loadout()
+	var armor := loadout.armor_stats()
+	max_health = armor["health"]
+	_speed_mult = armor["speed"]
+	_jump_mult = armor["jump"]
+	health = max_health
+	grenades_left = loadout.grenades
+	medkits_left = loadout.medkits
+	weapon.set_class(loadout.weapon_class(), loadout.weapon_mods())
+	gear_changed.emit(grenades_left, medkits_left)
 	weapon_changed.emit(weapon.display_name())
 
 
-## Class-select input while dead: a left/right push steps the highlight. Reuses
-## the movement axis (A/D, left stick) so there's nothing new to bind, plus the
-## d-pad on joypads. Latched, so holding a direction moves one step, not many.
-func _update_kit_choice() -> void:
-	var step := 0
-	var x := _move_input().x
+## Buy-screen input while dead: up/down picks a row, left/right changes it, and
+## the jump button deploys once the floor has elapsed. All of it rides inputs
+## the player already has, so there is nothing extra to bind.
+func _update_buy_input() -> void:
+	var move := _buy_axis()
+	if move.y != 0:
+		buy_row = wrapi(buy_row + move.y, 0, Loadout.Row.size())
+		buy_changed.emit(buy_row)
+	if move.x != 0 and pending.step(buy_row, move.x):
+		buy_changed.emit(buy_row)
+	# The button has to be pressed, not merely held down from before you died.
+	var deploy := _deploy_held()
+	if deploy and not _deploy_latch and _deploy_armed:
+		_respawn()
+		return
+	_deploy_latch = deploy
+
+
+## One step per push on each axis, from the movement stick/keys plus the d-pad.
+func _buy_axis() -> Vector2i:
+	var raw := _move_input()
 	if input_device >= 0:
 		if Input.is_joy_button_pressed(input_device, JOY_BUTTON_DPAD_LEFT):
-			x = -1.0
+			raw.x = -1.0
 		elif Input.is_joy_button_pressed(input_device, JOY_BUTTON_DPAD_RIGHT):
-			x = 1.0
-	if absf(x) >= SELECT_DEADZONE:
-		if not _select_latched:
-			step = signi(x)
-			_select_latched = true
+			raw.x = 1.0
+		if Input.is_joy_button_pressed(input_device, JOY_BUTTON_DPAD_UP):
+			raw.y = -1.0
+		elif Input.is_joy_button_pressed(input_device, JOY_BUTTON_DPAD_DOWN):
+			raw.y = 1.0
+	# Forward is -Z, which reads as "up" on the menu.
+	return Vector2i(_axis_step(raw.x, "x"), _axis_step(raw.y, "y"))
+
+
+func _axis_step(value: float, axis: String) -> int:
+	var latched: float = _buy_latch.x if axis == "x" else _buy_latch.y
+	var step := 0
+	if absf(value) >= BUY_DEADZONE:
+		if latched == 0.0:
+			step = signi(value)
+		latched = signf(value)
 	else:
-		_select_latched = false
-	if step == 0:
-		return
-	_pending_kit = wrapi(_pending_kit + step, 0, Kit.count())
-	kit_previewed.emit(_pending_kit)
+		latched = 0.0
+	if axis == "x":
+		_buy_latch.x = latched
+	else:
+		_buy_latch.y = latched
+	return step
 
 
 func view_fov() -> float:
@@ -207,32 +256,35 @@ func _die(attacker: Node = null) -> void:
 	if attacker is Player and attacker != self and attacker.team != team:
 		GameState.add_frag(attacker.team)
 	_spawn_corpse(attacker)
-	_enter_select(RESPAWN_DELAY, true)
+	_enter_buy_screen(RESPAWN_FLOOR, true)
 
 
-## Go to the class-select screen for `delay` seconds, then deploy with whatever
-## class is highlighted. Shared by the match-start deploy and every death, so
-## the pick always happens the same way.
-func _enter_select(delay: float, eliminated: bool) -> void:
+## Go to the buy screen. It stays up until the player presses deploy — `floor`
+## is only how long the button is greyed out first. Shared by the match-start
+## deploy and every death, so a build is always bought the same way.
+func _enter_buy_screen(floor_secs: float, eliminated: bool) -> void:
 	_dead = true
 	velocity = Vector3.ZERO
 	weapon.aiming = false
 	if _camera:
 		_camera.fov = _base_fov
 	# Hide the live body + turn off its collision; the camera stays put as a
-	# death cam while the flop tumbles and the countdown runs.
+	# death cam while the flop tumbles and you spend.
 	model.visible = false
-	weapon.visible = false  # no gun in hand while you're still choosing one
+	weapon.visible = false  # no gun in hand while you're still buying one
 	_collision.disabled = true
-	_pending_kit = kit_index
-	kit_previewed.emit(_pending_kit)
+	# The screen opens on the build you were using, so an unchanged respawn is
+	# one button press.
+	pending = loadout.duplicate_loadout()
+	buy_row = 0
 	# Forget any held trigger/button: the new life starts on a fresh press.
-	_select_latched = false
+	_buy_latch = Vector2.ZERO
+	_deploy_latch = true  # released-then-pressed, so a held jump can't deploy
 	_fire_down = false
-	_switch_down = false
-	_respawn_timer = delay
-	_respawn_secs = ceili(delay)
-	died.emit(_respawn_secs, eliminated)
+	_deploy_wait = floor_secs
+	_deploy_armed = false
+	died.emit(eliminated)
+	buy_changed.emit(buy_row)
 
 
 func _spawn_corpse(attacker: Node) -> void:
@@ -246,14 +298,12 @@ func _spawn_corpse(attacker: Node) -> void:
 
 
 func _process_dead(delta: float) -> void:
-	_update_kit_choice()
-	_respawn_timer -= delta
-	var s := maxi(ceili(_respawn_timer), 0)
-	if s != _respawn_secs:
-		_respawn_secs = s
-		respawn_countdown.emit(s)
-	if _respawn_timer <= 0.0:
-		_respawn()
+	if not _deploy_armed:
+		_deploy_wait -= delta
+		if _deploy_wait <= 0.0:
+			_deploy_armed = true
+			deploy_ready.emit()
+	_update_buy_input()
 
 
 func _respawn() -> void:
@@ -272,7 +322,7 @@ func _respawn() -> void:
 	velocity = Vector3.ZERO
 	_recoil_pitch = 0.0
 	_recoil_yaw = 0.0
-	_apply_kit(_pending_kit)
+	_apply_loadout()
 	health_changed.emit(health)
 	if is_instance_valid(_corpse):
 		_corpse.queue_free()
@@ -310,8 +360,7 @@ func _physics_process(delta: float) -> void:
 	if _dead:
 		_process_dead(delta)
 		return
-	if _switch_pressed():
-		_cycle_weapon()
+	_update_gear()
 	_update_aim(delta)
 	_update_crouch(delta)
 
@@ -399,14 +448,28 @@ func _update_aim(delta: float) -> void:
 		_look_scale = _camera.fov / _base_fov
 
 
-## Q / Y swaps between the weapons of the class you deployed with — you never
-## reach another class's guns without respawning into it.
-func _cycle_weapon() -> void:
-	if _weapons.size() < 2:
-		return
-	_weapon_slot = (_weapon_slot + 1) % _weapons.size()
-	weapon.set_class(_weapons[_weapon_slot] as Weapon.Class)
-	weapon_changed.emit(weapon.display_name())
+## Consumables bought on the buy screen: a thrown grenade and a self-heal. Both
+## are edge-triggered and simply do nothing when you have none left.
+func _update_gear() -> void:
+	if _grenade_pressed() and grenades_left > 0:
+		grenades_left -= 1
+		_throw_grenade()
+		gear_changed.emit(grenades_left, medkits_left)
+	if _medkit_pressed() and medkits_left > 0 and health < max_health:
+		medkits_left -= 1
+		health = minf(health + Loadout.MEDKIT_HEAL, max_health)
+		health_changed.emit(health)
+		gear_changed.emit(grenades_left, medkits_left)
+
+
+func _throw_grenade() -> void:
+	var grenade := GRENADE_SCENE.instantiate()
+	get_tree().current_scene.add_child(grenade)
+	# Thrown from the camera, along the look direction with an upward share so it
+	# arcs instead of firing flat.
+	var aim := -head.global_transform.basis.z
+	var toss := (aim + Vector3.UP * GRENADE_LOB).normalized() * GRENADE_THROW_SPEED
+	grenade.launch(head.global_position + aim * 0.6, toss + velocity, self)
 
 
 func _move_input() -> Vector2:
@@ -463,16 +526,33 @@ func _ads_held() -> bool:
 		or Input.is_joy_button_pressed(input_device, JOY_BUTTON_LEFT_SHOULDER)
 
 
-## Weapon-cycle is edge-triggered. Keyboard uses the InputMap action's own edge
+## Gear buttons are edge-triggered. Keyboard uses the InputMap action's own edge
 ## detection; joypad buttons are polled per-device (device-scoped, unlike a
 ## shared InputMap action), so we track the previous state ourselves.
-func _switch_pressed() -> bool:
+func _grenade_pressed() -> bool:
 	if input_device < 0:
-		return Input.is_action_just_pressed("kb_switch")
-	var down := Input.is_joy_button_pressed(input_device, JOY_BUTTON_Y)
-	var edge := down and not _switch_down
-	_switch_down = down
+		return Input.is_action_just_pressed("kb_grenade")
+	var down := Input.is_joy_button_pressed(input_device, JOY_BUTTON_DPAD_UP)
+	var edge := down and not _grenade_down
+	_grenade_down = down
 	return edge
+
+
+func _medkit_pressed() -> bool:
+	if input_device < 0:
+		return Input.is_action_just_pressed("kb_medkit")
+	var down := Input.is_joy_button_pressed(input_device, JOY_BUTTON_DPAD_DOWN)
+	var edge := down and not _medkit_down
+	_medkit_down = down
+	return edge
+
+
+## Deploy off the buy screen: the same button as jump, held-state (the edge is
+## tracked by the buy screen itself, which needs a fresh press).
+func _deploy_held() -> bool:
+	if input_device < 0:
+		return Input.is_action_pressed("kb_jump")
+	return Input.is_joy_button_pressed(input_device, JOY_BUTTON_A)
 
 
 func _update_anim(move: Vector2, sprinting: bool) -> void:

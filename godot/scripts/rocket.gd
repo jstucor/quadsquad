@@ -115,6 +115,8 @@ func _spawn_blast(pos: Vector3) -> void:
 	mat.emission_energy_multiplier = 6.0
 	flash.material_override = mat
 	flash.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	flash.global_position = pos
+	# Placed after add_child: global_position on a node outside the tree is
+	# silently treated as local and errors.
 	get_tree().current_scene.add_child(flash)
+	flash.global_position = pos
 	get_tree().create_timer(0.18).timeout.connect(flash.queue_free)

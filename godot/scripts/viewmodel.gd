@@ -126,9 +126,11 @@ func _cyl(radius: float, height: float, pos: Vector3, mat: Material) -> MeshInst
 
 
 ## Show the parts that distinguish this class.
-func configure(class_id: int) -> void:
+func configure(class_id: int, scoped := false) -> void:
 	if _scope:
-		_scope.visible = class_id == Weapon.Class.SNIPER
+		# The sniper ships with optics; anything else grows one when the scope
+		# upgrade is bought.
+		_scope.visible = scoped or class_id == Weapon.Class.SNIPER
 	if _drum:
 		_drum.visible = class_id == Weapon.Class.HEAVY
 	# Sidearms drop the stock and fore grip, so the same base gun reads as a

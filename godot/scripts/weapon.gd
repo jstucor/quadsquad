@@ -81,6 +81,12 @@ const PROFILES := {
 	},
 }
 
+# Purchased upgrades (Loadout.UPGRADES) as multipliers on the base profile.
+const SCOPE_ZOOM_MULT := 0.6    # smaller FOV = more magnification
+const COOLING_HEAT_MULT := 0.75
+const COOLING_RATE_MULT := 1.25
+const GRIP_SPREAD_MULT := 0.65  # bloom derives from hip_spread, so it shrinks too
+
 const BOLT_SCENE := preload("res://scenes/fx/blaster_bolt.tscn")
 const ROCKET_SCENE := preload("res://scenes/fx/rocket.tscn")
 const OVERHEAT_RELEASE := 0.35  # heat must fall below this to fire again
@@ -89,6 +95,7 @@ const HEADSHOT_MULT := 2.0
 var weapon_class: Class = Class.SOLDIER
 var aiming := false
 var shooter: CollisionObject3D  # the owning player; set by Player
+var mods := {}                  # the upgrades this gun was bought with
 
 var _profile: Dictionary = PROFILES[Class.SOLDIER]
 var _cooldown := 0.0
@@ -100,9 +107,13 @@ var _bloom := 0.0  # extra hip-fire spread (deg) built up by sustained fire
 @onready var _viewmodel: Node3D = get_node_or_null("Viewmodel")
 
 
-func set_class(c: Class) -> void:
+## Equip a gun. `upgrades` is Loadout.weapon_mods() — the flags are folded into
+## a private copy of the profile, so the shared PROFILES table stays pristine
+## and everything downstream (spread, heat, scope) just reads _profile.
+func set_class(c: Class, upgrades := {}) -> void:
 	weapon_class = c
-	_profile = PROFILES[c]
+	mods = upgrades
+	_profile = _upgraded_profile(PROFILES[c], upgrades)
 	# Swapping vents heat and cancels any in-flight burst.
 	_heat = 0.0
 	_overheated = false
@@ -110,7 +121,22 @@ func set_class(c: Class) -> void:
 	_bloom = 0.0
 	heat_changed.emit(_heat, _overheated)
 	if _viewmodel:
-		_viewmodel.configure(c)
+		_viewmodel.configure(c, has_scope())
+
+
+func _upgraded_profile(base: Dictionary, upgrades: Dictionary) -> Dictionary:
+	if upgrades.is_empty():
+		return base
+	var p := base.duplicate()
+	if upgrades.get("scope", false):
+		p["scope"] = true
+		p["zoom_fov"] = float(p["zoom_fov"]) * SCOPE_ZOOM_MULT
+	if upgrades.get("cooling", false):
+		p["heat_per_shot"] = float(p["heat_per_shot"]) * COOLING_HEAT_MULT
+		p["cool_rate"] = float(p["cool_rate"]) * COOLING_RATE_MULT
+	if upgrades.get("grip", false):
+		p["hip_spread"] = float(p["hip_spread"]) * GRIP_SPREAD_MULT
+	return p
 
 
 func display_name() -> String:

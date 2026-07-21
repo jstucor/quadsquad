@@ -20,10 +20,6 @@ const PLAYER_COLORS: Array[Color] = [
 	Color(0.4, 0.85, 0.4),
 	Color(0.95, 0.8, 0.3),
 ]
-# Which class each viewport starts highlighted on — a spread across the roster,
-# so the default four are all different. Everyone still picks for themselves.
-const START_KITS: Array[int] = [0, 1, 2, 3]
-
 const MATCH_END_DELAY := 4.5  # seconds of victory banner before the next map
 
 # HUD palette.
@@ -74,7 +70,6 @@ func _ready() -> void:
 		player.player_index = i
 		player.input_device = i - 1  # P1 keyboard/mouse; P2..P4 joypads 0..2
 		player.team = TEAMS[i]
-		player.kit_index = START_KITS[i]
 		level.add_child(player)
 		var spawn := GameState.get_spawn_point(player.team, _team_slot(i))
 		if spawn:
@@ -127,7 +122,8 @@ func _build_hud(player: Player) -> Control:
 	_add_scoreboard(hud)
 	_add_health(hud, player, color)
 	_add_weapon_readout(hud, player, color)
-	hud.add_child(_build_class_select(player, color))
+	_add_gear_readout(hud, player, color)
+	hud.add_child(_build_buy_screen(player, color))
 	_add_victory_banner(hud)
 	return hud
 
@@ -168,7 +164,7 @@ func _add_reticle(hud: Control, player: Player) -> void:
 		crosshair.visible = not scoped and live
 	player.aim_changed.connect(func(_aiming: bool) -> void: refresh.call())
 	player.weapon_changed.connect(func(_name: String) -> void: refresh.call())
-	player.died.connect(func(_secs: int, _killed: bool) -> void: refresh.call())
+	player.died.connect(func(_eliminated: bool) -> void: refresh.call())
 	player.respawned.connect(func() -> void: refresh.call())
 	refresh.call()
 
@@ -242,6 +238,30 @@ func _add_weapon_readout(hud: Control, player: Player, color: Color) -> void:
 
 
 ## Hidden until a team wins, then shown in every viewport by _show_victory.
+## Consumables you're carrying, above the weapon name. Hidden when you bought
+## none, so a gun-only build has no dead HUD text.
+func _add_gear_readout(hud: Control, player: Player, color: Color) -> void:
+	var gear := Label.new()
+	gear.add_theme_font_size_override("font_size", 15)
+	gear.add_theme_color_override("font_color", Color(color, 0.85))
+	gear.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
+	gear.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	gear.offset_left = -220.0
+	gear.offset_top = -64.0
+	gear.offset_right = -14.0
+	gear.offset_bottom = -46.0
+	hud.add_child(gear)
+	var refresh := func(grenades: int, medkits: int) -> void:
+		var parts: Array[String] = []
+		if grenades > 0:
+			parts.append("GRENADE x%d" % grenades)
+		if medkits > 0:
+			parts.append("MEDKIT x%d" % medkits)
+		gear.text = "   ".join(parts)
+	player.gear_changed.connect(refresh)
+	refresh.call(player.grenades_left, player.medkits_left)
+
+
 func _add_victory_banner(hud: Control) -> void:
 	var banner := _full_rect_label("", 40, Color(1, 1, 1, 1))
 	banner.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
@@ -257,12 +277,12 @@ func _show_victory(team: int) -> void:
 		banner.visible = true
 
 
-## The class-select / death screen for one viewport: dimmed backdrop, the four
-## class names in a row with the highlighted one lit, that class's loadout and
-## stat blurb, and the countdown to deploying with it. Shown at match start
-## (DEPLOY) and after every death (ELIMINATED) — the player's own device steps
-## the highlight, so all four choose at once in their own quadrant.
-func _build_class_select(player: Player, color: Color) -> Control:
+## The buy screen for one viewport: a dimmed backdrop, the budget, one row per
+## purchasable thing with the cursor on the active row, a blurb for whatever the
+## cursor is on, and the deploy prompt. Shown at match start (DEPLOY) and after
+## every death (ELIMINATED). Each player drives their own quadrant, so all four
+## shop at once; nobody spawns until they press deploy.
+func _build_buy_screen(player: Player, color: Color) -> Control:
 	var panel := Control.new()
 	panel.set_anchors_preset(Control.PRESET_FULL_RECT)
 	panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -274,69 +294,87 @@ func _build_class_select(player: Player, color: Color) -> Control:
 	dim.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	panel.add_child(dim)
 
-	var title := _full_rect_label("ELIMINATED", 30, ELIMINATED_COLOR)
-	title.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	title.offset_bottom = -96.0
-	panel.add_child(title)
+	var column := VBoxContainer.new()
+	column.set_anchors_preset(Control.PRESET_CENTER)
+	column.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	column.grow_vertical = Control.GROW_DIRECTION_BOTH
+	column.alignment = BoxContainer.ALIGNMENT_CENTER
+	column.add_theme_constant_override("separation", 2)
+	panel.add_child(column)
 
-	# The four class names side by side; the picked one is tinted + bracketed.
-	var names := _full_rect_label("", 20, Color(1, 1, 1, 0.9))
-	names.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	names.offset_bottom = -20.0
-	panel.add_child(names)
+	var title := _centred_label("ELIMINATED", 26, ELIMINATED_COLOR)
+	column.add_child(title)
+	var budget := _centred_label("", 17, Color(1, 1, 1, 0.9))
+	column.add_child(budget)
+	column.add_child(_spacer(8))
 
-	var loadout := _full_rect_label("", 17, Color(1, 1, 1, 0.85))
-	loadout.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	loadout.offset_top = 24.0
-	panel.add_child(loadout)
+	# Two labels per row — name left, selection right, both fixed width — so the
+	# list reads as aligned columns instead of ragged centred lines.
+	# _refresh_buy_screen rewrites the text in place, so scrolling churns no nodes.
+	var rows: Array[Label] = []
+	var values: Array[Label] = []
+	for i in Loadout.Row.size():
+		var line := HBoxContainer.new()
+		line.add_theme_constant_override("separation", 12)
+		var name_label := _centred_label("", 16, Color(1, 1, 1, 0.85))
+		name_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+		name_label.custom_minimum_size = Vector2(190, 0)
+		line.add_child(name_label)
+		var value_label := _centred_label("", 16, Color(1, 1, 1, 0.85))
+		value_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+		value_label.custom_minimum_size = Vector2(170, 0)
+		line.add_child(value_label)
+		column.add_child(line)
+		rows.append(name_label)
+		values.append(value_label)
 
-	var stats := _full_rect_label("", 15, Color(0.72, 0.76, 0.82))
-	stats.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	stats.offset_top = 62.0
-	panel.add_child(stats)
+	column.add_child(_spacer(8))
+	var blurb := _centred_label("", 14, Color(0.7, 0.74, 0.8))
+	column.add_child(blurb)
+	var prompt := _centred_label("", 16, Color(0.62, 0.66, 0.72))
+	column.add_child(prompt)
+	column.add_child(_centred_label(
+		"up / down pick a line     left / right change it", 13, Color(0.5, 0.54, 0.6)))
 
-	var countdown := _full_rect_label("", 20, Color(1, 1, 1, 0.9))
-	countdown.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	countdown.offset_top = 104.0
-	panel.add_child(countdown)
-
-	var hint := _full_rect_label("move left / right to choose class", 14,
-		Color(0.62, 0.66, 0.72))
-	hint.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	hint.offset_top = 140.0
-	panel.add_child(hint)
-
-	# The verb lives on the panel, not in a captured local: GDScript lambdas
-	# capture by value, so `died` writing a local would never reach the
-	# countdown lambda's copy of it.
-	panel.set_meta("verb", "Respawning")
-	var show_kit := func(index: int) -> void:
-		var parts: Array[String] = []
-		for k in Kit.count():
-			var n: String = Kit.get_kit(k)["name"]
-			parts.append("[ %s ]" % n if k == index else "  %s  " % n)
-		names.text = " ".join(parts)
-		names.add_theme_color_override("font_color", color)
-		var kit := Kit.get_kit(index)
-		loadout.text = Kit.weapon_line(index)
-		stats.text = "%s   HP %d" % [kit["blurb"], roundi(kit["health"])]
-	var set_countdown := func(secs: int) -> void:
-		var verb: String = panel.get_meta("verb")
-		countdown.text = "%s in %d" % [verb, secs] if secs > 0 else "%s..." % verb
-
-	player.kit_previewed.connect(func(index: int) -> void: show_kit.call(index))
-	player.died.connect(func(secs: int, was_killed: bool) -> void:
-		panel.set_meta("verb", "Respawning" if was_killed else "Deploying")
-		title.text = "ELIMINATED" if was_killed else "DEPLOY"
+	var refresh := func() -> void:
+		_refresh_buy_screen(player, color, rows, values, budget, blurb, prompt)
+	player.buy_changed.connect(func(_row: int) -> void: refresh.call())
+	player.deploy_ready.connect(func() -> void: refresh.call())
+	player.died.connect(func(eliminated: bool) -> void:
+		title.text = "ELIMINATED" if eliminated else "DEPLOY"
 		title.add_theme_color_override("font_color",
-			ELIMINATED_COLOR if was_killed else color)
-		dim.color = DEATH_DIM if was_killed else DEPLOY_DIM
+			ELIMINATED_COLOR if eliminated else color)
+		dim.color = DEATH_DIM if eliminated else DEPLOY_DIM
 		panel.visible = true
-		set_countdown.call(secs))
-	player.respawn_countdown.connect(func(secs: int) -> void: set_countdown.call(secs))
+		refresh.call())
 	player.respawned.connect(func() -> void: panel.visible = false)
-	show_kit.call(player.kit_index)
+	refresh.call()
 	return panel
+
+
+## Rewrite the buy screen's text for the player's current pending build. The
+## cursor row is bracketed and tinted; rows you can't currently afford to step
+## up are still shown, they just refuse to change.
+func _refresh_buy_screen(player: Player, color: Color, rows: Array[Label],
+		values: Array[Label], budget: Label, blurb: Label, prompt: Label) -> void:
+	var build := player.pending
+	budget.text = "TOKENS  %d spent   %d left of %d" % [
+		build.cost(), build.remaining(), Loadout.BUDGET]
+	for i in rows.size():
+		var selected := i == player.buy_row
+		var tint := color if selected else Color(1, 1, 1, 0.72)
+		rows[i].text = "%s %s" % ["\u25b8" if selected else " ", build.row_label(i)]
+		var cost := build.row_cost(i)
+		values[i].text = build.row_value(i)
+		if cost > 0:
+			values[i].text += "   %d" % cost
+		rows[i].add_theme_color_override("font_color", tint)
+		values[i].add_theme_color_override("font_color", tint)
+	blurb.text = build.row_blurb(player.buy_row)
+	prompt.text = "%s  to deploy" % player.deploy_button_name() \
+		if player.deploy_armed() else "standby..."
+	prompt.add_theme_color_override("font_color",
+		Color(0.85, 0.95, 0.8) if player.deploy_armed() else Color(0.55, 0.58, 0.62))
 
 
 ## Bloom crosshair: four ticks at a radius that maps the weapon's current
@@ -369,6 +407,24 @@ func _draw_scope(c: Control) -> void:
 	c.draw_line(Vector2(center.x, center.y - r), Vector2(center.x, center.y + r), Color(0, 0, 0, 0.5), 1.0)
 	c.draw_line(Vector2(center.x - r, center.y), Vector2(center.x + r, center.y), Color(0, 0, 0, 0.5), 1.0)
 	c.draw_circle(center, 2.0, Color(1, 0.25, 0.18))
+
+
+## A row inside a VBox, as opposed to _full_rect_label which positions itself
+## across the whole viewport.
+func _centred_label(text: String, size: int, color: Color) -> Label:
+	var label := Label.new()
+	label.text = text
+	label.add_theme_font_size_override("font_size", size)
+	label.add_theme_color_override("font_color", color)
+	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	label.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	return label
+
+
+func _spacer(height: int) -> Control:
+	var spacer := Control.new()
+	spacer.custom_minimum_size = Vector2(0, height)
+	return spacer
 
 
 func _full_rect_label(text: String, size: int, color: Color) -> Label:

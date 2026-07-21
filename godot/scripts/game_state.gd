@@ -151,8 +151,9 @@ func _register_kb_actions() -> void:
 		"kb_right": KEY_D,
 		"kb_jump": KEY_SPACE,
 		"kb_sprint": KEY_SHIFT,
-		"kb_switch": KEY_Q,  # cycle weapon class
 		"kb_crouch": KEY_CTRL,
+		"kb_grenade": KEY_G,
+		"kb_medkit": KEY_H,
 	}
 	for action in keys:
 		if InputMap.has_action(action):

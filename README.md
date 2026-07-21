@@ -27,11 +27,11 @@ godot --headless --path godot --import
 
 | Input | Player |
 |---|---|
-| Keyboard + mouse (WASD, Space jump, Shift sprint, Ctrl crouch, LMB fire, RMB aim, Q swap weapon) | Player 1 |
-| Joypads (left stick move, right stick look, RT/RB fire, LT/LB aim, B crouch, Y swap weapon, A jump, L3 sprint) | Players 2–4 |
+| Keyboard + mouse (WASD, Space jump, Shift sprint, Ctrl crouch, LMB fire, RMB aim, G grenade, H health kit) | Player 1 |
+| Joypads (left stick move, right stick look, RT/RB fire, LT/LB aim, B crouch, A jump, L3 sprint, d-pad up grenade, d-pad down health kit) | Players 2–4 |
 
-On the class screen, move left / right (A / D, left stick, or d-pad) to pick
-your class; you deploy with it when the countdown ends.
+On the buy screen: up / down picks a line, left / right changes it, and
+**Space / A** deploys once the button goes live.
 
 Launching drops you on the map-select menu — arrows / left stick to move,
 Enter / A to select (any joypad can drive it). In a match, click the window to
@@ -53,18 +53,27 @@ capture the mouse; ESC releases it.
   your own model (render-layer cull masks) but squadmates do
 - Procedural blocky characters built in code (no imported model, no skinning)
   with idle / walk / run / jump — clean box limbs on real joints
-- **Four classes**, picked per player in their own viewport when the match
-  starts and again on every death (5 s deploy / 3 s respawn countdown):
+- **Buy screen instead of classes.** Every life you get **200 tokens** and spec
+  a build: a gun, upgrades bolted to it, an armour frame, and consumables.
+  Nothing is earned or banked — the budget resets each life — and your build
+  persists across deaths, so respawning is one button press unless you want to
+  re-spec. **You deploy when you press the button, not on a timer** (there's a
+  short floor first: 5 s at match start, 2 s after a death).
 
-  | Class | Weapons | Body |
-  |---|---|---|
-  | Assault | DC-15 Rifle, EL-16 Burst | 100 HP, standard speed and jump |
-  | Specialist | NT-242 Sniper, A280 Semi | 80 HP, +12% speed and jump |
-  | Officer | SE-14 Revolver, DL-44 Pistol | 100 HP, standard speed and jump |
-  | Heavy | Z-6 Repeater, T-21 HMG, PLX-1 RPG | 140 HP, -12% speed, -10% jump |
+  | Row | Options (cost) |
+  |---|---|
+  | Weapon | Pistol 0 · Revolver 35 · Rifle 45 · Burst 50 · Semi 55 · Repeater 70 · HMG 80 · Sniper 85 · RPG 110 |
+  | Scope | 25 — zoom optics + scope overlay on any gun |
+  | Cooling vanes | 20 — -25% heat per shot, cools faster |
+  | Improved grip | 20 — -35% hip spread, so bloom builds less |
+  | Armour | Light Frame 20 (80 HP, +12% speed/jump) · None 0 (100 HP) · Plated 25 (130 HP) · Heavy Plate 60 (175 HP, -15% speed) |
+  | Grenades | 25 each, up to 3 — bounce off cover, 2 s fuse, radius splash |
+  | Health kit | 30 each, up to 2 — heals 60 |
 
-- Nine weapons across those classes, with AUTO / SEMI / BURST fire modes; Q / Y
-  swaps between the weapons of the class you deployed with
+  Options you can't afford simply refuse to select, so anything on screen is a
+  build you can deploy with.
+- Nine weapons with AUTO / SEMI / BURST fire modes, all buyable, all able to
+  take the three upgrades
 - The RPG fires a real travelling rocket with radius splash damage + falloff;
   the rest are hitscan with fast bolt tracers
 - Camera recoil per shot (settles back), 2x headshots, and crouch (lower
@@ -89,13 +98,13 @@ godot/
     main.tscn               — bare bootstrap node (main.gd loads the map)
     levels/                 — crossfire/foundry/overgrowth.tscn (procedural), hangar.tscn
     actors/player.tscn      — CharacterBody3D FPS player
-    fx/                     — blaster_bolt.tscn tracer, rocket.tscn
+    fx/                     — blaster_bolt.tscn, rocket.tscn, grenade.tscn, corpse.tscn
   scripts/
     menu.gd                 — map-select menu: roster list, rotation, quit
     main.gd                 — map load + split-screen + teams + score HUD + rotation
     game_state.gd           — autoload: map roster, TDM score, teams, spawns, input map
-    kit.gd                  — the four classes: weapons + health/speed/jump
-    player.gd               — movement, crouch, recoil, damage/frag, class select
+    loadout.gd              — the buy catalogue: weapons, upgrades, armour, gear
+    player.gd               — movement, crouch, recoil, damage/frag, buy screen
     character.gd            — procedural blocky humanoid + code-built anims
     arena.gd                — procedural map base (env/floor/walls/lights/spawns),
                               square or rectangular (size x depth)
@@ -103,6 +112,7 @@ godot/
     weapon.gd               — 9-weapon blaster: fire modes, ADS, spread, heat
     viewmodel.gd            — procedural first-person gun + recoil/flash/bob
     rocket.gd               — RPG projectile: travel + splash damage
+    grenade.gd              — thrown grenade: bounces, fuse, splash damage
     trooper.gd              — decorative NPC: extends CharacterModel + patrol
     hangar.gd               — hangar spawn-point registration (both teams)
   shaders/                  — starfield sky, floor panels, jungle ground
