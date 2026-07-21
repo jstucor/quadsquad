@@ -41,10 +41,14 @@ var map_index := 0  # index into MAPS; the menu sets it
 ## Menu choice: true = play the whole roster in order (rotating on each win),
 ## false = replay the chosen map, then back to the menu.
 var rotate_maps := false
-## Every Player currently in the match, in spawn order. Players register in
-## _ready and drop out in _exit_tree; spawn picking and the anti-stacking push
-## both walk this instead of a group query, which would allocate every frame.
-var players: Array[Player] = []
+## Every body that can be shot, shove or be shoved, and block a spawn marker:
+## players and their bought AI squads alike. They register in _ready and drop
+## out in _exit_tree; spawn picking and the anti-stacking push both walk this
+## instead of a group query, which would allocate every frame.
+##
+## Duck-typed on purpose so bots don't need to inherit Player: a combatant must
+## expose is_alive(), team, take_damage() and global_position.
+var combatants: Array[Node3D] = []
 
 var _spawns: Dictionary = {}  # Team -> Array[Node3D]
 
@@ -57,16 +61,16 @@ func reset_match() -> void:
 	scores = {Team.REPUBLIC: 0, Team.CIS: 0}
 	match_over = false
 	_spawns.clear()
-	players.clear()
+	combatants.clear()
 
 
-func register_player(player: Player) -> void:
-	if not players.has(player):
-		players.append(player)
+func register_combatant(body: Node3D) -> void:
+	if not combatants.has(body):
+		combatants.append(body)
 
 
-func unregister_player(player: Player) -> void:
-	players.erase(player)
+func unregister_combatant(body: Node3D) -> void:
+	combatants.erase(body)
 
 
 func register_spawn_point(team: int, marker: Node3D) -> void:
@@ -122,7 +126,7 @@ func _nearest_body_gap(pos: Vector3) -> float:
 func _nearest_body(pos: Vector3) -> Node3D:
 	var best: Node3D = null
 	var best_gap := INF
-	for p in players:
+	for p in combatants:
 		if not p.is_alive():
 			continue
 		var gap := pos.distance_to(p.global_position)

@@ -17,9 +17,11 @@ signal respawned()
 signal buy_changed(row: int)     # cursor moved or the build changed; redraw
 signal deploy_ready()            # the minimum wait elapsed; the button is live
 signal gear_changed(grenades: int, medkits: int)
+signal squad_changed(alive: int)  # squadmates mustered or lost
 
 const CORPSE_SCENE := preload("res://scenes/fx/corpse.tscn")
 const GRENADE_SCENE := preload("res://scenes/fx/grenade.tscn")
+const BOT_SCENE := preload("res://scenes/actors/bot.tscn")
 # You deploy on a button press, not a timer. These are only the floor before the
 # button goes live: long enough at match start for everyone to spec a build, and
 # short enough after a death that you're never sat waiting on a decision made.
@@ -76,6 +78,7 @@ var pending := Loadout.starter()
 var buy_row := 0
 var grenades_left := 0
 var medkits_left := 0
+var squad: Array[Bot] = []  # the AI squadmates currently alive under this player
 
 var _anim: AnimationPlayer
 var _gravity: float = ProjectSettings.get_setting("physics/3d/default_gravity")
@@ -108,7 +111,7 @@ var _corpse: Node3D        # the flop spawned on death, freed on respawn
 
 
 func _ready() -> void:
-	GameState.register_player(self)  # spawn picking skips the markers we occupy
+	GameState.register_combatant(self)  # spawn picking skips the markers we occupy
 	_anim = model.find_child("AnimationPlayer", true, false)
 	for mi in model.find_children("*", "MeshInstance3D", true, false):
 		mi.layers = 1 << (1 + player_index)
@@ -125,7 +128,7 @@ func _ready() -> void:
 ## Match start: everyone picks a class before they can shoot. Main calls this
 ## once the viewport HUD is wired — _ready() would emit `died` into nothing.
 func _exit_tree() -> void:
-	GameState.unregister_player(self)
+	GameState.unregister_combatant(self)
 
 
 func begin_deploy() -> void:
@@ -184,8 +187,45 @@ func _apply_loadout() -> void:
 	grenades_left = loadout.grenades
 	medkits_left = loadout.medkits
 	weapon.set_class(loadout.weapon_class(), loadout.weapon_mods())
+	_muster_squad()
 	gear_changed.emit(grenades_left, medkits_left)
 	weapon_changed.emit(weapon.display_name())
+
+
+## Bring the squad up to the headcount you paid for. Survivors are kept and only
+## the losses are replaced, so redeploying never wipes a squad that's still
+## fighting, and never stacks up more than you bought.
+func _muster_squad() -> void:
+	squad = squad.filter(func(b: Bot) -> bool: return is_instance_valid(b) and b.is_alive())
+	var want := loadout.squad
+	# Bought fewer than you have (re-spec): stand the extras down.
+	while squad.size() > want:
+		squad.pop_back().queue_free()
+	for i in want - squad.size():
+		squad.append(_spawn_bot())
+	squad_changed.emit(squad.size())
+
+
+func _on_squadmate_lost() -> void:
+	squad = squad.filter(func(b: Bot) -> bool: return is_instance_valid(b) and b.is_alive())
+	squad_changed.emit(squad.size())
+
+
+func _spawn_bot() -> Bot:
+	var bot: Bot = BOT_SCENE.instantiate()
+	get_parent().add_child(bot)  # a sibling in the level, not a child of the player
+	bot.setup(self, team, loadout.squad_skill)
+	# tree_exited fires when a bot is freed on death, so the HUD count follows
+	# losses without the bot needing to know anything about its owner's UI.
+	bot.tree_exited.connect(_on_squadmate_lost)
+	# Drop them on a clear team marker, same as a respawn, so they never spawn
+	# inside a body.
+	var spawn := GameState.get_spawn_point(team)
+	if spawn:
+		bot.global_transform = GameState.clear_of_bodies(spawn.global_transform)
+	else:
+		bot.global_position = global_position + Vector3(randf_range(-2, 2), 0, randf_range(-2, 2))
+	return bot
 
 
 ## Buy-screen input while dead: up/down picks a row, left/right changes it, and
@@ -402,7 +442,7 @@ func _physics_process(delta: float) -> void:
 ## how deep the overlap is; zero in the normal case of nobody nearby.
 func _unstick_push() -> Vector3:
 	var push := Vector3.ZERO
-	for p in GameState.players:
+	for p in GameState.combatants:
 		if p == self or not p.is_alive():
 			continue
 		var away := global_position - p.global_position

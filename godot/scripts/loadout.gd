@@ -48,6 +48,18 @@ const ARMOR: Array[Dictionary] = [
 ]
 const DEFAULT_ARMOR := 1
 
+# AI squadmates: you buy a headcount and a skill tier, and pay the tier's price
+# for every one of them (4 veterans cost 4 x VETERAN). Skill is what actually
+# separates them — aim, reaction, engagement range and the gun they carry —
+# see Bot.SKILLS.
+const SQUAD_MAX := 4
+const SQUAD_SKILLS: Array[Dictionary] = [
+	{"name": "RECRUIT", "cost": 20, "blurb": "Poor aim, slow to react, short sight"},
+	{"name": "REGULAR", "cost": 35, "blurb": "Steady aim, average reactions"},
+	{"name": "VETERAN", "cost": 55, "blurb": "Sharp aim, quick, pushes further out"},
+	{"name": "ELITE", "cost": 80, "blurb": "Deadly aim, near-instant, long sight"},
+]
+
 # Consumables, bought by the unit.
 const GRENADE_COST := 25
 const GRENADE_MAX := 3
@@ -56,7 +68,7 @@ const MEDKIT_MAX := 2
 const MEDKIT_HEAL := 60.0
 
 ## The buy screen is one row per line, in this order.
-enum Row { WEAPON, SCOPE, COOLING, GRIP, ARMOR, GRENADES, MEDKITS }
+enum Row { WEAPON, SCOPE, COOLING, GRIP, ARMOR, GRENADES, MEDKITS, SQUAD, SQUAD_SKILL }
 
 var weapon := 0        # index into WEAPONS
 var scope := false
@@ -65,6 +77,8 @@ var grip := false
 var armor := DEFAULT_ARMOR  # index into ARMOR
 var grenades := 0
 var medkits := 0
+var squad := 0        # how many AI squadmates
+var squad_skill := 1  # index into SQUAD_SKILLS, paid per squadmate
 
 
 ## A starter build that spends part of the budget: standard armour, basic rifle.
@@ -74,16 +88,13 @@ static func starter() -> Loadout:
 	return l
 
 
+## Delegates to _copy_from so there's exactly one list of fields to keep in
+## step with — step() trials changes on a duplicate, so a field missed here
+## would be silently reset by any edit to another row.
 func duplicate_loadout() -> Loadout:
-	var l := Loadout.new()
-	l.weapon = weapon
-	l.scope = scope
-	l.cooling = cooling
-	l.grip = grip
-	l.armor = armor
-	l.grenades = grenades
-	l.medkits = medkits
-	return l
+	var copy := Loadout.new()
+	copy._copy_from(self)
+	return copy
 
 
 func cost() -> int:
@@ -94,7 +105,13 @@ func cost() -> int:
 			total += int(up["cost"])
 	total += grenades * GRENADE_COST
 	total += medkits * MEDKIT_COST
+	total += squad_cost()
 	return total
+
+
+## The squad is priced per head, so raising skill raises the whole bill.
+func squad_cost() -> int:
+	return squad * int(SQUAD_SKILLS[squad_skill]["cost"])
 
 
 func remaining() -> int:
@@ -111,6 +128,10 @@ func weapon_name() -> String:
 
 func armor_stats() -> Dictionary:
 	return ARMOR[armor]
+
+
+func squad_skill_stats() -> Dictionary:
+	return SQUAD_SKILLS[squad_skill]
 
 
 ## The upgrade flags in the shape Weapon.set_class wants.
@@ -146,13 +167,18 @@ func _step_unchecked(row: int, dir: int) -> void:
 			grenades = clampi(grenades + dir, 0, GRENADE_MAX)
 		Row.MEDKITS:
 			medkits = clampi(medkits + dir, 0, MEDKIT_MAX)
+		Row.SQUAD:
+			squad = clampi(squad + dir, 0, SQUAD_MAX)
+		Row.SQUAD_SKILL:
+			squad_skill = clampi(squad_skill + dir, 0, SQUAD_SKILLS.size() - 1)
 
 
 func _same_as(other: Loadout) -> bool:
 	return weapon == other.weapon and scope == other.scope \
 		and cooling == other.cooling and grip == other.grip \
 		and armor == other.armor and grenades == other.grenades \
-		and medkits == other.medkits
+		and medkits == other.medkits and squad == other.squad \
+		and squad_skill == other.squad_skill
 
 
 func _copy_from(other: Loadout) -> void:
@@ -163,6 +189,8 @@ func _copy_from(other: Loadout) -> void:
 	armor = other.armor
 	grenades = other.grenades
 	medkits = other.medkits
+	squad = other.squad
+	squad_skill = other.squad_skill
 
 
 ## Display: the fixed name of a row, what's currently selected on it, what that
@@ -173,6 +201,8 @@ func row_label(row: int) -> String:
 		Row.ARMOR: return "ARMOR"
 		Row.GRENADES: return "GRENADES"
 		Row.MEDKITS: return "HEALTH KIT"
+		Row.SQUAD: return "AI SQUAD"
+		Row.SQUAD_SKILL: return "SQUAD SKILL"
 		_: return UPGRADES[_upgrade_index(row)]["name"]
 
 
@@ -182,6 +212,8 @@ func row_value(row: int) -> String:
 		Row.ARMOR: return ARMOR[armor]["name"]
 		Row.GRENADES: return "x%d" % grenades if grenades > 0 else "none"
 		Row.MEDKITS: return "x%d" % medkits if medkits > 0 else "none"
+		Row.SQUAD: return "x%d" % squad if squad > 0 else "none"
+		Row.SQUAD_SKILL: return SQUAD_SKILLS[squad_skill]["name"]
 		_: return "fitted" if get(UPGRADES[_upgrade_index(row)]["key"]) else "none"
 
 
@@ -191,6 +223,7 @@ func row_cost(row: int) -> int:
 		Row.ARMOR: return ARMOR[armor]["cost"]
 		Row.GRENADES: return grenades * GRENADE_COST
 		Row.MEDKITS: return medkits * MEDKIT_COST
+		Row.SQUAD, Row.SQUAD_SKILL: return squad_cost()
 		_:
 			var up: Dictionary = UPGRADES[_upgrade_index(row)]
 			return int(up["cost"]) if get(up["key"]) else 0
@@ -208,6 +241,13 @@ func row_blurb(row: int) -> String:
 			return "%d each, thrown with G / d-pad up" % GRENADE_COST
 		Row.MEDKITS:
 			return "%d each, heals %d with H / d-pad down" % [MEDKIT_COST, roundi(MEDKIT_HEAL)]
+		Row.SQUAD:
+			var each: int = SQUAD_SKILLS[squad_skill]["cost"]
+			return "%d each at %s   (max %d, they fight for your team)" % [
+				each, SQUAD_SKILLS[squad_skill]["name"], SQUAD_MAX]
+		Row.SQUAD_SKILL:
+			var skill: Dictionary = SQUAD_SKILLS[squad_skill]
+			return "%s   (%d each)" % [skill["blurb"], skill["cost"]]
 		_:
 			var up: Dictionary = UPGRADES[_upgrade_index(row)]
 			return "%s   (%d)" % [up["blurb"], up["cost"]]

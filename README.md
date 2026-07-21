@@ -69,9 +69,19 @@ capture the mouse; ESC releases it.
   | Armour | Light Frame 20 (80 HP, +12% speed/jump) · None 0 (100 HP) · Plated 25 (130 HP) · Heavy Plate 60 (175 HP, -15% speed) |
   | Grenades | 25 each, up to 3 — bounce off cover, 2 s fuse, radius splash |
   | Health kit | 30 each, up to 2 — heals 60 |
+  | AI squad | headcount, up to 4 — priced **per head** at the skill you pick |
+  | Squad skill | Recruit 20 · Regular 35 · Veteran 55 · Elite 80 (each) |
 
   Options you can't afford simply refuse to select, so anything on screen is a
-  build you can deploy with.
+  build you can deploy with — 4 elites (320) won't fit in 200, 2 will.
+
+- **AI squadmates** fight for your team: they acquire the nearest enemy they can
+  actually see, close to their engagement range, strafe and shoot, and fall in
+  behind you when there's nothing to fight. Skill is what you're paying for —
+  aim error, reaction time, sight range, turn speed and toughness all scale with
+  the tier, and every tier carries the same rifle so intelligence is the only
+  variable. They don't respawn; your next deploy tops the squad back up to the
+  headcount you bought (survivors are kept).
 - Nine weapons with AUTO / SEMI / BURST fire modes, all buyable, all able to
   take the three upgrades
 - The RPG fires a real travelling rocket with radius splash damage + falloff;
@@ -98,12 +108,14 @@ godot/
     main.tscn               — bare bootstrap node (main.gd loads the map)
     levels/                 — crossfire/foundry/overgrowth.tscn (procedural), hangar.tscn
     actors/player.tscn      — CharacterBody3D FPS player
+    actors/bot.tscn         — CharacterBody3D AI squadmate
     fx/                     — blaster_bolt.tscn, rocket.tscn, grenade.tscn, corpse.tscn
   scripts/
     menu.gd                 — map-select menu: roster list, rotation, quit
     main.gd                 — map load + split-screen + teams + score HUD + rotation
     game_state.gd           — autoload: map roster, TDM score, teams, spawns, input map
-    loadout.gd              — the buy catalogue: weapons, upgrades, armour, gear
+    loadout.gd              — the buy catalogue: weapons, upgrades, armour, gear, squads
+    bot.gd                  — AI squadmate: target/advance/engage, skill tiers
     player.gd               — movement, crouch, recoil, damage/frag, buy screen
     character.gd            — procedural blocky humanoid + code-built anims
     arena.gd                — procedural map base (env/floor/walls/lights/spawns),
@@ -122,7 +134,7 @@ tools/animate_trooper.py    — retired Blender rig/animation pipeline (unused)
 
 ## Roadmap (parity with the retired C++ prototype, then Battlefront)
 
-- Droid enemies: FSM AI (idle → patrol → attack), line-of-sight checks
+- Droid enemies as a match mode (the AI itself is in — see AI squadmates)
 - Conquest mode: command posts, spawn-point capture, ticket bleed
 - Game-over flow and a lobby (map select is in — see Current State)
 - Particles (impact sparks, explosions) — instanced, Pi-friendly

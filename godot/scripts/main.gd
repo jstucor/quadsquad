@@ -251,15 +251,18 @@ func _add_gear_readout(hud: Control, player: Player, color: Color) -> void:
 	gear.offset_right = -14.0
 	gear.offset_bottom = -46.0
 	hud.add_child(gear)
-	var refresh := func(grenades: int, medkits: int) -> void:
+	var refresh := func() -> void:
 		var parts: Array[String] = []
-		if grenades > 0:
-			parts.append("GRENADE x%d" % grenades)
-		if medkits > 0:
-			parts.append("MEDKIT x%d" % medkits)
+		if player.grenades_left > 0:
+			parts.append("GRENADE x%d" % player.grenades_left)
+		if player.medkits_left > 0:
+			parts.append("MEDKIT x%d" % player.medkits_left)
+		if player.squad.size() > 0:
+			parts.append("SQUAD x%d" % player.squad.size())
 		gear.text = "   ".join(parts)
-	player.gear_changed.connect(refresh)
-	refresh.call(player.grenades_left, player.medkits_left)
+	player.gear_changed.connect(func(_g: int, _m: int) -> void: refresh.call())
+	player.squad_changed.connect(func(_alive: int) -> void: refresh.call())
+	refresh.call()
 
 
 func _add_victory_banner(hud: Control) -> void:

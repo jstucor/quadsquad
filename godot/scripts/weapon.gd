@@ -143,6 +143,11 @@ func display_name() -> String:
 	return _profile["name"]
 
 
+## Current heat, 0..1. Bots read it to keep off the trigger before they lock out.
+func heat() -> float:
+	return _heat
+
+
 func zoom_fov() -> float:
 	return _profile["zoom_fov"]
 
