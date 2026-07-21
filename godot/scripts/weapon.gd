@@ -15,7 +15,7 @@ extends Node3D
 signal heat_changed(heat: float, overheated: bool)
 signal fired(cam_recoil: float)
 
-enum Class { SOLDIER, SNIPER, HEAVY, REVOLVER, HMG, BURST, SEMI, RPG, PISTOL }
+enum Class { SOLDIER, SNIPER, HEAVY, REVOLVER, HMG, BURST, SEMI, RPG, PISTOL, HOLDOUT, ROTARY, TURRET }
 enum FireMode { AUTO, SEMI, BURST }
 
 # spread = fire-cone half-angle (deg); zoom_fov = FOV while aiming; heat_per_shot
@@ -72,6 +72,27 @@ const PROFILES := {
 		"heat_per_shot": 0.13, "cool_rate": 0.34, "scope": false,
 		"recoil": 0.65, "cam_recoil": 0.028, "mode": FireMode.SEMI,
 	},
+	Class.HOLDOUT: {
+		"name": "RK-3 Holdout", "fire_interval": 0.16, "damage": 19.0,
+		"range": 70.0, "hip_spread": 2.4, "ads_spread": 0.7, "zoom_fov": 58.0,
+		"heat_per_shot": 0.075, "cool_rate": 0.4, "scope": false,
+		"recoil": 0.4, "cam_recoil": 0.014,
+	},
+	# The rotary gadget's gun: enormous sustained output, but it has to spin up
+	# first and it sprays, and carrying it slows you to a walk.
+	Class.ROTARY: {
+		"name": "R-90 Rotary", "fire_interval": 0.04, "damage": 12.0,
+		"range": 95.0, "hip_spread": 4.0, "ads_spread": 2.2, "zoom_fov": 64.0,
+		"heat_per_shot": 0.022, "cool_rate": 0.20, "scope": false,
+		"recoil": 0.2, "cam_recoil": 0.006, "spinup": 0.7,
+	},
+	# What a placed turret shoots with.
+	Class.TURRET: {
+		"name": "E-Web Turret", "fire_interval": 0.18, "damage": 18.0,
+		"range": 60.0, "hip_spread": 1.2, "ads_spread": 1.2, "zoom_fov": 70.0,
+		"heat_per_shot": 0.05, "cool_rate": 0.28, "scope": false,
+		"recoil": 0.3, "cam_recoil": 0.0,
+	},
 	Class.RPG: {
 		"name": "PLX-1 RPG", "fire_interval": 1.6, "damage": 0.0,
 		"range": 300.0, "hip_spread": 0.5, "ads_spread": 0.0, "zoom_fov": 60.0,
@@ -103,6 +124,7 @@ var _heat := 0.0
 var _overheated := false
 var _burst_left := 0
 var _bloom := 0.0  # extra hip-fire spread (deg) built up by sustained fire
+var _spin := 0.0   # seconds the trigger has been held, for spin-up weapons
 
 @onready var _viewmodel: Node3D = get_node_or_null("Viewmodel")
 
@@ -119,6 +141,7 @@ func set_class(c: Class, upgrades := {}) -> void:
 	_overheated = false
 	_burst_left = 0
 	_bloom = 0.0
+	_spin = 0.0
 	heat_changed.emit(_heat, _overheated)
 	if _viewmodel:
 		_viewmodel.configure(c, has_scope())
@@ -186,6 +209,13 @@ func _physics_process(delta: float) -> void:
 ## Drive firing from the player each physics frame. `held` = trigger down now,
 ## `pressed` = trigger went down this frame (edge). Call only from physics.
 func update_fire(held: bool, pressed: bool) -> void:
+	# Spin-up weapons wind the barrels before the first round leaves.
+	var spinup: float = _profile.get("spinup", 0.0)
+	if spinup > 0.0:
+		var step := get_physics_process_delta_time()
+		_spin = clampf(_spin + (step if held else -step * 2.0), 0.0, spinup)
+		if _spin < spinup:
+			return
 	match _profile.get("mode", FireMode.AUTO):
 		FireMode.AUTO:
 			if held:
@@ -237,7 +267,10 @@ func _fire_hitscan() -> void:
 	var to := from + dir * float(_profile["range"])
 
 	var query := PhysicsRayQueryParameters3D.create(from, to)
-	query.exclude = [shooter.get_rid()]
+	# A shooter can name extra bodies its own fire passes through — the front
+	# shield gadget, which blocks everyone else but not its owner.
+	query.exclude = shooter.hitscan_exclusions() if shooter.has_method("hitscan_exclusions") \
+		else [shooter.get_rid()]
 	var hit := get_world_3d().direct_space_state.intersect_ray(query)
 
 	var end: Vector3 = hit.get("position", to)

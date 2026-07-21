@@ -27,8 +27,8 @@ godot --headless --path godot --import
 
 | Input | Player |
 |---|---|
-| Keyboard + mouse (WASD, Space jump, Shift sprint, Ctrl crouch, LMB fire, RMB aim, G grenade, H health kit) | Player 1 |
-| Joypads (left stick move, right stick look, RT/RB fire, LT/LB aim, B crouch, A jump, L3 sprint, d-pad up grenade, d-pad down health kit) | Players 2–4 |
+| Keyboard + mouse (WASD, Space jump, Shift sprint, Ctrl crouch, LMB fire, RMB aim, Q swap weapon, F gadget, G grenade, H health kit) | Player 1 |
+| Joypads (left stick move, right stick look, RT/RB fire, LT/LB aim, B crouch, A jump, L3 sprint, Y swap weapon, X gadget, d-pad up grenade, d-pad down health kit) | Players 2–4 |
 
 On the buy screen: up / down picks a line, left / right changes it, and
 **Space / A** deploys once the button goes live.
@@ -62,7 +62,9 @@ capture the mouse; ESC releases it.
 
   | Row | Options (cost) |
   |---|---|
-  | Weapon | Pistol 0 · Revolver 35 · Rifle 45 · Burst 50 · Semi 55 · Repeater 70 · HMG 80 · Sniper 85 · RPG 110 |
+  | Primary | None 0 · Rifle 45 · Burst 50 · Semi 55 · Repeater 70 · HMG 80 · Sniper 85 · RPG 110 |
+  | Sidearm | DL-44 Pistol 0 · RK-3 Holdout 20 · SE-14 Revolver 35 — swap with Q / Y |
+  | Gadget | Jetpack 45 · Wrist Cable 30 · Front Shield 50 · Rotary Cannon 75 · Turret 65 |
   | Scope | 25 — zoom optics + scope overlay on any gun |
   | Cooling vanes | 20 — -25% heat per shot, cools faster |
   | Improved grip | 20 — -35% hip spread, so bloom builds less |
@@ -73,7 +75,20 @@ capture the mouse; ESC releases it.
   | Squad skill | Recruit 20 · Regular 35 · Veteran 55 · Elite 80 (each) |
 
   Options you can't afford simply refuse to select, so anything on screen is a
-  build you can deploy with — 4 elites (320) won't fit in 200, 2 will.
+  build you can deploy with — 4 elites (320) won't fit in 200, 2 will. Your
+  sidearm is free and "no primary" is a real option, so an all-gadget build
+  still deploys armed.
+
+- **Gadgets** (one slot, F / pad X) are verbs rather than more damage:
+  - **Jetpack** — hold to fly on a fuel pool that refills on the ground.
+  - **Wrist cable** — grapple whatever you're looking at and reel yourself in.
+  - **Front shield** — a barrier that stops incoming fire but not yours: your
+    own shots are excluded from it, so you shoot through your own cover. It
+    wears down under fire and breaks.
+  - **Rotary cannon** — a spin-up heavy gun; enormous output, and you walk
+    while it's out.
+  - **Turret** — drop an auto-turret that acquires, tracks and fires on its
+    own, and can be shot down.
 
 - **AI squadmates** fight for your team: they acquire the nearest enemy they can
   actually see, close to their engagement range, strafe and shoot, and fall in
@@ -82,8 +97,8 @@ capture the mouse; ESC releases it.
   the tier, and every tier carries the same rifle so intelligence is the only
   variable. They don't respawn; your next deploy tops the squad back up to the
   headcount you bought (survivors are kept).
-- Nine weapons with AUTO / SEMI / BURST fire modes, all buyable, all able to
-  take the three upgrades
+- Twelve weapons with AUTO / SEMI / BURST fire modes and spin-up support, all
+  able to take the three upgrades
 - The RPG fires a real travelling rocket with radius splash damage + falloff;
   the rest are hitscan with fast bolt tracers
 - Camera recoil per shot (settles back), 2x headshots, and crouch (lower
@@ -109,6 +124,7 @@ godot/
     levels/                 — crossfire/foundry/overgrowth.tscn (procedural), hangar.tscn
     actors/player.tscn      — CharacterBody3D FPS player
     actors/bot.tscn         — CharacterBody3D AI squadmate
+    actors/turret.tscn      — placed auto-turret
     fx/                     — blaster_bolt.tscn, rocket.tscn, grenade.tscn, corpse.tscn
   scripts/
     menu.gd                 — map-select menu: roster list, rotation, quit
@@ -116,6 +132,8 @@ godot/
     game_state.gd           — autoload: map roster, TDM score, teams, spawns, input map
     loadout.gd              — the buy catalogue: weapons, upgrades, armour, gear, squads
     bot.gd                  — AI squadmate: target/advance/engage, skill tiers
+    turret.gd               — placed auto-turret: stationary Bot cousin
+    front_shield.gd         — shoot-through barrier gadget
     player.gd               — movement, crouch, recoil, damage/frag, buy screen
     character.gd            — procedural blocky humanoid + code-built anims
     arena.gd                — procedural map base (env/floor/walls/lights/spawns),

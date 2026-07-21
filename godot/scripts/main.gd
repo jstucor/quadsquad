@@ -253,6 +253,10 @@ func _add_gear_readout(hud: Control, player: Player, color: Color) -> void:
 	hud.add_child(gear)
 	var refresh := func() -> void:
 		var parts: Array[String] = []
+		if player.gadget == Loadout.Gadget.JETPACK:
+			parts.append("JET %d%%" % roundi(player.jet_fuel * 100.0))
+		elif player.gadget != Loadout.Gadget.NONE:
+			parts.append(Loadout.GADGETS[player.gadget]["name"])
 		if player.grenades_left > 0:
 			parts.append("GRENADE x%d" % player.grenades_left)
 		if player.medkits_left > 0:

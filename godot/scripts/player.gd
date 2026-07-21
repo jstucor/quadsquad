@@ -22,6 +22,22 @@ signal squad_changed(alive: int)  # squadmates mustered or lost
 const CORPSE_SCENE := preload("res://scenes/fx/corpse.tscn")
 const GRENADE_SCENE := preload("res://scenes/fx/grenade.tscn")
 const BOT_SCENE := preload("res://scenes/actors/bot.tscn")
+const SHIELD_SCENE := preload("res://scenes/fx/front_shield.tscn")
+const TURRET_SCENE := preload("res://scenes/actors/turret.tscn")
+
+# Gadgets. The jetpack burns a 0..1 fuel pool and refills on the ground; the
+# cable yanks you toward whatever you grappled for a fixed pull; the rotary
+# cannon trades your walking speed for its output.
+const JET_THRUST := 24.0   # acceleration while thrusting; must beat gravity
+const JET_KICK := 4.2      # instant lift when taking off, so you clear the floor
+const JET_BURN := 0.5      # fuel per second of thrust
+const JET_REFILL := 0.34   # fuel per second, only while on the floor
+const JET_MAX_RISE := 7.0
+const CABLE_RANGE := 34.0
+const CABLE_SPEED := 17.0
+const CABLE_PULL_TIME := 1.1
+const CABLE_ARRIVE := 2.2   # let go once this close to the anchor
+const ROTARY_SPEED_MULT := 0.55
 # You deploy on a button press, not a timer. These are only the floor before the
 # button goes live: long enough at match start for everyone to spec a build, and
 # short enough after a death that you're never sat waiting on a decision made.
@@ -79,6 +95,8 @@ var buy_row := 0
 var grenades_left := 0
 var medkits_left := 0
 var squad: Array[Bot] = []  # the AI squadmates currently alive under this player
+var gadget := Loadout.Gadget.NONE
+var jet_fuel := 1.0
 
 var _anim: AnimationPlayer
 var _gravity: float = ProjectSettings.get_setting("physics/3d/default_gravity")
@@ -89,6 +107,16 @@ var _look_scale := 1.0
 var _prev_aim := false
 var _grenade_down := false # joypad gear-button edge tracking
 var _medkit_down := false
+var _gadget_down := false
+var _switch_down := false
+var _on_secondary := false   # which weapon slot is in hand
+var _cable_left := 0.0       # seconds of grapple pull remaining
+var _cable_anchor := Vector3.ZERO
+var _shield: Node3D          # deployed front shield, if any
+var _turret: Node3D          # placed turret, if any (one at a time)
+var _rotary_out := false
+var _jet_thrusting := false
+var _jet_pct := 20  # last fuel level pushed to the HUD, in 5% steps
 var _fire_down := false    # joypad fire-button edge tracking
 var _look_pitch := 0.0     # head pitch from look input (recoil is added on top)
 var _recoil_pitch := 0.0   # transient camera kick, settles back to 0
@@ -186,7 +214,13 @@ func _apply_loadout() -> void:
 	health = max_health
 	grenades_left = loadout.grenades
 	medkits_left = loadout.medkits
-	weapon.set_class(loadout.weapon_class(), loadout.weapon_mods())
+	_on_secondary = not loadout.has_primary()
+	_rotary_out = false
+	weapon.set_class(loadout.deploy_class(), loadout.weapon_mods())
+	gadget = loadout.gadget_id()
+	jet_fuel = 1.0
+	_cable_left = 0.0
+	_clear_gadget_props()
 	_muster_squad()
 	gear_changed.emit(grenades_left, medkits_left)
 	weapon_changed.emit(weapon.display_name())
@@ -312,6 +346,7 @@ func _enter_buy_screen(floor_secs: float, eliminated: bool) -> void:
 	# death cam while the flop tumbles and you spend.
 	model.visible = false
 	weapon.visible = false  # no gun in hand while you're still buying one
+	_clear_gadget_props()
 	_collision.disabled = true
 	# The screen opens on the build you were using, so an unchanged respawn is
 	# one button press.
@@ -417,6 +452,8 @@ func _physics_process(delta: float) -> void:
 	var crouching := _crouch_held()
 	var sprinting := _sprint_held() and not crouching
 	var speed := (SPRINT_SPEED if sprinting else WALK_SPEED) * _speed_mult
+	if _rotary_out:
+		speed *= ROTARY_SPEED_MULT  # the cannon is heavy; you walk with it out
 	if crouching:
 		speed *= CROUCH_SPEED_MULT
 	var dir := global_transform.basis * Vector3(move.x, 0, move.y)
@@ -428,6 +465,7 @@ func _physics_process(delta: float) -> void:
 	var unstick := _unstick_push()
 	velocity.x = dir.x * speed + unstick.x
 	velocity.z = dir.z * speed + unstick.z
+	_apply_gadget_motion(delta)
 	move_and_slide()
 	if global_position.y > BOUNDS_MAX_Y or global_position.y < BOUNDS_MIN_Y:
 		_die()  # launched or fell out of the map: respawn through the normal flow
@@ -490,7 +528,134 @@ func _update_aim(delta: float) -> void:
 
 ## Consumables bought on the buy screen: a thrown grenade and a self-heal. Both
 ## are edge-triggered and simply do nothing when you have none left.
+## Q / Y swaps between the primary you bought and your sidearm. With no primary
+## there is nothing to swap to, and the rotary cannon overrides both while out.
+func _swap_weapon() -> void:
+	if not loadout.has_primary() or _rotary_out:
+		return
+	_on_secondary = not _on_secondary
+	weapon.set_class(loadout.secondary_class() if _on_secondary
+		else loadout.weapon_class() as Weapon.Class, loadout.weapon_mods())
+	weapon_changed.emit(weapon.display_name())
+
+
+## The gadget button. Toggles (shield, rotary) and one-shots (cable, turret) act
+## on the press; the jetpack burns while held, in _apply_gadget_motion.
+func _use_gadget() -> void:
+	match gadget:
+		Loadout.Gadget.CABLE:
+			_fire_cable()
+		Loadout.Gadget.SHIELD:
+			_toggle_shield()
+		Loadout.Gadget.ROTARY:
+			_toggle_rotary()
+		Loadout.Gadget.TURRET:
+			_place_turret()
+
+
+## Velocity the gadget imposes, applied after normal movement so it wins: the
+## jetpack overrides gravity while thrusting, the cable overrides steering while
+## reeling you in.
+func _apply_gadget_motion(delta: float) -> void:
+	if gadget == Loadout.Gadget.JETPACK:
+		var thrusting := _gadget_held() and jet_fuel > 0.0
+		if thrusting:
+			jet_fuel = maxf(jet_fuel - JET_BURN * delta, 0.0)
+			# Taking off needs a kick: on the floor move_and_slide keeps zeroing
+			# the vertical velocity, so pure acceleration never gets you airborne.
+			if not _jet_thrusting and is_on_floor():
+				velocity.y = JET_KICK
+			velocity.y = minf(velocity.y + JET_THRUST * delta, JET_MAX_RISE)
+			# Only tell the HUD on a visible change: this runs every frame you fly.
+			var step_pct := roundi(jet_fuel * 20.0)
+			if step_pct != _jet_pct:
+				_jet_pct = step_pct
+				gear_changed.emit(grenades_left, medkits_left)
+		elif is_on_floor():
+			jet_fuel = minf(jet_fuel + JET_REFILL * delta, 1.0)
+		_jet_thrusting = thrusting
+	if _cable_left > 0.0:
+		_cable_left -= delta
+		var to_anchor := _cable_anchor - global_position
+		if to_anchor.length() <= CABLE_ARRIVE:
+			_cable_left = 0.0
+		else:
+			velocity = to_anchor.normalized() * CABLE_SPEED
+
+
+func _fire_cable() -> void:
+	var from := head.global_position
+	var to := from - head.global_transform.basis.z * CABLE_RANGE
+	var query := PhysicsRayQueryParameters3D.create(from, to)
+	query.exclude = hitscan_exclusions()
+	query.collision_mask = 1  # world geometry only: you can't grapple a person
+	var hit := get_world_3d().direct_space_state.intersect_ray(query)
+	if hit.is_empty():
+		return
+	_cable_anchor = hit["position"]
+	_cable_left = CABLE_PULL_TIME
+
+
+## A barrier that hangs in front of you. It stops incoming fire but not yours —
+## your own shots exclude it (see hitscan_exclusions), so you shoot through it.
+func _toggle_shield() -> void:
+	if is_instance_valid(_shield):
+		_shield.queue_free()
+		_shield = null
+		return
+	_shield = SHIELD_SCENE.instantiate()
+	add_child(_shield)  # rides with the body, so it always faces where you do
+	_shield.setup(GameState.TEAM_COLORS[team])
+
+
+## Swap to the spin-up rotary cannon (and back). Carrying it slows you down.
+func _toggle_rotary() -> void:
+	_rotary_out = not _rotary_out
+	if _rotary_out:
+		weapon.set_class(Weapon.Class.ROTARY, loadout.weapon_mods())
+	else:
+		weapon.set_class(loadout.secondary_class() if _on_secondary
+			else loadout.weapon_class() as Weapon.Class, loadout.weapon_mods())
+	weapon_changed.emit(weapon.display_name())
+
+
+## Drop an auto-turret a couple of metres ahead. One at a time: placing again
+## picks the old one back up.
+func _place_turret() -> void:
+	if is_instance_valid(_turret):
+		_turret.queue_free()
+		_turret = null
+		return
+	var ahead := global_position - global_transform.basis.z * 2.2
+	_turret = TURRET_SCENE.instantiate()
+	get_parent().add_child(_turret)
+	_turret.global_position = ahead
+	_turret.setup(self, team)
+
+
+## Gadget leftovers that must not survive a death.
+func _clear_gadget_props() -> void:
+	if is_instance_valid(_shield):
+		_shield.queue_free()
+	_shield = null
+	if is_instance_valid(_turret):
+		_turret.queue_free()
+	_turret = null
+
+
+## Bodies our own hitscan must ignore: ourselves, and our own front shield.
+func hitscan_exclusions() -> Array[RID]:
+	var out: Array[RID] = [get_rid()]
+	if is_instance_valid(_shield):
+		out.append(_shield.get_rid())
+	return out
+
+
 func _update_gear() -> void:
+	if _switch_pressed():
+		_swap_weapon()
+	if _gadget_pressed():
+		_use_gadget()
 	if _grenade_pressed() and grenades_left > 0:
 		grenades_left -= 1
 		_throw_grenade()
@@ -584,6 +749,30 @@ func _medkit_pressed() -> bool:
 	var down := Input.is_joy_button_pressed(input_device, JOY_BUTTON_DPAD_DOWN)
 	var edge := down and not _medkit_down
 	_medkit_down = down
+	return edge
+
+
+func _gadget_pressed() -> bool:
+	if input_device < 0:
+		return Input.is_action_just_pressed("kb_gadget")
+	var down := Input.is_joy_button_pressed(input_device, JOY_BUTTON_X)
+	var edge := down and not _gadget_down
+	_gadget_down = down
+	return edge
+
+
+func _gadget_held() -> bool:
+	if input_device < 0:
+		return Input.is_action_pressed("kb_gadget")
+	return Input.is_joy_button_pressed(input_device, JOY_BUTTON_X)
+
+
+func _switch_pressed() -> bool:
+	if input_device < 0:
+		return Input.is_action_just_pressed("kb_switch")
+	var down := Input.is_joy_button_pressed(input_device, JOY_BUTTON_Y)
+	var edge := down and not _switch_down
+	_switch_down = down
 	return edge
 
 

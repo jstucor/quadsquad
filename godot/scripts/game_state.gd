@@ -158,6 +158,8 @@ func _register_kb_actions() -> void:
 		"kb_crouch": KEY_CTRL,
 		"kb_grenade": KEY_G,
 		"kb_medkit": KEY_H,
+		"kb_gadget": KEY_F,
+		"kb_switch": KEY_Q,  # swap primary <-> sidearm
 	}
 	for action in keys:
 		if InputMap.has_action(action):
