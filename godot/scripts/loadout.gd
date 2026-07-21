@@ -119,6 +119,38 @@ var squad := 0        # how many AI squadmates
 var squad_skill := 1  # index into SQUAD_SKILLS, paid per squadmate
 
 
+# Ready-made builds the AI deploy with, so a firefight has snipers, gunners and
+# engineers in it rather than a dozen identical riflemen. Each one is spent out
+# of the same BUDGET a player gets — they are legal loadouts, not cheats — and
+# each is checked against it by the bot_builds_are_legal test.
+const BOT_BUILDS: Array[Dictionary] = [
+	{"name": "RIFLEMAN", "weapon": 1, "secondary": 0, "sight": Sight.HOLO,
+		"armor": 2, "grenades": 1},                                    # 45+20+25+25
+	{"name": "MARKSMAN", "weapon": 6, "secondary": 0, "sight": Sight.SCOPE,
+		"armor": 0, "grip": true},                                     # 85+25+20+20
+	{"name": "GUNNER", "weapon": 5, "secondary": 0, "sight": Sight.NONE,
+		"armor": 3, "cooling": true},                                  # 80+60+20
+	{"name": "ENGINEER", "weapon": 1, "secondary": 2, "sight": Sight.HOLO,
+		"gadget": Gadget.TURRET, "armor": 1},                          # 45+35+20+65
+	{"name": "SCOUT", "weapon": 3, "secondary": 1, "sight": Sight.HOLO,
+		"gadget": Gadget.CABLE, "armor": 0, "medkits": 1},             # 55+20+20+30+20+30
+	{"name": "GRENADIER", "weapon": 2, "secondary": 0, "sight": Sight.HOLO,
+		"armor": 2, "grenades": 3},                                    # 50+20+25+75
+	{"name": "SHOCK", "weapon": 4, "secondary": 0, "sight": Sight.NONE,
+		"gadget": Gadget.SHIELD, "armor": 2, "medkits": 1},            # 70+50+25+30
+]
+
+
+## Build one of the AI presets. Anything the preset leaves out keeps its default.
+static func bot_build(index: int) -> Loadout:
+	var preset: Dictionary = BOT_BUILDS[wrapi(index, 0, BOT_BUILDS.size())]
+	var built := Loadout.new()
+	for key in preset:
+		if key != "name":
+			built.set(key, preset[key])
+	return built
+
+
 ## A starter build that spends part of the budget: standard armour, basic rifle.
 static func starter() -> Loadout:
 	var l := Loadout.new()

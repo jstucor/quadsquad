@@ -126,6 +126,13 @@ capture the mouse; ESC releases it.
   - **Turret** — drop an auto-turret that acquires, tracks and fires on its
     own, and can be shot down.
 
+- **AI deploy real loadouts.** Seven presets (`Loadout.BOT_BUILDS`) are spent
+  out of the same 200 tokens a player gets — rifleman, marksman, gunner,
+  engineer, scout, grenadier, shock — so a firefight has scoped snipers, heavy
+  gunners behind 193 HP of plate, engineers dropping turrets and scouts
+  grappling ahead, instead of a dozen identical riflemen. They use what they
+  bought: grenades at 9–26 m, medkits below 45% health, turrets once they reach
+  the ground they're holding, front shields they can shoot through.
 - **AI squadmates** fight for your team: they acquire the nearest enemy they can
   actually see (45–105 m by skill), close to their engagement range, strafe and
   shoot. With nothing to fight, a bought squadmate falls in behind the player

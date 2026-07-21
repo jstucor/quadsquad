@@ -16,28 +16,42 @@ extends CharacterBody3D
 ## shoots and what it carries — see SKILLS, indexed by Loadout.SQUAD_SKILLS.
 
 const CORPSE_SCENE := preload("res://scenes/fx/corpse.tscn")
+const GRENADE_SCENE := preload("res://scenes/fx/grenade.tscn")
+const TURRET_SCENE := preload("res://scenes/actors/turret.tscn")
+const SHIELD_SCENE := preload("res://scenes/fx/front_shield.tscn")
+const CABLE_WIRE_SCENE := preload("res://scenes/fx/cable_wire.tscn")
 
 # One row per Loadout.SQUAD_SKILLS tier, same order.
 # aim_error = degrees of aim wobble (the bot's "spread" on top of the weapon's);
 # reaction = seconds staring at a new target before it opens fire;
 # sight = metres it can acquire from; hold = metres it tries to fight at.
 #
-# Every tier carries the SAME rifle on purpose. What you are buying is
-# intelligence, so skill alone has to decide how dangerous a squadmate is —
-# giving the tiers different guns made the ladder non-monotonic (a recruit's
-# low-heat pistol out-damaged a veteran's rifle, which is backwards for
-# something that costs nearly three times as much).
-const BOT_WEAPON := Weapon.Class.SOLDIER
+# Skill is intelligence, NOT gear: two bots on the same preset differ only in
+# how well they fight it. The gun, armour and gadget come from a Loadout preset
+# (Loadout.BOT_BUILDS), so a firefight has marksmen and engineers in it instead
+# of a dozen identical riflemen. `health` and `speed` below are multipliers on
+# whatever the preset's armour gives.
 const SKILLS: Array[Dictionary] = [
-	{"aim_error": 9.0, "reaction": 0.85, "sight": 45.0, "hold": 14.0,
-		"health": 70.0, "speed": 3.2, "turn": 2.4},
-	{"aim_error": 5.0, "reaction": 0.55, "sight": 62.0, "hold": 16.0,
-		"health": 90.0, "speed": 3.7, "turn": 3.4},
-	{"aim_error": 2.5, "reaction": 0.32, "sight": 80.0, "hold": 20.0,
-		"health": 110.0, "speed": 4.2, "turn": 4.6},
-	{"aim_error": 1.0, "reaction": 0.15, "sight": 105.0, "hold": 24.0,
-		"health": 130.0, "speed": 4.6, "turn": 6.0},
+	{"aim_error": 7.0, "reaction": 0.7, "sight": 45.0, "hold": 14.0,
+		"health": 0.85, "speed": 0.92, "turn": 2.8},
+	{"aim_error": 3.6, "reaction": 0.45, "sight": 62.0, "hold": 16.0,
+		"health": 1.0, "speed": 1.0, "turn": 3.8},
+	{"aim_error": 1.8, "reaction": 0.26, "sight": 80.0, "hold": 20.0,
+		"health": 1.1, "speed": 1.08, "turn": 5.0},
+	{"aim_error": 0.7, "reaction": 0.12, "sight": 105.0, "hold": 24.0,
+		"health": 1.25, "speed": 1.15, "turn": 6.4},
 ]
+const BASE_SPEED := 4.0        # walking pace before armour and skill scale it
+# Gadget habits. Kept deliberately simple: a bot uses what it bought when the
+# obvious moment arrives, rather than planning.
+const GRENADE_RANGE := Vector2(9.0, 26.0)   # too close and it kills itself
+const GRENADE_COOLDOWN := 6.0
+const MEDKIT_AT := 0.45        # heal below this share of health
+const TURRET_PLACE_GAP := 12.0  # drop it once we're near where we're heading
+const CABLE_COOLDOWN := 6.0
+const CABLE_MIN_GOAL := 22.0   # only worth grappling toward something far off
+const CABLE_SPEED := 17.0
+const CABLE_PULL_TIME := 0.9
 
 const RETARGET_INTERVAL := 0.35  # seconds between target searches (staggered)
 # With nothing to shoot, a bot pushes for the middle of the map rather than
@@ -69,6 +83,7 @@ enum State { HOLD, ADVANCE, ENGAGE }
 var team: int = GameState.Team.REPUBLIC
 var owner_player: Node3D          # who paid for it; the bot falls in behind them
 var health := 90.0
+var loadout: Loadout              # the preset it deployed with
 
 var _skill: Dictionary = SKILLS[1]
 var _state: int = State.HOLD
@@ -80,6 +95,15 @@ var _aim_offset := Vector2.ZERO  # held aim error (yaw, pitch) in radians
 var _aim_reroll_in := 0.0
 var _roam_target := Vector3.ZERO
 var _roam_left := 0.0
+var _speed := 4.0
+var _grenades := 0
+var _medkits := 0
+var _grenade_cd := 0.0
+var _cable_cd := 0.0
+var _cable_left := 0.0
+var _cable_anchor := Vector3.ZERO
+var _turret: Node3D
+var _shield: Node3D
 var _strafe_dir := 1.0
 var _gravity: float = ProjectSettings.get_setting("physics/3d/default_gravity")
 var _dead := false
@@ -104,14 +128,22 @@ func _exit_tree() -> void:
 	GameState.unregister_combatant(self)
 
 
-## Called by the owner right after spawning it.
-func setup(owner: Node3D, bot_team: int, skill_index: int) -> void:
+## Called by the owner right after spawning it. `build` picks which preset it
+## deploys with; -1 rolls one at random, which is what a team fill wants.
+func setup(owner: Node3D, bot_team: int, skill_index: int, build := -1) -> void:
 	owner_player = owner
 	team = bot_team
 	_skill = SKILLS[clampi(skill_index, 0, SKILLS.size() - 1)]
-	health = _skill["health"]
+	loadout = Loadout.bot_build(build if build >= 0 else randi())
+	var armor := loadout.armor_stats()
+	health = float(armor["health"]) * float(_skill["health"])
+	_speed = BASE_SPEED * float(armor["speed"]) * float(_skill["speed"])
+	_grenades = loadout.grenades
+	_medkits = loadout.medkits
 	model.set_team_color(GameState.TEAM_COLORS[team])
-	weapon.set_class(BOT_WEAPON)
+	weapon.set_class(loadout.deploy_class(), loadout.weapon_mods())
+	if loadout.gadget == Loadout.Gadget.SHIELD:
+		_raise_shield()
 	# The bot's gun is a world object, not a viewmodel: everyone should see it.
 	for mi in weapon.find_children("*", "MeshInstance3D", true, false):
 		mi.layers = 1
@@ -149,6 +181,8 @@ func _die(attacker: Node) -> void:
 		push = global_position - (attacker as Node3D).global_position
 	corpse.launch(Transform3D(Basis(Vector3.UP, rotation.y), global_position),
 		GameState.TEAM_COLORS[team], push)
+	if is_instance_valid(_turret):
+		_turret.queue_free()  # the engineer's turret dies with the engineer
 	queue_free()  # bots don't respawn; the owner re-buys them on their next deploy
 
 
@@ -158,6 +192,9 @@ func _physics_process(delta: float) -> void:
 	if not GameState.match_live:
 		weapon.update_fire(false, false)  # hold until the match is called on
 		return
+	_grenade_cd = maxf(_grenade_cd - delta, 0.0)
+	_cable_cd = maxf(_cable_cd - delta, 0.0)
+	_use_medkit_if_hurt()
 	_retarget_in -= delta
 	_memory_left = maxf(_memory_left - delta, 0.0)
 	if _retarget_in <= 0.0:
@@ -173,6 +210,14 @@ func _physics_process(delta: float) -> void:
 
 	if not is_on_floor():
 		velocity.y -= _gravity * delta
+	if _cable_left > 0.0:
+		# Being reeled in by our own grapple: that overrides normal steering.
+		_cable_left -= delta
+		var to_anchor := _cable_anchor - global_position
+		if to_anchor.length() <= 2.5:
+			_cable_left = 0.0
+		else:
+			velocity = to_anchor.normalized() * CABLE_SPEED
 	move_and_slide()
 	_animate()
 
@@ -223,7 +268,7 @@ func _fight(delta: float) -> void:
 
 	var hold: float = _skill["hold"]
 	_state = State.ENGAGE if gap <= hold else State.ADVANCE
-	var speed: float = _skill["speed"]
+	var speed := _speed
 	if _state == State.ADVANCE:
 		var step := flat.normalized() * speed
 		velocity.x = step.x
@@ -241,6 +286,7 @@ func _fight(delta: float) -> void:
 	var may_fire := _state == State.ENGAGE and on_aim and _reaction_left <= 0.0 \
 		and weapon.heat() < FIRE_HEAT_CEILING
 	weapon.update_fire(may_fire, may_fire)
+	_throw_grenade_if_useful(gap)
 
 
 ## Nothing to shoot. A bought squadmate falls in behind the player who paid for
@@ -252,6 +298,8 @@ func _patrol(delta: float) -> void:
 	head.rotation.y = lerpf(head.rotation.y, 0.0, clampf(delta * 3.0, 0.0, 1.0))
 
 	var goal := _patrol_goal(delta)
+	_place_turret_if_ready()
+	_try_cable(goal)
 	var flat := goal - global_position
 	flat.y = 0.0
 	var gap := flat.length()
@@ -265,10 +313,100 @@ func _patrol(delta: float) -> void:
 		return
 	_state = State.ADVANCE
 	_face(flat, delta)
-	var step := flat.normalized() * float(_skill["speed"])
+	var step := flat.normalized() * _speed
 	velocity.x = step.x
 	velocity.z = step.z
 	_apply_unstick()
+
+
+## Gadget habits, all deliberately simple: use what you bought at the obvious
+## moment. Together these are what make an AI firefight look like a firefight
+## rather than two lines of riflemen.
+func _use_medkit_if_hurt() -> void:
+	if _medkits <= 0:
+		return
+	var full := float(loadout.armor_stats()["health"]) * float(_skill["health"])
+	if health > full * MEDKIT_AT:
+		return
+	_medkits -= 1
+	health = minf(health + Loadout.MEDKIT_HEAL, full)
+
+
+## Lob one at a target that's far enough away not to catch us in the blast.
+func _throw_grenade_if_useful(gap: float) -> void:
+	if _grenades <= 0 or _grenade_cd > 0.0 or not is_instance_valid(_target):
+		return
+	if gap < GRENADE_RANGE.x or gap > GRENADE_RANGE.y:
+		return
+	_grenades -= 1
+	_grenade_cd = GRENADE_COOLDOWN
+	var nade := GRENADE_SCENE.instantiate()
+	get_tree().current_scene.add_child(nade)
+	var aim := (_target.global_position + Vector3.UP * 0.8) - head.global_position
+	# Lob it: the further away, the more arc, so it lands rather than skids.
+	var toss := (aim.normalized() + Vector3.UP * (0.25 + gap * 0.012)).normalized() \
+		* (9.0 + gap * 0.45)
+	nade.launch(head.global_position + aim.normalized() * 0.6, toss, self)
+
+
+## Engineers drop their turret once they've reached the ground they're holding,
+## and only ever run one at a time.
+func _place_turret_if_ready() -> void:
+	if loadout == null or loadout.gadget != Loadout.Gadget.TURRET:
+		return
+	if is_instance_valid(_turret):
+		return
+	var goal := GameState.zone_point if GameState.zone_active else Vector3.ZERO
+	if Vector2(global_position.x - goal.x, global_position.z - goal.z).length() > TURRET_PLACE_GAP:
+		return
+	_turret = TURRET_SCENE.instantiate()
+	get_parent().add_child(_turret)
+	_turret.global_position = global_position - global_transform.basis.z * 2.0
+	_turret.setup(self, team)
+
+
+## Scouts grapple ahead when they have a long way to go, which is both faster
+## and the only way you'll see the wire fly in a match with no humans in it.
+func _try_cable(goal: Vector3) -> void:
+	if loadout == null or loadout.gadget != Loadout.Gadget.CABLE:
+		return
+	if _cable_cd > 0.0 or _cable_left > 0.0:
+		return
+	if global_position.distance_to(goal) < CABLE_MIN_GOAL:
+		return
+	var from := head.global_position
+	var toward := (goal - from)
+	toward.y = 0.0
+	var to := from + toward.normalized() * 30.0 + Vector3.UP * 2.0
+	var query := PhysicsRayQueryParameters3D.create(from, to)
+	query.exclude = [get_rid()]
+	query.collision_mask = 1  # world geometry only
+	var hit := get_world_3d().direct_space_state.intersect_ray(query)
+	if hit.is_empty():
+		return
+	_cable_cd = CABLE_COOLDOWN
+	_cable_anchor = hit["position"]
+	_cable_left = CABLE_PULL_TIME
+	var wire := CABLE_WIRE_SCENE.instantiate()
+	get_parent().add_child(wire)
+	wire.launch(self, weapon, _cable_anchor, 0.12)
+
+
+func _raise_shield() -> void:
+	if is_instance_valid(_shield):
+		return
+	_shield = SHIELD_SCENE.instantiate()
+	add_child(_shield)
+	_shield.setup(GameState.TEAM_COLORS[team])
+
+
+## Bodies our own fire ignores — the same contract Player exposes, so a bot with
+## a front shield can shoot through its own cover.
+func hitscan_exclusions() -> Array[RID]:
+	var out: Array[RID] = [get_rid()]
+	if is_instance_valid(_shield):
+		out.append(_shield.get_rid())
+	return out
 
 
 func _has_owner() -> bool:

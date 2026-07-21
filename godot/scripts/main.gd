@@ -39,6 +39,7 @@ var level: Node3D
 # rotation. Player/weapon signals are exempt: they die with the same scene.
 var _score_labels: Array[Label] = []
 var _victory_banners: Array[Label] = []
+var _next_build := 0
 var _countdown_labels: Array[Label] = []
 var _zone_labels: Array[Label] = []
 var _deployed := {}          # players who have finished their loadout at least once
@@ -146,7 +147,10 @@ func _spawn_team_bot(team: int) -> void:
 		return
 	var bot: Bot = BOT_SCENE.instantiate()
 	level.add_child(bot)
-	bot.setup(null, team, GameState.ai_skill)  # no owner: it fights for the team
+	# Deal the presets out in order so a team fields a mix rather than seven
+	# rolls of the same dice.
+	bot.setup(null, team, GameState.ai_skill, _next_build)
+	_next_build += 1
 	var spawn := GameState.get_spawn_point(team)
 	if spawn:
 		bot.global_transform = GameState.clear_of_bodies(spawn.global_transform)
