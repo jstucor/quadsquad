@@ -73,19 +73,24 @@ func _build() -> void:
 func _build_setup_rows(column: VBoxContainer) -> void:
 	var summary := _label("", 16, Color(0.68, 0.72, 0.78))
 
+	var mode_button := _row(column, "", "")
 	var players_button := _row(column, "", "Humans at the couch")
 	var size_button := _row(column, "", "Headcount per team, AI fill the rest")
 	var skill_button := _row(column, "", "How good the AI teammates are")
 
 	var refresh := func() -> void:
+		mode_button.text = "MODE  %s" % GameState.MODE_NAMES[GameState.mode]
 		players_button.text = "PLAYERS  %d" % GameState.human_players
 		size_button.text = "TEAM SIZE  %d" % GameState.team_size
 		skill_button.text = "AI SKILL  %s" % Loadout.SQUAD_SKILLS[GameState.ai_skill]["name"]
 		var ai_total: int = GameState.ai_needed(GameState.Team.REPUBLIC) \
 			+ GameState.ai_needed(GameState.Team.CIS)
-		summary.text = "%d human%s + %d AI     %d v %d" % [
+		summary.text = "%d human%s + %d AI     %d v %d     %s" % [
 			GameState.human_players, "" if GameState.human_players == 1 else "s",
-			ai_total, GameState.team_size, GameState.team_size]
+			ai_total, GameState.team_size, GameState.team_size,
+			GameState.MODE_BLURBS[GameState.mode] % (
+				[GameState.score_limit()] if GameState.mode == GameState.Mode.DEATHMATCH
+				else [30, GameState.score_limit()])]
 
 	players_button.pressed.connect(func() -> void:
 		GameState.human_players = wrapi(GameState.human_players + 1,
@@ -98,6 +103,9 @@ func _build_setup_rows(column: VBoxContainer) -> void:
 		var floor_size: int = maxi(GameState.humans_on_team(GameState.Team.REPUBLIC), 1)
 		GameState.team_size = wrapi(GameState.team_size + 1,
 			floor_size, GameState.MAX_TEAM_SIZE + 1)
+		refresh.call())
+	mode_button.pressed.connect(func() -> void:
+		GameState.mode = wrapi(GameState.mode + 1, 0, GameState.MODE_NAMES.size())
 		refresh.call())
 	skill_button.pressed.connect(func() -> void:
 		GameState.ai_skill = wrapi(GameState.ai_skill + 1, 0, Loadout.SQUAD_SKILLS.size())

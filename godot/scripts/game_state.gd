@@ -11,10 +11,21 @@ signal match_won(team: int)
 ## and nobody can move or shoot until `match_live` is true.
 signal match_countdown(seconds: int)
 signal match_began()
+signal zone_moved(point: Vector3)     # the capture area relocated
+signal zone_state(holder: int, contested: bool, seconds_left: int)
 
 enum Team { REPUBLIC, CIS }
+## DEATHMATCH scores on kills; ZONES scores a point per second for whichever
+## team has the most bodies inside the roaming capture area.
+enum Mode { DEATHMATCH, ZONES }
+const MODE_NAMES := {Mode.DEATHMATCH: "DEATHMATCH", Mode.ZONES: "ZONES"}
+const MODE_BLURBS := {
+	Mode.DEATHMATCH: "First to %d kills",
+	Mode.ZONES: "Hold the area. A point a second, new area every %ds, first to %d",
+}
 
-const SCORE_LIMIT := 25  # frags for a team to win
+# What each mode plays to: kills, or seconds of control.
+const SCORE_LIMITS := {Mode.DEATHMATCH: 25, Mode.ZONES: 60}
 
 # A respawn must never land on a living body: two overlapping capsules push each
 # other apart every physics frame and ride that ejection out of the map, which
@@ -59,6 +70,12 @@ var rotate_maps := false
 ## for whoever loads fastest.
 var match_live := false
 
+var mode := Mode.DEATHMATCH
+## Where the capture area currently is, and whether there is one at all. Bots
+## read these to decide where to push in ZONES.
+var zone_point := Vector3.ZERO
+var zone_active := false
+
 var human_players := 4
 var team_size := 2
 var ai_skill := 1
@@ -102,10 +119,15 @@ func _init() -> void:
 	_register_kb_actions()
 
 
+func score_limit() -> int:
+	return SCORE_LIMITS[mode]
+
+
 func reset_match() -> void:
 	scores = {Team.REPUBLIC: 0, Team.CIS: 0}
 	match_over = false
 	match_live = false
+	zone_active = false
 	_spawns.clear()
 	combatants.clear()
 
@@ -182,13 +204,25 @@ func _nearest_body(pos: Vector3) -> Node3D:
 	return best
 
 
-## Credit a kill to the attacker's team; ends the match at SCORE_LIMIT.
+## Credit a kill. Only DEATHMATCH scores for it — in ZONES a kill is a means to
+## an end, not the end itself.
 func add_frag(team: int) -> void:
+	if mode == Mode.DEATHMATCH:
+		_award(team)
+
+
+## A second of holding the capture area.
+func add_zone_tick(team: int) -> void:
+	if mode == Mode.ZONES:
+		_award(team)
+
+
+func _award(team: int) -> void:
 	if match_over:
 		return
 	scores[team] += 1
 	score_changed.emit(team, scores[team])
-	if scores[team] >= SCORE_LIMIT:
+	if scores[team] >= score_limit():
 		match_over = true
 		match_won.emit(team)
 

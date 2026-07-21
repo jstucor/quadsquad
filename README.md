@@ -39,6 +39,14 @@ capture the mouse; ESC releases it.
 
 ## Current State
 
+- **Two modes**, picked on the menu:
+  - **Deathmatch** — kills score, first team to 25.
+  - **Zones** — a marked area somewhere on the map pays the team with the most
+    bodies inside it **one point per second**. It relocates every 30 s, and the
+    first team to 60 seconds of control wins. A tie inside (including an empty
+    area) pays nobody, and squads, team AI and placed turrets all count toward
+    holding it — so a lone player with three squadmates really can take an area
+    off two opponents. The AI push for the active area instead of the map centre.
 - **Team deathmatch, 2v2** (Republic vs Separatist): kills credit the killer's
   team, friendly fire off, first team to the score limit wins, then the game
   rotates to the next map. Team-tinted characters + a per-viewport scoreboard
@@ -170,6 +178,7 @@ godot/
     loadout.gd              — the buy catalogue: weapons, upgrades, armour, gear, squads
     bot.gd                  — AI squadmate: target/advance/engage, skill tiers
     turret.gd               — placed auto-turret: stationary Bot cousin
+    zone.gd                 — ZONES capture area: scoring, relocation, marker
     front_shield.gd         — shoot-through barrier gadget
     cable_wire.gd           — the grapple's visible claw + line
     player.gd               — movement, crouch, recoil, damage/frag, buy screen

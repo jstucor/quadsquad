@@ -282,11 +282,18 @@ func _patrol_goal(delta: float) -> Vector3:
 	_roam_left -= delta
 	if _roam_left <= 0.0:
 		_roam_left = ROAM_REPICK
-		# Somewhere around the middle, so a squad spreads out instead of all
-		# walking the same line.
+		# Head for the capture area when the mode has one, otherwise the middle
+		# of the map. Spread around it, so a squad holds ground instead of all
+		# standing on the same spot.
+		var focus := GameState.zone_point if GameState.zone_active else Vector3.ZERO
+		var spread := ROAM_SPREAD * (0.35 if GameState.zone_active else 1.0)
 		var angle := randf() * TAU
-		var reach := sqrt(randf()) * ROAM_SPREAD
-		_roam_target = Vector3(cos(angle) * reach, 0.0, sin(angle) * reach)
+		var reach := sqrt(randf()) * spread
+		_roam_target = focus + Vector3(cos(angle) * reach, 0.0, sin(angle) * reach)
+	# A zone that moved mid-wander should pull the squad straight away.
+	if GameState.zone_active and Vector2(_roam_target.x - GameState.zone_point.x,
+			_roam_target.z - GameState.zone_point.z).length() > ROAM_SPREAD:
+		_roam_left = 0.0
 	return _roam_target
 
 

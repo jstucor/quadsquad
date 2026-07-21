@@ -8,6 +8,7 @@ extends Node3D
 
 const PLAYER_SCENE := preload("res://scenes/actors/player.tscn")
 const BOT_SCENE := preload("res://scenes/actors/bot.tscn")
+const ZONE_SCENE := preload("res://scenes/fx/zone.tscn")
 const MENU_SCENE := "res://scenes/menu.tscn"
 const AI_RESPAWN_DELAY := 4.0  # team AI come back, unlike a player's bought squad
 const MATCH_START_COUNTDOWN := 3  # seconds of GET READY once everyone has deployed
@@ -39,6 +40,7 @@ var level: Node3D
 var _score_labels: Array[Label] = []
 var _victory_banners: Array[Label] = []
 var _countdown_labels: Array[Label] = []
+var _zone_labels: Array[Label] = []
 var _deployed := {}          # players who have finished their loadout at least once
 var _countdown_running := false
 
@@ -86,7 +88,13 @@ func _ready() -> void:
 		player.begin_deploy()  # after the HUD exists, so it sees the select screen
 
 	_fill_teams_with_ai()
+	if GameState.mode == GameState.Mode.ZONES:
+		var zone := ZONE_SCENE.instantiate()
+		zone.setup(level)
+		level.add_child(zone)  # placed after the map, so its ground rays hit
 	GameState.match_countdown.connect(_show_countdown)
+	GameState.zone_state.connect(_refresh_zone)
+	GameState.zone_moved.connect(_announce_zone_move)
 	GameState.score_changed.connect(_refresh_scores)
 	GameState.match_won.connect(_show_victory)
 	GameState.match_won.connect(_on_match_won)
@@ -186,6 +194,8 @@ func _build_hud(player: Player) -> Control:
 	hud.add_child(_build_buy_screen(player, color))
 	_add_victory_banner(hud)
 	_add_countdown(hud)
+	if GameState.mode == GameState.Mode.ZONES:
+		_add_zone_readout(hud)
 	return hud
 
 
@@ -332,6 +342,35 @@ func _show_countdown(seconds: int) -> void:
 func _hide_countdown() -> void:
 	for label in _countdown_labels:
 		label.visible = false
+
+
+## Who holds the capture area and how long until it moves. One connection to
+## the autoload, fanned out to every viewport (see _add_scoreboard).
+func _add_zone_readout(hud: Control) -> void:
+	var label := _full_rect_label("", 17, Color(0.9, 0.92, 0.96))
+	label.offset_top = 34.0
+	hud.add_child(label)
+	_zone_labels.append(label)
+
+
+func _refresh_zone(holder: int, contested: bool, seconds_left: int) -> void:
+	var state := "ZONE NEUTRAL"
+	var tint := Color(0.85, 0.87, 0.92)
+	if contested:
+		state = "ZONE CONTESTED"
+		tint = Color(1.0, 0.95, 0.6)
+	elif holder != -1:
+		state = "%s HOLDS THE ZONE" % GameState.TEAM_NAMES[holder]
+		tint = GameState.TEAM_COLORS[holder]
+	for label in _zone_labels:
+		label.text = "%s     moves in %ds" % [state, seconds_left]
+		label.add_theme_color_override("font_color", tint)
+
+
+func _announce_zone_move(_point: Vector3) -> void:
+	for label in _zone_labels:
+		label.text = "NEW ZONE"
+		label.add_theme_color_override("font_color", Color(1.0, 0.85, 0.4))
 
 
 ## Hidden until a team wins, then shown in every viewport by _show_victory.
