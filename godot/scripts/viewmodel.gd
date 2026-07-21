@@ -11,10 +11,12 @@ extends Node3D
 ## aiming/scope straight off the parent.
 
 const HIP_POS := Vector3.ZERO
-# Aiming slides the gun left+up to bring it under the crosshair (barrel toward
-# center, body kept a bit low so it doesn't fill the screen) and pulls it back
-# a touch (the Weapon anchor is offset right/down/forward).
-const ADS_POS := Vector3(-0.165, 0.055, 0.05)
+# How far back the gun is pulled while aimed. The left/up part of the ADS slide
+# is NOT a constant: it's solved per gun in _aim_offset() so whichever sight is
+# fitted ends up on the camera axis. Hard-coding it lined the old shared body up
+# by hand, but every receiver here is a different height and the sight drifted
+# off centre as soon as the guns stopped being identical.
+const ADS_PULL_BACK := 0.05
 const AIM_TIME := 0.12       # seconds to fully raise/lower sights
 const RECOIL_DECAY := 6.0    # how fast the kick springs back
 const FLASH_TIME := 0.045
@@ -29,6 +31,7 @@ var _flash: MeshInstance3D
 var _kick := 0.0             # current recoil amount (0..~1.2), springs to 0
 var _kick_yaw := 0.0         # random left/right lean per shot
 var _aim_t := 0.0            # 0 hip .. 1 aimed
+var _ads_pos := Vector3(-0.165, 0.055, ADS_PULL_BACK)  # solved in _build
 var _bob_t := 0.0
 var _flash_t := 0.0
 
@@ -178,11 +181,13 @@ func _build(class_id: int, scoped: bool, holo: bool) -> void:
 	# Sights. The scope is a tube on a mount; the holo is a hollow ring you can
 	# see the world through, which is the point of buying it.
 	_scope = _cyl(0.02, 0.15, Vector3(0, receiver.y * 0.5 + 0.03, -0.06), gun)
+	_scope.name = "ScopeTube"
 	_box(Vector3(0.012, 0.03, 0.02), Vector3(0, receiver.y * 0.5 + 0.01, -0.06), gun) \
 		.reparent(_scope, false)
 	_scope.visible = scoped
 
 	_holo = Node3D.new()
+	_holo.name = "HoloSight"
 	add_child(_holo)
 	var ring_mat := StandardMaterial3D.new()
 	ring_mat.albedo_color = Color(0.1, 0.1, 0.11)
@@ -197,6 +202,10 @@ func _build(class_id: int, scoped: bool, holo: bool) -> void:
 	hoop.mesh = torus
 	hoop.material_override = ring_mat
 	hoop.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	# TorusMesh's hole runs along +Y, i.e. it lies flat like a donut on a table.
+	# Stand it up so the hole runs down the barrel and you sight THROUGH it —
+	# the same -Z convention _cyl() uses.
+	hoop.rotation.x = PI / 2.0
 	hoop.position = Vector3(0, receiver.y * 0.5 + 0.028, -0.08)
 	_holo.add_child(hoop)
 	var post := MeshInstance3D.new()
@@ -208,6 +217,18 @@ func _build(class_id: int, scoped: bool, holo: bool) -> void:
 	post.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	_holo.add_child(post)
 	_holo.visible = holo
+
+	# Whichever sight is fitted has to sit on the camera axis when aimed. The
+	# camera is at the Head origin and this gun hangs off the Weapon anchor, so
+	# the slide is simply "cancel the anchor offset, then cancel the sight's own
+	# offset". Iron sights line up on the receiver's top rib.
+	var sight_at := Vector3(0.0, receiver.y * 0.5 + 0.012, -0.02)
+	if holo:
+		sight_at = Vector3(0.0, receiver.y * 0.5 + 0.028, -0.08)
+	elif scoped:
+		sight_at = _scope.position
+	var anchor: Vector3 = get_parent().position  # Weapon's offset under Head
+	_ads_pos = Vector3(-(anchor.x + sight_at.x), -(anchor.y + sight_at.y), ADS_PULL_BACK)
 
 	_build_flash(barrel_z - barrel.z * 0.5 - 0.06)
 
@@ -269,7 +290,9 @@ func _cyl(radius: float, height: float, pos: Vector3, mat: Material) -> MeshInst
 ## a couple of parts hidden. The sniper ships with optics; anything else grows
 ## a scope or a holo ring only when one is bought.
 func configure(class_id: int, scoped := false, holo := false) -> void:
-	_build(class_id, scoped or class_id == Weapon.Class.SNIPER, holo)
+	# The sniper ships with optics, but a bought holo ring replaces them rather
+	# than sitting alongside — two sights on one rail is nobody's intent.
+	_build(class_id, (scoped or class_id == Weapon.Class.SNIPER) and not holo, holo)
 
 
 ## Called on each shot; strength scales the kick per weapon class.
@@ -300,7 +323,7 @@ func _process(delta: float) -> void:
 	var bob_amp := 0.011 * clampf(speed / 5.0, 0.0, 1.0) * (1.0 - 0.75 * _aim_t)
 	var bob := Vector3(cos(_bob_t) * bob_amp, absf(sin(_bob_t)) * bob_amp, 0.0)
 
-	var pos := HIP_POS.lerp(ADS_POS, _aim_t) + bob
+	var pos := HIP_POS.lerp(_ads_pos, _aim_t) + bob
 	pos.z += _kick * 0.06  # recoil shoves the gun back toward the player
 	position = pos
 	# Muzzle climbs (rotate about +X) with a small random lateral lean.
