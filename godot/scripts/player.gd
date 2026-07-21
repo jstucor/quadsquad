@@ -36,7 +36,15 @@ const JET_MAX_RISE := 7.0
 const CABLE_RANGE := 34.0
 const CABLE_SPEED := 17.0
 const CABLE_PULL_TIME := 1.1
-const CABLE_ARRIVE := 2.2   # let go once this close to the anchor
+const CABLE_ARRIVE := 2.2      # let go once this close to the anchor
+# Arriving at the anchor throws you into a ballistic vault that peaks above it,
+# so grappling the face of a crate puts you on top of the crate instead of
+# leaving you standing against it.
+const CABLE_VAULT_CLEAR := 1.6  # metres to peak above the anchor
+const CABLE_VAULT_MIN_UP := 4.0 # a grapple at your own height still pops you up
+const CABLE_VAULT_MAX_UP := 13.0
+const CABLE_VAULT_PUSH := 6.0   # horizontal carry, to land past the edge
+const CABLE_VAULT_TIME := 0.55  # how long the vault owns your steering
 const ROTARY_SPEED_MULT := 0.55
 # You deploy on a button press, not a timer. These are only the floor before the
 # button goes live: long enough at match start for everyone to spec a build, and
@@ -112,6 +120,8 @@ var _switch_down := false
 var _on_secondary := false   # which weapon slot is in hand
 var _cable_left := 0.0       # seconds of grapple pull remaining
 var _cable_anchor := Vector3.ZERO
+var _vault_left := 0.0       # seconds the cable vault still owns steering
+var _vault_dir := Vector3.ZERO
 var _shield: Node3D          # deployed front shield, if any
 var _turret: Node3D          # placed turret, if any (one at a time)
 var _rotary_out := false
@@ -220,6 +230,7 @@ func _apply_loadout() -> void:
 	gadget = loadout.gadget_id()
 	jet_fuel = 1.0
 	_cable_left = 0.0
+	_vault_left = 0.0
 	_clear_gadget_props()
 	_muster_squad()
 	gear_changed.emit(grenades_left, medkits_left)
@@ -577,10 +588,37 @@ func _apply_gadget_motion(delta: float) -> void:
 	if _cable_left > 0.0:
 		_cable_left -= delta
 		var to_anchor := _cable_anchor - global_position
-		if to_anchor.length() <= CABLE_ARRIVE:
+		if to_anchor.length() <= CABLE_ARRIVE or _cable_left <= 0.0:
 			_cable_left = 0.0
+			_begin_vault()
 		else:
 			velocity = to_anchor.normalized() * CABLE_SPEED
+	elif _vault_left > 0.0:
+		# Hold the launch heading for a moment: normal movement rewrites x/z from
+		# the stick every frame, which would kill the arc instantly. Gravity is
+		# left alone, so this stays a real ballistic hop.
+		_vault_left -= delta
+		velocity.x = _vault_dir.x
+		velocity.z = _vault_dir.z
+		if velocity.y <= 0.0 and is_on_floor():
+			_vault_left = 0.0
+
+
+## Launch up and over whatever we just reeled ourselves to. The rise is solved
+## from the anchor height, so a low crate gives a small hop and a tall ledge a
+## big one, and the horizontal push carries you past the edge onto the top.
+func _begin_vault() -> void:
+	var rise := _cable_anchor.y + CABLE_VAULT_CLEAR - global_position.y
+	var up := sqrt(2.0 * _gravity * maxf(rise, 0.0)) if rise > 0.0 else 0.0
+	velocity.y = clampf(maxf(up, CABLE_VAULT_MIN_UP), 0.0, CABLE_VAULT_MAX_UP)
+	var flat := _cable_anchor - global_position
+	flat.y = 0.0
+	# Straight down the line we were pulled along; if we're already on top of the
+	# anchor, carry on the way we're facing instead.
+	var heading := flat.normalized() if flat.length() > 0.05 \
+		else -global_transform.basis.z
+	_vault_dir = heading * CABLE_VAULT_PUSH
+	_vault_left = CABLE_VAULT_TIME
 
 
 func _fire_cable() -> void:
