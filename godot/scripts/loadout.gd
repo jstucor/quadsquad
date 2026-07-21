@@ -36,10 +36,20 @@ const SECONDARIES: Array[Dictionary] = [
 	{"class": Weapon.Class.REVOLVER, "cost": 35},
 ]
 
+# Sights are one slot with three options rather than a toggle, because a holo
+# ring and a magnified scope are alternatives, not stackable extras.
+enum Sight { NONE, HOLO, SCOPE }
+const SIGHTS: Array[Dictionary] = [
+	{"name": "IRON", "cost": 0, "blurb": "Open sights"},
+	{"name": "HOLO RING", "cost": 20,
+		"blurb": "Hollow ring sight: clear view, mild zoom, tighter aim"},
+	{"name": "SCOPE", "cost": 25,
+		"blurb": "Magnified optics, but the scope blacks out everything around it"},
+]
+
 # Bolt-ons that modify the gun's profile (see Weapon.set_class). Each is owned
 # or not; `key` is the field on this object that stores that.
 const UPGRADES: Array[Dictionary] = [
-	{"key": "scope", "name": "SCOPE", "cost": 25, "blurb": "Zoom optics + scope overlay"},
 	{"key": "cooling", "name": "COOLING VANES", "cost": 20, "blurb": "-25% heat per shot, cools faster"},
 	{"key": "grip", "name": "IMPROVED GRIP", "cost": 20, "blurb": "-35% hip spread, less bloom"},
 ]
@@ -94,12 +104,12 @@ const MEDKIT_MAX := 2
 const MEDKIT_HEAL := 60.0
 
 ## The buy screen is one row per line, in this order.
-enum Row { WEAPON, SECONDARY, SCOPE, COOLING, GRIP, GADGET, ARMOR, GRENADES, MEDKITS, SQUAD, SQUAD_SKILL }
+enum Row { WEAPON, SECONDARY, SIGHT, COOLING, GRIP, GADGET, ARMOR, GRENADES, MEDKITS, SQUAD, SQUAD_SKILL }
 
 var weapon := 0        # index into WEAPONS (NO_PRIMARY = sidearm only)
 var secondary := 0     # index into SECONDARIES
 var gadget := 0        # index into GADGETS
-var scope := false
+var sight := Sight.NONE
 var cooling := false
 var grip := false
 var armor := DEFAULT_ARMOR  # index into ARMOR
@@ -128,6 +138,7 @@ func duplicate_loadout() -> Loadout:
 func cost() -> int:
 	var total: int = WEAPONS[weapon]["cost"]
 	total += SECONDARIES[secondary]["cost"]
+	total += SIGHTS[sight]["cost"]
 	total += GADGETS[gadget]["cost"]
 	total += ARMOR[armor]["cost"]
 	for up in UPGRADES:
@@ -189,7 +200,7 @@ func squad_skill_stats() -> Dictionary:
 
 ## The upgrade flags in the shape Weapon.set_class wants.
 func weapon_mods() -> Dictionary:
-	return {"scope": scope, "cooling": cooling, "grip": grip}
+	return {"sight": sight, "cooling": cooling, "grip": grip}
 
 
 ## Move one option along `row` by `dir` (-1/+1). Anything the budget can't cover
@@ -212,8 +223,8 @@ func _step_unchecked(row: int, dir: int) -> void:
 			secondary = clampi(secondary + dir, 0, SECONDARIES.size() - 1)
 		Row.GADGET:
 			gadget = clampi(gadget + dir, 0, GADGETS.size() - 1)
-		Row.SCOPE:
-			scope = not scope
+		Row.SIGHT:
+			sight = clampi(sight + dir, 0, SIGHTS.size() - 1)
 		Row.COOLING:
 			cooling = not cooling
 		Row.GRIP:
@@ -232,7 +243,7 @@ func _step_unchecked(row: int, dir: int) -> void:
 
 func _same_as(other: Loadout) -> bool:
 	return weapon == other.weapon and secondary == other.secondary \
-		and gadget == other.gadget and scope == other.scope \
+		and gadget == other.gadget and sight == other.sight \
 		and cooling == other.cooling and grip == other.grip \
 		and armor == other.armor and grenades == other.grenades \
 		and medkits == other.medkits and squad == other.squad \
@@ -243,7 +254,7 @@ func _copy_from(other: Loadout) -> void:
 	weapon = other.weapon
 	secondary = other.secondary
 	gadget = other.gadget
-	scope = other.scope
+	sight = other.sight
 	cooling = other.cooling
 	grip = other.grip
 	armor = other.armor
@@ -260,6 +271,7 @@ func row_label(row: int) -> String:
 		Row.WEAPON: return "PRIMARY"
 		Row.SECONDARY: return "SIDEARM"
 		Row.GADGET: return "GADGET"
+		Row.SIGHT: return "SIGHT"
 		Row.ARMOR: return "ARMOR"
 		Row.GRENADES: return "GRENADES"
 		Row.MEDKITS: return "HEALTH KIT"
@@ -273,6 +285,7 @@ func row_value(row: int) -> String:
 		Row.WEAPON: return weapon_name()
 		Row.SECONDARY: return secondary_name()
 		Row.GADGET: return GADGETS[gadget]["name"]
+		Row.SIGHT: return SIGHTS[sight]["name"]
 		Row.ARMOR: return ARMOR[armor]["name"]
 		Row.GRENADES: return "x%d" % grenades if grenades > 0 else "none"
 		Row.MEDKITS: return "x%d" % medkits if medkits > 0 else "none"
@@ -286,6 +299,7 @@ func row_cost(row: int) -> int:
 		Row.WEAPON: return WEAPONS[weapon]["cost"]
 		Row.SECONDARY: return SECONDARIES[secondary]["cost"]
 		Row.GADGET: return GADGETS[gadget]["cost"]
+		Row.SIGHT: return SIGHTS[sight]["cost"]
 		Row.ARMOR: return ARMOR[armor]["cost"]
 		Row.GRENADES: return grenades * GRENADE_COST
 		Row.MEDKITS: return medkits * MEDKIT_COST
@@ -307,6 +321,8 @@ func row_blurb(row: int) -> String:
 			return "%d dmg   swap with Q / Y" % sp["damage"]
 		Row.GADGET:
 			return GADGETS[gadget]["blurb"]
+		Row.SIGHT:
+			return SIGHTS[sight]["blurb"]
 		Row.ARMOR:
 			var a := armor_stats()
 			return "%s   %d HP" % [a["blurb"], roundi(a["health"])]
@@ -327,4 +343,4 @@ func row_blurb(row: int) -> String:
 
 
 func _upgrade_index(row: int) -> int:
-	return row - Row.SCOPE  # SCOPE/COOLING/GRIP are contiguous, in UPGRADES order
+	return row - Row.COOLING  # COOLING/GRIP are contiguous, in UPGRADES order

@@ -65,6 +65,8 @@ func _destroy(attacker: Node) -> void:
 	_dead = true
 	if attacker != null and "team" in attacker and attacker.team != team:
 		GameState.add_frag(attacker.team)
+		if attacker.has_method("credit_kill"):
+			attacker.credit_kill()
 	queue_free()
 
 

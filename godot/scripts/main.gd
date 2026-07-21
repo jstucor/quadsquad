@@ -25,6 +25,8 @@ const HEAT_OVER_COLOR := Color(1.0, 0.3, 0.2, 0.95)
 const ELIMINATED_COLOR := Color(1.0, 0.4, 0.35)
 const DEATH_DIM := Color(0.16, 0.0, 0.0, 0.5)
 const DEPLOY_DIM := Color(0.0, 0.0, 0.0, 0.55)
+const KILL_FLASH_COLOR := Color(0.85, 0.05, 0.05)
+const KILL_STREAK_COLOR := Color(1.0, 0.35, 0.3)
 
 var level: Node3D
 
@@ -179,6 +181,7 @@ func _build_hud(player: Player) -> Control:
 	_add_health(hud, player, color)
 	_add_weapon_readout(hud, player, color)
 	_add_gear_readout(hud, player, color)
+	_add_kill_streak(hud, player)
 	hud.add_child(_build_buy_screen(player, color))
 	_add_victory_banner(hud)
 	_add_countdown(hud)
@@ -214,11 +217,22 @@ func _add_reticle(hud: Control, player: Player) -> void:
 	scope.resized.connect(scope.queue_redraw)
 	hud.add_child(scope)
 
+	# The holo ring: a hollow reticle you aim through, with the world still
+	# visible around it — the whole point of buying it over a scope.
+	var holo := Control.new()
+	holo.set_anchors_preset(Control.PRESET_FULL_RECT)
+	holo.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	holo.draw.connect(_draw_holo.bind(holo))
+	holo.resized.connect(holo.queue_redraw)
+	hud.add_child(holo)
+
 	var refresh := func() -> void:
-		var scoped: bool = player.weapon.aiming and player.weapon.has_scope()
 		var live := player.is_alive()
+		var scoped: bool = player.weapon.aiming and player.weapon.has_scope()
+		var ringed: bool = player.weapon.aiming and player.weapon.has_holo()
 		scope.visible = scoped and live
-		crosshair.visible = not scoped and live
+		holo.visible = ringed and live
+		crosshair.visible = not scoped and not ringed and live
 	player.aim_changed.connect(func(_aiming: bool) -> void: refresh.call())
 	player.weapon_changed.connect(func(_name: String) -> void: refresh.call())
 	player.died.connect(func(_eliminated: bool) -> void: refresh.call())
@@ -320,6 +334,37 @@ func _hide_countdown() -> void:
 
 
 ## Hidden until a team wins, then shown in every viewport by _show_victory.
+## Kills on this life, with a red wash across the screen each time you take one.
+## The streak sits under the player tag and only appears once you're on the
+## board, so a clean life has no dead HUD text.
+func _add_kill_streak(hud: Control, player: Player) -> void:
+	var flash := ColorRect.new()
+	flash.set_anchors_preset(Control.PRESET_FULL_RECT)
+	flash.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	flash.color = KILL_FLASH_COLOR
+	flash.modulate.a = 0.0
+	hud.add_child(flash)
+
+	var label := Label.new()
+	label.add_theme_font_size_override("font_size", 20)
+	label.add_theme_color_override("font_color", KILL_STREAK_COLOR)
+	label.position = Vector2(14, 42)
+	label.visible = false
+	hud.add_child(label)
+
+	player.killed_someone.connect(func(streak: int) -> void:
+		label.visible = true
+		label.text = "%d KILL%s" % [streak, "" if streak == 1 else "S"]
+		# Brighter wash the longer the streak, so a spree really shows.
+		var peak: float = minf(0.22 + streak * 0.06, 0.5)
+		flash.modulate.a = peak
+		var fade := hud.create_tween()
+		fade.tween_property(flash, "modulate:a", 0.0, 0.45))
+	player.respawned.connect(func() -> void:
+		label.visible = false
+		flash.modulate.a = 0.0)
+
+
 ## Consumables you're carrying, above the weapon name. Hidden when you bought
 ## none, so a gun-only build has no dead HUD text.
 func _add_gear_readout(hud: Control, player: Player, color: Color) -> void:
@@ -489,6 +534,20 @@ func _draw_bloom(c: Control, player: Player) -> void:
 	c.draw_line(center + Vector2(-radius, 0), center + Vector2(-radius - tick, 0), col, 2.0)
 	c.draw_line(center + Vector2(radius, 0), center + Vector2(radius + tick, 0), col, 2.0)
 	c.draw_circle(center, 1.5, col)
+
+
+## A hollow ring with a centre dot. Unlike the scope it draws no blackout, so
+## you keep your peripheral vision while aimed.
+func _draw_holo(c: Control) -> void:
+	var center := c.size * 0.5
+	var r: float = minf(c.size.x, c.size.y) * 0.13
+	c.draw_arc(center, r, 0.0, TAU, 48, Color(1.0, 0.3, 0.22, 0.9), 2.0, true)
+	c.draw_arc(center, r * 0.06, 0.0, TAU, 12, Color(1.0, 0.45, 0.3, 1.0), 3.0, true)
+	# Small ticks at the cardinals, so the ring reads as a sight not a circle.
+	for i in 4:
+		var dir := Vector2.RIGHT.rotated(TAU * i / 4.0)
+		c.draw_line(center + dir * r * 0.72, center + dir * r * 0.92,
+			Color(1.0, 0.3, 0.22, 0.75), 2.0)
 
 
 func _draw_scope(c: Control) -> void:

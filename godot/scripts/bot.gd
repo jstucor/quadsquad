@@ -140,6 +140,8 @@ func _die(attacker: Node) -> void:
 	_dead = true
 	if attacker != null and "team" in attacker and attacker.team != team:
 		GameState.add_frag(attacker.team)
+		if attacker.has_method("credit_kill"):
+			attacker.credit_kill()
 	var corpse := CORPSE_SCENE.instantiate()
 	get_tree().current_scene.add_child(corpse)
 	var push := Vector3.ZERO

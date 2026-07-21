@@ -17,6 +17,7 @@ signal respawned()
 signal buy_changed(row: int)     # cursor moved or the build changed; redraw
 signal deploy_ready()            # the minimum wait elapsed; the button is live
 signal gear_changed(grenades: int, medkits: int)
+signal killed_someone(streak: int)  # a kill this life; streak resets on death
 signal squad_changed(alive: int)  # squadmates mustered or lost
 
 const CORPSE_SCENE := preload("res://scenes/fx/corpse.tscn")
@@ -103,6 +104,9 @@ var max_health := 100.0
 var loadout := Loadout.starter()
 var pending := Loadout.starter()
 var buy_row := 0
+## Kills on the CURRENT life. Reset on every deploy, so it reads as a streak
+## rather than a running total.
+var kills_this_life := 0
 var grenades_left := 0
 var medkits_left := 0
 var squad: Array[Bot] = []  # the AI squadmates currently alive under this player
@@ -204,6 +208,13 @@ func take_damage(amount: float, attacker: Node = null) -> void:
 		_die(attacker)
 
 
+## Credited by whatever we just killed. Duck-typed like the rest of the combat
+## contract: Player, Bot and Turret all call it on their killer if it exists.
+func credit_kill() -> void:
+	kills_this_life += 1
+	killed_someone.emit(kills_this_life)
+
+
 ## False while eliminated (collision off, waiting to respawn). GameState uses it
 ## to skip corpses-in-waiting when it looks for a clear spawn marker.
 func is_alive() -> bool:
@@ -242,6 +253,7 @@ func _apply_loadout() -> void:
 	health = max_health
 	grenades_left = loadout.grenades
 	medkits_left = loadout.medkits
+	kills_this_life = 0
 	_on_secondary = not loadout.has_primary()
 	_rotary_out = false
 	weapon.set_class(loadout.deploy_class(), loadout.weapon_mods())
@@ -360,6 +372,7 @@ func _die(attacker: Node = null) -> void:
 	# Credit the frag to an enemy killer (not suicide/self or a teammate).
 	if attacker is Player and attacker != self and attacker.team != team:
 		GameState.add_frag(attacker.team)
+		attacker.credit_kill()
 	_spawn_corpse(attacker)
 	_enter_buy_screen(RESPAWN_FLOOR, true)
 

@@ -88,7 +88,7 @@ capture the mouse; ESC releases it.
   | Primary | None 0 · Rifle 45 · Burst 50 · Semi 55 · Repeater 70 · HMG 80 · Sniper 85 · RPG 110 |
   | Sidearm | DL-44 Pistol 0 · RK-3 Holdout 20 · SE-14 Revolver 35 — swap with Q / Y |
   | Gadget | Jetpack 45 · Wrist Cable 30 (34 m grapple + vault, 5 s cooldown) · Front Shield 50 · Rotary Cannon 75 · Turret 65 |
-  | Scope | 25 — zoom optics + scope overlay on any gun |
+  | Sight | Iron 0 · **Holo ring 20** (mild zoom, tighter aim, hollow reticle you see through) · Scope 25 (magnified, blacks out the periphery) |
   | Cooling vanes | 20 — -25% heat per shot, cools faster |
   | Improved grip | 20 — -35% hip spread, so bloom builds less |
   | Armour | Light Frame 20 (80 HP, +12% speed/jump) · None 0 (100 HP) · Plated 25 (130 HP) · Heavy Plate 60 (175 HP, -15% speed) |
@@ -128,8 +128,13 @@ capture the mouse; ESC releases it.
   the tier, and every tier carries the same rifle so intelligence is the only
   variable. They don't respawn; your next deploy tops the squad back up to the
   headcount you bought (survivors are kept).
-- Twelve weapons with AUTO / SEMI / BURST fire modes and spin-up support, all
-  able to take the three upgrades
+- Twelve weapons with AUTO / SEMI / BURST fire modes and spin-up support, each
+  with its own viewmodel silhouette — sidearms are 0.2-0.3 m stubs, the NT-242
+  is a metre of barrel, the T-21 and NT-242 carry bipods, the Z-6 and R-90 sit
+  on drums, the R-90 has a four-barrel cluster and the PLX-1 is a fat tube
+- **Kill streak per life**: your kills on the current life show under your
+  player tag and the screen washes red on each one, harder the longer the
+  streak. Dying resets it
 - The RPG fires a real travelling rocket with radius splash damage + falloff;
   the rest are hitscan with fast bolt tracers
 - Camera recoil per shot (settles back), 2x headshots, and crouch (lower

@@ -102,7 +102,11 @@ const PROFILES := {
 	},
 }
 
-# Purchased upgrades (Loadout.UPGRADES) as multipliers on the base profile.
+# Purchased upgrades (Loadout.SIGHTS / UPGRADES) as multipliers on the base
+# profile. The holo ring is the cheap sight: a little zoom and a steadier aim,
+# with none of the scope's tunnel vision.
+const HOLO_ZOOM_MULT := 0.85
+const HOLO_SPREAD_MULT := 0.7
 const SCOPE_ZOOM_MULT := 0.6    # smaller FOV = more magnification
 const COOLING_HEAT_MULT := 0.75
 const COOLING_RATE_MULT := 1.25
@@ -144,14 +148,19 @@ func set_class(c: Class, upgrades := {}) -> void:
 	_spin = 0.0
 	heat_changed.emit(_heat, _overheated)
 	if _viewmodel:
-		_viewmodel.configure(c, has_scope())
+		_viewmodel.configure(c, has_scope(), has_holo())
 
 
 func _upgraded_profile(base: Dictionary, upgrades: Dictionary) -> Dictionary:
 	if upgrades.is_empty():
 		return base
 	var p := base.duplicate()
-	if upgrades.get("scope", false):
+	var sight: int = upgrades.get("sight", 0)
+	if sight == Loadout.Sight.HOLO:
+		p["holo"] = true
+		p["zoom_fov"] = float(p["zoom_fov"]) * HOLO_ZOOM_MULT
+		p["ads_spread"] = float(p["ads_spread"]) * HOLO_SPREAD_MULT
+	elif sight == Loadout.Sight.SCOPE:
 		p["scope"] = true
 		p["zoom_fov"] = float(p["zoom_fov"]) * SCOPE_ZOOM_MULT
 	if upgrades.get("cooling", false):
@@ -177,6 +186,12 @@ func zoom_fov() -> float:
 
 func has_scope() -> bool:
 	return _profile["scope"]
+
+
+## A hollow ring sight: aims without blacking out the view, so it gets a ring
+## reticle rather than the scope overlay.
+func has_holo() -> bool:
+	return _profile.get("holo", false)
 
 
 ## The spread cone half-angle (deg) a shot would use right now — hip fire adds
