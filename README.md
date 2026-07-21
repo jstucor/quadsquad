@@ -64,7 +64,7 @@ capture the mouse; ESC releases it.
   |---|---|
   | Primary | None 0 · Rifle 45 · Burst 50 · Semi 55 · Repeater 70 · HMG 80 · Sniper 85 · RPG 110 |
   | Sidearm | DL-44 Pistol 0 · RK-3 Holdout 20 · SE-14 Revolver 35 — swap with Q / Y |
-  | Gadget | Jetpack 45 · Wrist Cable 30 (grapple + vault onto cover) · Front Shield 50 · Rotary Cannon 75 · Turret 65 |
+  | Gadget | Jetpack 45 · Wrist Cable 30 (34 m grapple + vault, 5 s cooldown) · Front Shield 50 · Rotary Cannon 75 · Turret 65 |
   | Scope | 25 — zoom optics + scope overlay on any gun |
   | Cooling vanes | 20 — -25% heat per shot, cools faster |
   | Improved grip | 20 — -35% hip spread, so bloom builds less |
@@ -81,9 +81,12 @@ capture the mouse; ESC releases it.
 
 - **Gadgets** (one slot, F / pad X) are verbs rather than more damage:
   - **Jetpack** — hold to fly on a fuel pool that refills on the ground.
-  - **Wrist cable** — grapple whatever you're looking at, reel yourself in, then
-    vault up and over it. The hop is solved from the anchor height, so it lifts
-    you onto cover you grappled instead of leaving you against the side of it.
+  - **Wrist cable** — fires a visible claw and wire up to **34 m**, reels you
+    in, then vaults you up and over. The hop is solved from the anchor height,
+    so it lifts you onto the cover you grappled instead of leaving you against
+    the side of it. A miss still throws the line out to full range and reels it
+    back empty, so the reach is something you see rather than a number. **5 s
+    between uses**, hit or miss; the HUD counts it down.
   - **Front shield** — a barrier that stops incoming fire but not yours: your
     own shots are excluded from it, so you shoot through your own cover. It
     wears down under fire and breaks.
@@ -136,6 +139,7 @@ godot/
     bot.gd                  — AI squadmate: target/advance/engage, skill tiers
     turret.gd               — placed auto-turret: stationary Bot cousin
     front_shield.gd         — shoot-through barrier gadget
+    cable_wire.gd           — the grapple's visible claw + line
     player.gd               — movement, crouch, recoil, damage/frag, buy screen
     character.gd            — procedural blocky humanoid + code-built anims
     arena.gd                — procedural map base (env/floor/walls/lights/spawns),

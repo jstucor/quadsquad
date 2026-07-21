@@ -255,6 +255,9 @@ func _add_gear_readout(hud: Control, player: Player, color: Color) -> void:
 		var parts: Array[String] = []
 		if player.gadget == Loadout.Gadget.JETPACK:
 			parts.append("JET %d%%" % roundi(player.jet_fuel * 100.0))
+		elif player.gadget == Loadout.Gadget.CABLE:
+			var cd := player.cable_cooldown()
+			parts.append("CABLE READY" if cd <= 0.0 else "CABLE %ds" % ceili(cd))
 		elif player.gadget != Loadout.Gadget.NONE:
 			parts.append(Loadout.GADGETS[player.gadget]["name"])
 		if player.grenades_left > 0:

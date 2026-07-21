@@ -65,7 +65,7 @@ const GADGETS: Array[Dictionary] = [
 	{"name": "JETPACK", "cost": 45,
 		"blurb": "Hold F / X to fly. Fuel burns fast, refills on the ground"},
 	{"name": "WRIST CABLE", "cost": 30,
-		"blurb": "Grapple to what you're looking at and reel yourself in"},
+		"blurb": "Grapple within 34 m, reel in and vault on top. 5s between uses"},
 	{"name": "FRONT SHIELD", "cost": 50,
 		"blurb": "Toggle a barrier that stops incoming fire. You can shoot through it"},
 	{"name": "ROTARY CANNON", "cost": 75,

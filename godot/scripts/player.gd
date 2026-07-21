@@ -24,6 +24,7 @@ const GRENADE_SCENE := preload("res://scenes/fx/grenade.tscn")
 const BOT_SCENE := preload("res://scenes/actors/bot.tscn")
 const SHIELD_SCENE := preload("res://scenes/fx/front_shield.tscn")
 const TURRET_SCENE := preload("res://scenes/actors/turret.tscn")
+const CABLE_WIRE_SCENE := preload("res://scenes/fx/cable_wire.tscn")
 
 # Gadgets. The jetpack burns a 0..1 fuel pool and refills on the ground; the
 # cable yanks you toward whatever you grappled for a fixed pull; the rotary
@@ -33,7 +34,9 @@ const JET_KICK := 4.2      # instant lift when taking off, so you clear the floo
 const JET_BURN := 0.5      # fuel per second of thrust
 const JET_REFILL := 0.34   # fuel per second, only while on the floor
 const JET_MAX_RISE := 7.0
-const CABLE_RANGE := 34.0
+const CABLE_COOLDOWN := 5.0     # seconds between uses, hit or miss
+const CABLE_RANGE := 34.0       # a miss flies the full length, so you see the limit
+const CABLE_HOOK_SPEED := 115.0 # claw travel; the reel starts when it bites
 const CABLE_SPEED := 17.0
 const CABLE_PULL_TIME := 1.1
 const CABLE_ARRIVE := 2.2      # let go once this close to the anchor
@@ -120,6 +123,11 @@ var _switch_down := false
 var _on_secondary := false   # which weapon slot is in hand
 var _cable_left := 0.0       # seconds of grapple pull remaining
 var _cable_anchor := Vector3.ZERO
+var _cable_cd := 0.0         # seconds until the cable can be fired again
+var _cable_cd_shown := 0     # last whole second pushed to the HUD
+var _hook_left := 0.0        # claw still in flight
+var _hook_hit := false       # ...and whether it will find anything
+var _wire: Node3D            # the visible line, while one is out
 var _vault_left := 0.0       # seconds the cable vault still owns steering
 var _vault_dir := Vector3.ZERO
 var _shield: Node3D          # deployed front shield, if any
@@ -204,6 +212,11 @@ func is_alive() -> bool:
 
 ## True once the buy screen's minimum wait has elapsed and the deploy button
 ## will actually do something.
+## Seconds until the wrist cable is usable again, 0 when it's ready.
+func cable_cooldown() -> float:
+	return _cable_cd
+
+
 func deploy_armed() -> bool:
 	return _deploy_armed
 
@@ -230,6 +243,8 @@ func _apply_loadout() -> void:
 	gadget = loadout.gadget_id()
 	jet_fuel = 1.0
 	_cable_left = 0.0
+	_hook_left = 0.0
+	_cable_cd = 0.0  # a fresh life gets a fresh cable
 	_vault_left = 0.0
 	_clear_gadget_props()
 	_muster_squad()
@@ -585,11 +600,28 @@ func _apply_gadget_motion(delta: float) -> void:
 		elif is_on_floor():
 			jet_fuel = minf(jet_fuel + JET_REFILL * delta, 1.0)
 		_jet_thrusting = thrusting
+	if _cable_cd > 0.0:
+		_cable_cd = maxf(_cable_cd - delta, 0.0)
+		# Refresh the readout on whole seconds only, not every frame.
+		var secs := ceili(_cable_cd)
+		if secs != _cable_cd_shown:
+			_cable_cd_shown = secs
+			gear_changed.emit(grenades_left, medkits_left)
+	# The claw is still in flight: the reel only starts when it bites.
+	if _hook_left > 0.0:
+		_hook_left -= delta
+		if _hook_left <= 0.0:
+			if _hook_hit:
+				_cable_left = CABLE_PULL_TIME
+			elif is_instance_valid(_wire):
+				_wire.release()  # grabbed nothing: reel the empty line back in
 	if _cable_left > 0.0:
 		_cable_left -= delta
 		var to_anchor := _cable_anchor - global_position
 		if to_anchor.length() <= CABLE_ARRIVE or _cable_left <= 0.0:
 			_cable_left = 0.0
+			if is_instance_valid(_wire):
+				_wire.release()
 			_begin_vault()
 		else:
 			velocity = to_anchor.normalized() * CABLE_SPEED
@@ -621,17 +653,33 @@ func _begin_vault() -> void:
 	_vault_left = CABLE_VAULT_TIME
 
 
+## Shoot the claw. A miss still fires the wire out to full range and reels it
+## back with nothing on the end, so the cable's reach is something you can see
+## rather than a number in the shop.
 func _fire_cable() -> void:
+	if _cable_cd > 0.0:
+		return  # still winding in
+	if _hook_left > 0.0 or _cable_left > 0.0 or is_instance_valid(_wire):
+		return  # one line out at a time
 	var from := head.global_position
 	var to := from - head.global_transform.basis.z * CABLE_RANGE
 	var query := PhysicsRayQueryParameters3D.create(from, to)
 	query.exclude = hitscan_exclusions()
 	query.collision_mask = 1  # world geometry only: you can't grapple a person
 	var hit := get_world_3d().direct_space_state.intersect_ray(query)
-	if hit.is_empty():
-		return
-	_cable_anchor = hit["position"]
-	_cable_left = CABLE_PULL_TIME
+	_hook_hit = not hit.is_empty()
+	var landed: Vector3 = hit["position"] if _hook_hit else to
+	_cable_anchor = landed
+	_hook_left = maxf(weapon.global_position.distance_to(landed) / CABLE_HOOK_SPEED, 0.02)
+
+	_wire = CABLE_WIRE_SCENE.instantiate()
+	get_parent().add_child(_wire)
+	_wire.launch(self, weapon, landed, _hook_left)
+	# The cooldown runs from the shot, hit or miss, so a whiff costs you just as
+	# much as a grapple.
+	_cable_cd = CABLE_COOLDOWN
+	_cable_cd_shown = ceili(_cable_cd)
+	gear_changed.emit(grenades_left, medkits_left)
 
 
 ## A barrier that hangs in front of you. It stops incoming fire but not yours —
@@ -673,6 +721,9 @@ func _place_turret() -> void:
 
 ## Gadget leftovers that must not survive a death.
 func _clear_gadget_props() -> void:
+	if is_instance_valid(_wire):
+		_wire.queue_free()
+	_wire = null
 	if is_instance_valid(_shield):
 		_shield.queue_free()
 	_shield = null
