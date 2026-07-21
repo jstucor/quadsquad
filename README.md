@@ -132,7 +132,9 @@ capture the mouse; ESC releases it.
   gunners behind 193 HP of plate, engineers dropping turrets and scouts
   grappling ahead, instead of a dozen identical riflemen. They use what they
   bought: grenades at 9–26 m, medkits below 45% health, turrets once they reach
-  the ground they're holding, front shields they can shoot through.
+  the ground they're holding or make contact, front shields they can shoot
+  through. All of it runs the same in both modes — the mode only changes where
+  they push.
 - **AI squadmates** fight for your team: they acquire the nearest enemy they can
   actually see (45–105 m by skill), close to their engagement range, strafe and
   shoot. With nothing to fight, a bought squadmate falls in behind the player

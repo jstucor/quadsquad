@@ -280,6 +280,7 @@ func _fight(delta: float) -> void:
 		velocity.z = side.z * speed * STRAFE_SPEED
 	_apply_unstick()
 
+	_place_turret_if_ready(false)  # in contact: dig in where we stand
 	_reaction_left = maxf(_reaction_left - delta, 0.0)
 	var facing := Vector3.FORWARD.rotated(Vector3.UP, rotation.y)
 	var on_aim := rad_to_deg(facing.angle_to(flat.normalized())) <= FIRE_CONE_DEG
@@ -298,12 +299,12 @@ func _patrol(delta: float) -> void:
 	head.rotation.y = lerpf(head.rotation.y, 0.0, clampf(delta * 3.0, 0.0, 1.0))
 
 	var goal := _patrol_goal(delta)
-	_place_turret_if_ready()
 	_try_cable(goal)
 	var flat := goal - global_position
 	flat.y = 0.0
 	var gap := flat.length()
 	var arrive := FOLLOW_DISTANCE if _has_owner() else ROAM_ARRIVE
+	_place_turret_if_ready(gap <= TURRET_PLACE_GAP)
 	if gap <= arrive:
 		velocity.x = 0.0
 		velocity.z = 0.0
@@ -350,14 +351,18 @@ func _throw_grenade_if_useful(gap: float) -> void:
 
 
 ## Engineers drop their turret once they've reached the ground they're holding,
-## and only ever run one at a time.
-func _place_turret_if_ready() -> void:
+## or the moment they make contact, and only ever run one at a time.
+##
+## `near_goal` is measured against the bot's OWN patrol goal rather than the
+## capture area, so this works the same in deathmatch: keying it to the zone
+## meant an engineer in deathmatch had to wander within a few metres of the map
+## origin before it would ever deploy.
+func _place_turret_if_ready(near_goal: bool) -> void:
 	if loadout == null or loadout.gadget != Loadout.Gadget.TURRET:
 		return
 	if is_instance_valid(_turret):
 		return
-	var goal := GameState.zone_point if GameState.zone_active else Vector3.ZERO
-	if Vector2(global_position.x - goal.x, global_position.z - goal.z).length() > TURRET_PLACE_GAP:
+	if not near_goal and not is_instance_valid(_target):
 		return
 	_turret = TURRET_SCENE.instantiate()
 	get_parent().add_child(_turret)
