@@ -97,9 +97,7 @@ func _build() -> void:
 		_set_picker(map_box, map["name"], map["blurb"],
 			"%d of %d" % [GameState.map_index + 1, GameState.MAPS.size()])
 		_set_picker(mode_box, GameState.MODE_NAMES[GameState.mode],
-			GameState.MODE_BLURBS[GameState.mode] % (
-				[GameState.score_limit()] if GameState.mode == GameState.Mode.DEATHMATCH
-				else [30, GameState.score_limit()]),
+			GameState.mode_blurb(),
 			"%d of %d" % [GameState.mode + 1, GameState.MODE_NAMES.size()])
 		players_btn.text = "PLAYERS  %d" % GameState.human_players
 		teams_btn.text = "TEAMS  %s" % ("FREE FOR ALL" if GameState.free_for_all

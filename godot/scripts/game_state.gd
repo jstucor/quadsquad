@@ -190,6 +190,24 @@ func score_limit() -> int:
 	return SCORE_LIMITS[mode]
 
 
+## The current mode's blurb with its own numbers already in it.
+##
+## How many arguments a blurb takes is part of the blurb, and only this file
+## knows it — ROYALE's line takes none where the others take one and two. A
+## caller that guesses gets "not all arguments converted", which in GDScript
+## aborts the whole function it happens in: the menu's one refresh closure
+## updates every chip, so a mismatch here silently froze the entire screen the
+## moment you selected the mode. Format the blurb HERE, never at the caller.
+func mode_blurb() -> String:
+	match mode:
+		Mode.DEATHMATCH:
+			return MODE_BLURBS[mode] % score_limit()
+		Mode.ZONES:
+			return MODE_BLURBS[mode] % [int(Zone.RELOCATE_EVERY), score_limit()]
+		_:
+			return MODE_BLURBS[mode]
+
+
 func reset_match() -> void:
 	scores = {}
 	for t in active_teams():
