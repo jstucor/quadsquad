@@ -729,9 +729,12 @@ func _on_weapon_fired(cam_recoil: float, kick_back: float) -> void:
 ## Hold-to-aim: eases the camera FOV toward the weapon's zoom, tells the weapon
 ## to tighten its spread cone, and scales look sensitivity down with the zoom.
 func _update_aim(delta: float) -> void:
-	# Dual wield spends the aim control on the off-hand trigger, so there are no
-	# sights to come up: two guns and hip fire is the deal.
-	var aiming := _ads_held() and not dual_active()
+	# Two builds give up the sights entirely. Dual wield spends the aim control
+	# on the off-hand trigger, and a raised shield fills the hand you would brace
+	# with — that's the cost of carrying cover with you. Both are checked every
+	# frame, so throwing the shield up mid-aim drops you straight back to the hip
+	# rather than leaving the sights stuck on the glass.
+	var aiming := _ads_held() and not dual_active() and not shield_up()
 	weapon.aiming = aiming
 	if aiming != _prev_aim:
 		_prev_aim = aiming
@@ -900,8 +903,15 @@ func _fire_cable() -> void:
 	gear_changed.emit(grenades_left, medkits_left)
 
 
+## Is the front shield currently up? Anything that should be denied while you
+## are carrying a barrier asks this — right now that is aiming down sights.
+func shield_up() -> bool:
+	return is_instance_valid(_shield)
+
+
 ## A barrier that hangs in front of you. It stops incoming fire but not yours —
 ## your own shots exclude it (see hitscan_exclusions), so you shoot through it.
+## Raising it costs you your sights: see _update_aim.
 func _toggle_shield() -> void:
 	if is_instance_valid(_shield):
 		_shield.queue_free()

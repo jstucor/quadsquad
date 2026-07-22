@@ -97,7 +97,7 @@ const GADGETS: Array[Dictionary] = [
 	{"name": "WRIST CABLE", "cost": 30,
 		"blurb": "Grapple within 34 m, reel in and vault on top. 5s between uses"},
 	{"name": "FRONT SHIELD", "cost": 50,
-		"blurb": "Toggle a barrier that stops incoming fire. You can shoot through it"},
+		"blurb": "Toggle a barrier that stops incoming fire. Shoot through it, but no aiming"},
 	{"name": "ROTARY CANNON", "cost": 75,
 		"blurb": "Toggle a spin-up rotary gun. Huge output, but you walk"},
 	{"name": "TURRET", "cost": 65,
