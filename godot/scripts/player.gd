@@ -650,7 +650,8 @@ func mortar_ready() -> bool:
 	return m != null and m.ready_to_fire()
 
 
-## The line along the top of the map screen: what the fire button will do.
+## The line along the top of the map screen: what the fire button will do, and
+## what the tube is doing right now.
 func map_status() -> String:
 	var m := mortar()
 	if m == null:
@@ -658,10 +659,12 @@ func map_status() -> String:
 			return "MORTAR NOT PLACED  —  %s to set the tube down" % \
 				Controls.label(input_device, "gadget")
 		return "MAP"
-	if m.ready_to_fire():
-		return "MORTAR READY  —  %s to call the salvo" % \
-			Controls.label(input_device, "fire")
-	return "MORTAR RELOADING  %ds" % ceili(m.cooldown_left())
+	var press: String = Controls.label(input_device, "fire")
+	if not m.is_aimed():
+		return "MORTAR READY  —  %s to mark the barrage" % press
+	if m.is_firing():
+		return "MORTAR FIRING  %ds  —  %s to re-aim" % [ceili(m.phase_left()), press]
+	return "MORTAR RELOADING  %ds  —  %s to re-aim" % [ceili(m.phase_left()), press]
 
 
 func _call_mortar_strike() -> void:

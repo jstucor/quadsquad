@@ -7,9 +7,20 @@ extends Node3D
 ## and detonates on the first thing it touches, so a shell that clips a roof on
 ## the way in blows up on the roof rather than tunnelling through it.
 
-const MIN_FLIGHT := 1.4   # seconds; a short lob still arcs
-const MAX_FLIGHT := 4.0
-const FLIGHT_PER_M := 1.0 / 26.0
+## Hang time, which is what actually sets the height: the solve puts the whole
+## vertical budget into getting back down in `flight` seconds, so the apex goes
+## up with the SQUARE of it. At 3.2s a short lob peaks ~12m up and drops in
+## near-vertically; a long one hangs for 6.5s and peaks around 50m.
+##
+## The long hang is also what keeps continuous bombardment fair — you can hear
+## and see the shells coming and walk out from under them.
+const MIN_FLIGHT := 3.2
+const MAX_FLIGHT := 6.5
+const FLIGHT_PER_M := 1.0 / 14.0
+## The fuse arms a moment after launch. A steep lob leaves the tube travelling
+## almost straight up, right past whoever just placed it — without this the
+## shell detonates on their head on the first frame.
+const ARM_TIME := 0.15
 
 var _vel := Vector3.ZERO
 var _gravity: float = ProjectSettings.get_setting("physics/3d/default_gravity")
@@ -66,20 +77,23 @@ func _build_mesh() -> void:
 
 func _physics_process(delta: float) -> void:
 	_life += delta
-	if _life > 12.0:
-		queue_free()  # never found anything (fired off the edge of the level)
+	# Generous against the longest arc (6.5s) — this only catches a shell fired
+	# clean off the edge of the level, which never hits anything.
+	if _life > MAX_FLIGHT * 3.0:
+		queue_free()
 		return
 	_vel.y -= _gravity * delta
 	var from := global_position
 	var to := from + _vel * delta
-	var query := PhysicsRayQueryParameters3D.create(from, to)
-	if _shooter_rid.is_valid():
-		query.exclude = [_shooter_rid]  # don't detonate on our own tube
-	query.collision_mask = 0b11  # world (1) + bodies (2)
-	var hit := get_world_3d().direct_space_state.intersect_ray(query)
-	if hit:
-		_explode(hit["position"])
-		return
+	if _life >= ARM_TIME:
+		var query := PhysicsRayQueryParameters3D.create(from, to)
+		if _shooter_rid.is_valid():
+			query.exclude = [_shooter_rid]  # don't detonate on our own tube
+		query.collision_mask = 0b11  # world (1) + bodies (2)
+		var hit := get_world_3d().direct_space_state.intersect_ray(query)
+		if hit:
+			_explode(hit["position"])
+			return
 	global_position = to
 	# Point the shell along its arc, so it noses over at the top.
 	if _vel.length_squared() > 0.01:

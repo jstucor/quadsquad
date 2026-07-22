@@ -56,6 +56,17 @@ const TURRET_PLACE_GAP := 12.0  # drop it once we're near where we're heading
 const MORTAR_PLACE_GAP := 12.0
 const MORTAR_MIN_RANGE := 15.0
 const MORTAR_CLUSTER := 9.0   # enemies this close to the mark get aimed between
+# How often a bot moves its barrage. The tube shells a mark indefinitely, so
+# without this the bot would re-aim every physics frame and the barrage would
+# track a running target perfectly — which removes the whole counterplay of
+# walking out from under it.
+#
+# Derived from the tube's FULL cycle, not just its burst: re-aiming restarts the
+# burst, so a bot re-aiming every BURST_TIME landed in the middle of every rest
+# phase and cancelled it — the AI mortar fired continuously and never rested at
+# all. Measured 1499 damage on a stationary target in 16s before this, against
+# ~1000 the cycle can actually produce.
+const MORTAR_REAIM := Mortar.BURST_TIME + Mortar.REST_TIME
 const CABLE_COOLDOWN := 6.0
 const CABLE_MIN_GOAL := 22.0   # only worth grappling toward something far off
 const CABLE_SPEED := 17.0
@@ -120,6 +131,7 @@ var _cable_left := 0.0
 var _cable_anchor := Vector3.ZERO
 var _turret: Node3D
 var _mortar: Node3D
+var _mortar_reaim := 0.0   # seconds until it may move its barrage again
 var _shield: Node3D
 var _strafe_dir := 1.0
 var _gravity: float = ProjectSettings.get_setting("physics/3d/default_gravity")
@@ -310,7 +322,7 @@ func _fight(delta: float) -> void:
 
 	_place_turret_if_ready(false)  # in contact: dig in where we stand
 	_place_mortar_if_ready(false)
-	_call_mortar_strike()
+	_call_mortar_strike(delta)
 	_reaction_left = maxf(_reaction_left - delta, 0.0)
 	var facing := Vector3.FORWARD.rotated(Vector3.UP, rotation.y)
 	var on_aim := rad_to_deg(facing.angle_to(flat.normalized())) <= FIRE_CONE_DEG
@@ -428,17 +440,22 @@ func _place_mortar_if_ready(near_goal: bool) -> void:
 ##
 ## Keyed to the bot's own target, not to the capture area, so it behaves the
 ## same in deathmatch as in zones — the same rule the turret follows.
-func _call_mortar_strike() -> void:
+func _call_mortar_strike(delta: float) -> void:
+	_mortar_reaim = maxf(_mortar_reaim - delta, 0.0)
 	if not is_instance_valid(_mortar) or not _mortar.ready_to_fire():
 		return
 	# Same gate the gun uses: it has to have held the target long enough to
 	# react, so a mortar never fires on a target it has only just glimpsed.
 	if not is_instance_valid(_target) or _reaction_left > 0.0:
 		return
+	# Already shelling somewhere, and not yet allowed to move the barrage.
+	if _mortar.is_aimed() and _mortar_reaim > 0.0:
+		return
 	var mark: Vector3 = _target.global_position
 	if _mortar.global_position.distance_to(mark) < MORTAR_MIN_RANGE:
 		return  # close enough to shoot at; a lob would land on our own line
 	_mortar.fire_at(_enemy_cluster(mark))
+	_mortar_reaim = MORTAR_REAIM
 
 
 ## Centroid of the enemies bunched around a mark, so a salvo lands BETWEEN a

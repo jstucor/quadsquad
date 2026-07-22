@@ -1,13 +1,14 @@
 class_name Mortar
 extends StaticBody3D
 ## Placed mortar: indirect fire you aim from the map screen instead of down a
-## barrel. Drop the tube, open the map, put the cursor where you want the
-## barrage, and press fire — it lobs a salvo of shells that arc over the level
-## and detonate on impact.
+## barrel. Drop the tube, put the cursor where you want the barrage, and press
+## fire — it then shells that spot INDEFINITELY, in five-second bursts with five
+## seconds of quiet between them, lobbing shells in a high arc that detonate on
+## impact. Re-aiming moves the barrage and starts a fresh burst.
 ##
-## Deliberately not a fire-and-forget turret: it never picks its own targets, it
-## can be shot out, and a salvo costs a long cooldown. What you are buying is
-## the ability to hit somewhere you cannot see.
+## Deliberately not a turret: it never picks its own target, it only ever hits
+## the ground it was pointed at, and it can be shot out. What you are buying is
+## sustained pressure on somewhere you cannot see, not a second gun.
 ##
 ## Same duck-typed combat contract as Turret (is_alive / team / take_damage), so
 ## it registers as a combatant and enemies treat it as worth killing.
@@ -15,10 +16,15 @@ extends StaticBody3D
 const SHELL_SCENE := preload("res://scenes/fx/mortar_shell.tscn")
 
 const MAX_HEALTH := 130.0     # softer than a turret: it cannot defend itself
-const SHELLS := 4             # rounds in one salvo
-const SHELL_GAP := 0.42       # seconds between rounds, so they walk in
+# Once it has a mark it bombards it INDEFINITELY, in bursts: five seconds of
+# outgoing shells, five seconds of quiet, repeating until it is re-aimed, picked
+# up or destroyed. The quiet half is the window the target gets to move through
+# the area — that plus the shells' long hang time is the whole counterplay, so
+# the two halves being equal is deliberate.
+const BURST_TIME := 5.0
+const REST_TIME := 5.0
+const SHELL_GAP := 0.7        # seconds between rounds inside a burst (~7 a burst)
 const SPREAD := 4.0           # metres of scatter around the called point
-const COOLDOWN := 14.0
 const SPLASH := 4.2
 const SPLASH_DAMAGE := 68.0
 const MUZZLE_Y := 1.15        # shells leave the top of the tube
@@ -29,10 +35,11 @@ var owner_player: Node3D
 var health := MAX_HEALTH
 
 var _dead := false
-var _cooldown := 0.0
-var _queued := 0            # rounds still to leave the tube this salvo
-var _next_shell := 0.0
+var _aimed := false         # has it been given a mark yet?
 var _aim := Vector3.ZERO
+var _firing := false        # true during the burst half of the cycle
+var _phase_left := 0.0      # seconds left in the current half
+var _next_shell := 0.0
 
 @onready var _tube: Node3D = $Tube
 
@@ -55,25 +62,40 @@ func is_alive() -> bool:
 	return not _dead
 
 
-## Ready when it is not already firing and the cooldown has run out.
+## A live tube always accepts a new mark — re-aiming mid-bombardment is the
+## point of having it, not something to wait out.
 func ready_to_fire() -> bool:
-	return not _dead and _cooldown <= 0.0 and _queued == 0
+	return not _dead
 
 
-func cooldown_left() -> float:
-	return _cooldown
+## Has it been given somewhere to shell?
+func is_aimed() -> bool:
+	return _aimed
 
 
-## Call a salvo onto a world point. Only the XZ matters — the shells find their
+## True while shells are actually going out (the burst half of the cycle).
+func is_firing() -> bool:
+	return _aimed and _firing
+
+
+## Seconds left in whichever half of the cycle it is in.
+func phase_left() -> float:
+	return _phase_left
+
+
+## Point the barrage at a world point. Only the XZ matters — the shells find their
 ## own ground height, so a point called on the map lands on the terrain under it
 ## rather than at whatever altitude the cursor implied.
 func fire_at(point: Vector3) -> void:
 	if not ready_to_fire():
 		return
 	_aim = Vector3(point.x, _ground_y(point), point.z)
-	_queued = SHELLS
+	_aimed = true
+	# A fresh mark starts a fresh burst, so re-aiming pays off immediately
+	# instead of landing in the middle of a rest phase.
+	_firing = true
+	_phase_left = BURST_TIME
 	_next_shell = 0.0
-	_cooldown = COOLDOWN
 
 
 func take_damage(amount: float, attacker: Node = null, headshot := false) -> void:
@@ -97,22 +119,25 @@ func _destroy(attacker: Node) -> void:
 	queue_free()
 
 
+## The bombardment cycle: burst, rest, burst, for as long as it stands.
 func _physics_process(delta: float) -> void:
-	if _dead:
+	if _dead or not _aimed:
 		return
-	if _cooldown > 0.0:
-		_cooldown = maxf(_cooldown - delta, 0.0)
-	if _queued <= 0:
-		return
-	# The match hold applies to placed hardware too, or a salvo called in the
+	# The match hold applies to placed hardware too, or a barrage called in the
 	# opening seconds would land before anyone can move.
 	if not GameState.match_live:
+		return
+	_phase_left -= delta
+	if _phase_left <= 0.0:
+		_firing = not _firing
+		_phase_left = BURST_TIME if _firing else REST_TIME
+		_next_shell = 0.0   # a new burst opens immediately
+	if not _firing:
 		return
 	_next_shell -= delta
 	if _next_shell > 0.0:
 		return
 	_next_shell = SHELL_GAP
-	_queued -= 1
 	_launch_shell()
 
 
@@ -129,8 +154,8 @@ func _launch_shell() -> void:
 	_recoil()
 
 
-## Drop the tube back and let it settle, so a salvo reads as four distinct shots
-## rather than shells appearing out of a static prop.
+## Drop the tube back and let it settle between rounds, so a burst reads as
+## distinct shots rather than shells appearing out of a static prop.
 func _recoil() -> void:
 	if _tube == null:
 		return
