@@ -90,7 +90,9 @@ const STAND_HEIGHT := 1.8
 const CROUCH_HEIGHT := 1.1
 const STAND_HEAD_Y := 1.55
 const CROUCH_HEAD_Y := 1.05
-const CROUCH_MODEL_SCALE := 0.62
+# Seconds to fold into (or out of) the crouch. Matches the animation blend in
+# _update_anim, so the capsule, the camera and the pose all arrive together.
+const CROUCH_TIME := 0.12
 # Head-hit band (metres above the body origin) — anything above counts as a
 # headshot; drops with the crouch so it tracks the lowered head.
 const STAND_HEAD_MIN := 1.42
@@ -581,13 +583,14 @@ func _unstick_push() -> Vector3:
 	return push
 
 
-## Ease the stance toward standing/crouched: lowers the camera, shrinks the
-## capsule, and squashes the model so squadmates see the crouch too.
+## Ease the stance toward standing/crouched: lowers the camera and shrinks the
+## capsule. The MODEL's crouch is a posed animation (CharacterModel's
+## crouch_idle / crouch_walk, picked in _update_anim), not a scale — squashing
+## the body just made a shorter person, not someone hunkering down.
 func _update_crouch(delta: float) -> void:
 	var target := 1.0 if _crouch_held() else 0.0
-	_crouch_t = move_toward(_crouch_t, target, delta / 0.12)
+	_crouch_t = move_toward(_crouch_t, target, delta / CROUCH_TIME)
 	head.position.y = lerpf(STAND_HEAD_Y, CROUCH_HEAD_Y, _crouch_t)
-	model.scale.y = lerpf(1.0, CROUCH_MODEL_SCALE, _crouch_t)
 	var cap := _collision.shape as CapsuleShape3D
 	cap.height = lerpf(STAND_HEIGHT, CROUCH_HEIGHT, _crouch_t)
 	_collision.position.y = cap.height * 0.5
@@ -921,10 +924,14 @@ func _update_anim(move: Vector2, sprinting: bool) -> void:
 	if _anim == null:
 		return
 	# Basic Minecraft/Krunker-style state machine: airborne -> jump (held),
-	# moving -> walk/run, else idle. No landing clip on purpose.
+	# moving -> walk/run, else idle. No landing clip on purpose. Crouching swaps
+	# in the folded-leg variants; there is no crouched sprint because sprint is
+	# already suppressed while crouched.
 	var target: String
 	if not is_on_floor():
 		target = "jump"
+	elif _crouch_t > 0.5:
+		target = "crouch_walk" if move.length() > 0.1 else "crouch_idle"
 	elif move.length() > 0.1:
 		target = "run" if sprinting else "walk"
 	else:
@@ -940,5 +947,10 @@ func _update_anim(move: Vector2, sprinting: bool) -> void:
 			_anim.speed_scale = clampf(ground_speed / 2.6, 0.6, 2.2)
 		"run":
 			_anim.speed_scale = clampf(ground_speed / 5.0, 0.6, 2.2)
+		"crouch_walk":
+			# Crouched movement is WALK_SPEED * CROUCH_SPEED_MULT, so the shuffle
+			# is paced off that or the feet skate at a third of the stride.
+			_anim.speed_scale = clampf(
+				ground_speed / (WALK_SPEED * CROUCH_SPEED_MULT), 0.6, 2.2)
 		_:
 			_anim.speed_scale = 1.0

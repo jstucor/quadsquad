@@ -33,6 +33,26 @@ const IDLE_LEN := 2.4
 const WALK_LEN := 1.0
 const RUN_LEN := 0.7
 const JUMP_LEN := 0.35
+const CROUCH_IDLE_LEN := 2.8
+# Short strides at crouch speed means a HIGH cadence, not a slow one: the cycle
+# is brief so the stride roughly covers the ground actually travelled instead of
+# skating. player.gd paces it off WALK_SPEED * CROUCH_SPEED_MULT.
+const CROUCH_WALK_LEN := 0.55
+
+# The crouch is a real POSE, not a squashed model: the hips drop, the knees fold
+# under the body and the torso leans out over them. The leg angles are solved,
+# not eyeballed — with the thigh forward and the shin swung back by the same
+# angle (knee = 2 x hip), the ankle lands directly under the hip, so the
+# character settles onto its feet instead of sliding forward out of its own
+# collision capsule. That constraint is what makes CROUCH_KNEE twice CROUCH_HIP.
+const CROUCH_HIP_DEG := 55.0
+const CROUCH_KNEE_DEG := CROUCH_HIP_DEG * 2.0
+# Hip height that pose actually produces: both segments fold to the same angle.
+const CROUCH_HIP_Y := (UPPER_LEG + LOWER_LEG) * cos(deg_to_rad(CROUCH_HIP_DEG))
+const CROUCH_LEAN_DEG := 26.0  # torso out over the knees
+const CROUCH_HEAD_DEG := 21.0  # ...and the head back up, so the visor faces front
+const CROUCH_SWING_DEG := 26.0  # hip swing either side of the fold, when shuffling
+const CROUCH_LIFT_DEG := 20.0   # extra knee tuck on the leg swinging through
 
 # Short name -> node path (relative to this Character) for the animated joints.
 const PATHS := {
@@ -145,6 +165,15 @@ func _build_animations() -> void:
 	lib.add_animation("walk", _clip(WALK_LEN, true, 9, _walk_pose, Callable()))
 	lib.add_animation("run", _clip(RUN_LEN, true, 9, _run_pose, Callable()))
 	lib.add_animation("jump", _clip(JUMP_LEN, false, 2, _jump_pose, Callable()))
+	# Crouch gets its own clips rather than a runtime pose laid over the others:
+	# the AnimationPlayer rewrites every joint each frame, so anything applied
+	# on top would depend on process ordering to survive. These go through the
+	# same _clip() pipeline as everything else, and they animate the Hips
+	# position track to drop the body.
+	lib.add_animation("crouch_idle",
+		_clip(CROUCH_IDLE_LEN, true, 9, _crouch_idle_pose, _crouch_idle_hips))
+	lib.add_animation("crouch_walk",
+		_clip(CROUCH_WALK_LEN, true, 9, _crouch_walk_pose, _crouch_walk_hips))
 	anim_player.add_animation_library("", lib)
 
 
@@ -223,6 +252,71 @@ func _run_pose(time: float) -> Dictionary:
 	p["kL"] = Vector3(-knee * maxf(0.0, c), 0, 0)
 	p["kR"] = Vector3(-knee * maxf(0.0, -c), 0, 0)
 	return p
+
+
+## The crouch itself: legs folded, torso leaning out over the knees, head lifted
+## back to level. Arms tuck in closer than the standing carry, so the gun comes
+## in tight to the chest the way it does when you hunker down.
+func _crouch_base() -> Dictionary:
+	var hip := deg_to_rad(CROUCH_HIP_DEG)
+	var knee := deg_to_rad(CROUCH_KNEE_DEG)
+	var p := _carry()
+	p["spine"] = Vector3(-deg_to_rad(CROUCH_LEAN_DEG), 0, 0)
+	p["head"] = Vector3(deg_to_rad(CROUCH_HEAD_DEG), 0, 0)
+	# Leaning the torso forward would swing the arms down with it; bring the
+	# shoulders back up by the same angle so the gun stays level.
+	p["sL"] = Vector3(deg_to_rad(46 + CROUCH_LEAN_DEG), deg_to_rad(-18), deg_to_rad(6))
+	p["sR"] = Vector3(deg_to_rad(46 + CROUCH_LEAN_DEG), deg_to_rad(18), deg_to_rad(-6))
+	p["hL"] = Vector3(hip, 0, 0)
+	p["hR"] = Vector3(hip, 0, 0)
+	p["kL"] = Vector3(-knee, 0, 0)
+	p["kR"] = Vector3(-knee, 0, 0)
+	return p
+
+
+func _crouch_idle_pose(_time: float) -> Dictionary:
+	return _crouch_base()
+
+
+## Where the hips sit while crouched. The bob function returns an OFFSET from
+## the standing hip height (see _clip), so this is the drop, not the height.
+func _crouch_idle_hips(time: float) -> Vector3:
+	var breathe := 0.008 * sin(time / CROUCH_IDLE_LEN * TAU)
+	return Vector3(0, CROUCH_HIP_Y - HIP_Y + breathe, 0)
+
+
+## Crouch-walking is a waddle: the legs stay folded and take short alternating
+## steps around the crouched angle, never straightening back to a standing gait.
+##
+## The knee holds the base fold through stance and only tucks FURTHER on the leg
+## swinging through. That direction matters: with the knee fixed, swinging the
+## hip either way SHORTENS the leg (the fold is deepest at the base angle), so
+## the planted foot can only rise off the floor, never sink through it. Letting
+## the trailing knee open — the obvious way to write this — lengthens the leg
+## instead and buries the foot 3 cm in the ground.
+func _crouch_walk_pose(time: float) -> Dictionary:
+	var phase := time / CROUCH_WALK_LEN * TAU
+	var s := sin(phase)
+	var c := cos(phase)
+	var swing := deg_to_rad(CROUCH_SWING_DEG)
+	var lift := deg_to_rad(CROUCH_LIFT_DEG)
+	var p := _crouch_base()
+	var hip := deg_to_rad(CROUCH_HIP_DEG)
+	var knee := deg_to_rad(CROUCH_KNEE_DEG)
+	p["hL"] = Vector3(hip + swing * s, 0, 0)
+	p["hR"] = Vector3(hip - swing * s, 0, 0)
+	p["kL"] = Vector3(-knee - lift * maxf(0.0, c), 0, 0)
+	p["kR"] = Vector3(-knee - lift * maxf(0.0, -c), 0, 0)
+	return p
+
+
+## Stepping from a fold this deep rocks the body, twice a cycle. The offset is
+## kept non-negative for the same reason the knee only ever tucks further: the
+## hips carry the feet with them, so a downward offset would push them through
+## the floor.
+func _crouch_walk_hips(time: float) -> Vector3:
+	var rock := 0.018 * absf(sin(time / CROUCH_WALK_LEN * TAU))
+	return Vector3(0, CROUCH_HIP_Y - HIP_Y + rock, 0)
 
 
 func _jump_pose(_time: float) -> Dictionary:
