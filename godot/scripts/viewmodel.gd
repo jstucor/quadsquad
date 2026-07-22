@@ -20,17 +20,28 @@ const ADS_PULL_BACK := 0.05
 const AIM_TIME := 0.12       # seconds to fully raise/lower sights
 const RECOIL_DECAY := 6.0    # how fast the kick springs back
 const KICK_CEILING := 1.8    # a burst stacks up to here before it stops growing
-# How the accumulated kick reads on screen: slammed back toward the player,
-# muzzle flipping up, with a lateral lean.
-const KICK_PUSH := 0.22      # metres back per unit of kick
-const KICK_PITCH := 0.42     # radians of muzzle climb per unit of kick
-const KICK_LEAN := 0.11
-# ...but the pushback has a hard ceiling, because the gun only has so far to go
-# before it reaches your face: the Weapon anchor sits 0.3 m in front of the
-# camera and ADS pulls it back another ADS_PULL_BACK. Past that the receiver
-# crosses the near plane and the gun turns inside out. The MUZZLE FLIP is what
-# carries a heavy gun's kick instead — it costs no travel and reads harder.
-const MAX_PUSH := 0.17
+# How the accumulated kick reads on screen: shoved back toward the player,
+# muzzle climbing, with a small lateral lean.
+#
+# Kept DELIBERATELY restrained. The gun is braced against a shoulder — it is the
+# steadiest thing in the frame, and a viewmodel that whips around reads as jumpy
+# rather than powerful. The force of a shot belongs on the CAMERA (Player's
+# cam_recoil), which is the thing a real shooter feels move. Pushed to 0.42
+# radians of flip this looked like the gun was being thrown, while the view
+# behind it sat flat.
+const KICK_PUSH := 0.12      # metres back per unit of kick
+const KICK_PITCH := 0.20     # radians of muzzle climb per unit of kick
+const KICK_LEAN := 0.06
+# The pushback still needs a ceiling: the Weapon anchor sits only 0.3 m in front
+# of the camera (0.25 m aimed), and past that the receiver crosses the near
+# plane and the gun turns inside out.
+const MAX_PUSH := 0.12
+# ...and the gun settles further still once the sights are up. Aimed, the weapon
+# is braced and your eye is ON the sight: the same flip that reads as weight
+# from the hip throws the sight picture off the camera axis when you are looking
+# through it. Scaled by _aim_t, so it eases in with the sights rather than
+# snapping between two amounts.
+const ADS_KICK_MULT := 0.4
 const FLASH_TIME := 0.045
 
 var aiming_source: Node3D    # the parent Weapon (aiming / has_scope live here)
@@ -360,12 +371,15 @@ func _process(delta: float) -> void:
 	var bob := Vector3(cos(_bob_t) * bob_amp, absf(sin(_bob_t)) * bob_amp, 0.0)
 
 	var pos := HIP_POS.lerp(_ads_pos, _aim_t) + bob
-	# Recoil slams the gun back toward the player, capped so a stacked burst
+	# How much of the kick actually SHOWS. Raising the sights damps it, so the
+	# gun steadies as your eye comes onto the glass.
+	var shown := _kick * lerpf(1.0, ADS_KICK_MULT, _aim_t)
+	# Recoil shoves the gun back toward the player, capped so a stacked burst
 	# can't drive it through the camera.
-	pos.z += minf(_kick * KICK_PUSH, MAX_PUSH)
+	pos.z += minf(shown * KICK_PUSH, MAX_PUSH)
 	position = pos
 	# Muzzle climbs (rotate about +X) with a small random lateral lean.
-	rotation = Vector3(_kick * KICK_PITCH, _kick * _kick_yaw * KICK_LEAN, 0.0)
+	rotation = Vector3(shown * KICK_PITCH, shown * _kick_yaw * KICK_LEAN, 0.0)
 
 	if _flash:
 		_flash_t = maxf(_flash_t - delta, 0.0)

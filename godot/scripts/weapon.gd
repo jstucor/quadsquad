@@ -39,26 +39,26 @@ const PROFILES := {
 		"name": "DC-15 Rifle", "fire_interval": 0.14, "damage": 20.0,
 		"range": 120.0, "hip_spread": 2.5, "ads_spread": 0.4, "zoom_fov": 48.0,
 		"heat_per_shot": 0.085, "cool_rate": 0.26, "scope": false,
-		"recoil": 0.55, "cam_recoil": 0.024,
+		"recoil": 0.55, "cam_recoil": 0.046,
 	},
 	Class.SNIPER: {
 		"name": "NT-242 Sniper", "fire_interval": 1.1, "damage": 95.0,
 		"range": 400.0, "hip_spread": 7.0, "ads_spread": 0.0, "zoom_fov": 20.0,
 		"heat_per_shot": 0.45, "cool_rate": 0.28, "scope": true,
-		"recoil": 1.5, "cam_recoil": 0.11, "kick_back": 3.0,
+		"recoil": 1.5, "cam_recoil": 0.20, "kick_back": 3.0,
 		"mode": FireMode.SEMI,
 	},
 	Class.HEAVY: {
 		"name": "Z-6 Repeater", "fire_interval": 0.075, "damage": 11.0,
 		"range": 85.0, "hip_spread": 4.5, "ads_spread": 2.0, "zoom_fov": 62.0,
 		"heat_per_shot": 0.06, "cool_rate": 0.22, "scope": false,
-		"recoil": 0.34, "cam_recoil": 0.017,
+		"recoil": 0.34, "cam_recoil": 0.032,
 	},
 	Class.REVOLVER: {
 		"name": "SE-14 Revolver", "fire_interval": 0.42, "damage": 55.0,
 		"range": 100.0, "hip_spread": 1.5, "ads_spread": 0.3, "zoom_fov": 55.0,
 		"heat_per_shot": 0.22, "cool_rate": 0.3, "scope": false,
-		"recoil": 1.3, "cam_recoil": 0.12, "kick_back": 1.6,
+		"recoil": 1.3, "cam_recoil": 0.22, "kick_back": 1.6,
 		"mode": FireMode.SEMI,
 	},
 	# The HMG's cooling is double every other gun's relative to its output: it is
@@ -67,33 +67,33 @@ const PROFILES := {
 		"name": "T-21 HMG", "fire_interval": 0.05, "damage": 13.0,
 		"range": 110.0, "hip_spread": 5.5, "ads_spread": 2.5, "zoom_fov": 60.0,
 		"heat_per_shot": 0.042, "cool_rate": 0.36, "scope": false,
-		"recoil": 0.42, "cam_recoil": 0.021,
+		"recoil": 0.42, "cam_recoil": 0.040,
 	},
 	Class.BURST: {
 		"name": "EL-16 Burst", "fire_interval": 0.42, "damage": 24.0,
 		"range": 140.0, "hip_spread": 1.6, "ads_spread": 0.15, "zoom_fov": 50.0,
 		"heat_per_shot": 0.09, "cool_rate": 0.3, "scope": false,
-		"recoil": 0.75, "cam_recoil": 0.042,
+		"recoil": 0.75, "cam_recoil": 0.080,
 		"mode": FireMode.BURST, "burst_count": 3, "burst_interval": 0.06,
 	},
 	Class.SEMI: {
 		"name": "A280 Semi", "fire_interval": 0.2, "damage": 42.0,
 		"range": 200.0, "hip_spread": 1.0, "ads_spread": 0.0, "zoom_fov": 45.0,
 		"heat_per_shot": 0.11, "cool_rate": 0.3, "scope": false,
-		"recoil": 0.9, "cam_recoil": 0.055, "kick_back": 1.0,
+		"recoil": 0.9, "cam_recoil": 0.105, "kick_back": 1.0,
 		"mode": FireMode.SEMI,
 	},
 	Class.PISTOL: {
 		"name": "DL-44 Pistol", "fire_interval": 0.26, "damage": 32.0,
 		"range": 90.0, "hip_spread": 1.8, "ads_spread": 0.35, "zoom_fov": 56.0,
 		"heat_per_shot": 0.13, "cool_rate": 0.34, "scope": false,
-		"recoil": 0.95, "cam_recoil": 0.062, "mode": FireMode.SEMI,
+		"recoil": 0.95, "cam_recoil": 0.118, "mode": FireMode.SEMI,
 	},
 	Class.HOLDOUT: {
 		"name": "RK-3 Holdout", "fire_interval": 0.16, "damage": 19.0,
 		"range": 70.0, "hip_spread": 2.4, "ads_spread": 0.7, "zoom_fov": 58.0,
 		"heat_per_shot": 0.075, "cool_rate": 0.4, "scope": false,
-		"recoil": 0.6, "cam_recoil": 0.032,
+		"recoil": 0.6, "cam_recoil": 0.061,
 	},
 	# The rotary gadget's gun: enormous sustained output, but it has to spin up
 	# first and it sprays, and carrying it slows you to a walk.
@@ -101,7 +101,7 @@ const PROFILES := {
 		"name": "R-90 Rotary", "fire_interval": 0.04, "damage": 12.0,
 		"range": 95.0, "hip_spread": 4.0, "ads_spread": 2.2, "zoom_fov": 64.0,
 		"heat_per_shot": 0.022, "cool_rate": 0.20, "scope": false,
-		"recoil": 0.32, "cam_recoil": 0.015, "spinup": 0.7,
+		"recoil": 0.32, "cam_recoil": 0.028, "spinup": 0.7,
 	},
 	# What a placed turret shoots with. It's bolted to the floor, so it has a
 	# viewmodel kick nobody sees and no camera kick or shove at all.
@@ -115,7 +115,7 @@ const PROFILES := {
 		"name": "PLX-1 RPG", "fire_interval": 1.6, "damage": 0.0,
 		"range": 300.0, "hip_spread": 0.5, "ads_spread": 0.0, "zoom_fov": 60.0,
 		"heat_per_shot": 0.6, "cool_rate": 0.3, "scope": false,
-		"recoil": 1.8, "cam_recoil": 0.18, "kick_back": 5.5,
+		"recoil": 1.8, "cam_recoil": 0.30, "kick_back": 5.5,
 		"mode": FireMode.SEMI,
 		"projectile": true, "splash": 4.5, "splash_damage": 95.0,
 	},
@@ -125,14 +125,14 @@ const PROFILES := {
 		"name": "Westar M5 SMG", "fire_interval": 0.07, "damage": 12.0,
 		"range": 55.0, "hip_spread": 3.6, "ads_spread": 1.4, "zoom_fov": 64.0,
 		"heat_per_shot": 0.05, "cool_rate": 0.30, "scope": false,
-		"recoil": 0.3, "cam_recoil": 0.016,
+		"recoil": 0.3, "cam_recoil": 0.030,
 	},
 	# Between the SMG and the DC-15: a shorter, faster rifle that gives up range.
 	Class.CARBINE: {
 		"name": "DC-15S Carbine", "fire_interval": 0.11, "damage": 16.0,
 		"range": 90.0, "hip_spread": 2.2, "ads_spread": 0.35, "zoom_fov": 52.0,
 		"heat_per_shot": 0.07, "cool_rate": 0.28, "scope": false,
-		"recoil": 0.45, "cam_recoil": 0.020,
+		"recoil": 0.45, "cam_recoil": 0.038,
 	},
 	# Pellets, not a bullet: devastating inside a room and near-useless past it.
 	# `pellets` rolls the spread cone once per pellet — see _fire_hitscan.
@@ -147,7 +147,7 @@ const PROFILES := {
 		"name": "FWMB-10 Scatter", "fire_interval": 0.85, "damage": 12.0,
 		"range": 26.0, "hip_spread": 3.2, "ads_spread": 2.0, "zoom_fov": 66.0,
 		"heat_per_shot": 0.30, "cool_rate": 0.34, "scope": false,
-		"recoil": 1.4, "cam_recoil": 0.095, "kick_back": 2.2,
+		"recoil": 1.4, "cam_recoil": 0.175, "kick_back": 2.2,
 		"mode": FireMode.SEMI, "pellets": 7,
 	},
 	# Scoped as issued, so it is pinpoint on the glass without buying a sight —
@@ -156,7 +156,7 @@ const PROFILES := {
 		"name": "A280-CFE Marksman", "fire_interval": 0.55, "damage": 62.0,
 		"range": 250.0, "hip_spread": 2.4, "ads_spread": 0.0, "zoom_fov": 32.0,
 		"heat_per_shot": 0.30, "cool_rate": 0.30, "scope": true,
-		"recoil": 1.1, "cam_recoil": 0.075, "kick_back": 1.4,
+		"recoil": 1.1, "cam_recoil": 0.140, "kick_back": 1.4,
 		"mode": FireMode.SEMI,
 	},
 	# Sidearms. The DH-17 is the only automatic one, which is what makes it the
@@ -165,13 +165,13 @@ const PROFILES := {
 		"name": "DH-17 Sidearm", "fire_interval": 0.17, "damage": 17.0,
 		"range": 60.0, "hip_spread": 2.6, "ads_spread": 0.8, "zoom_fov": 58.0,
 		"heat_per_shot": 0.075, "cool_rate": 0.36, "scope": false,
-		"recoil": 0.5, "cam_recoil": 0.026,
+		"recoil": 0.5, "cam_recoil": 0.049,
 	},
 	Class.BRYAR: {
 		"name": "Bryar Pistol", "fire_interval": 0.5, "damage": 58.0,
 		"range": 120.0, "hip_spread": 1.2, "ads_spread": 0.1, "zoom_fov": 50.0,
 		"heat_per_shot": 0.28, "cool_rate": 0.32, "scope": false,
-		"recoil": 1.15, "cam_recoil": 0.085, "kick_back": 1.2,
+		"recoil": 1.15, "cam_recoil": 0.160, "kick_back": 1.2,
 		"mode": FireMode.SEMI,
 	},
 }

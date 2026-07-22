@@ -79,7 +79,7 @@ const AIM_FOV_LERP := 14.0  # per-second rate the camera eases toward zoom FOV
 # looking, so a burst climbs and then hands your aim back rather than stealing
 # it — the cost of firing is the climb, not a permanent drift. Recovery is slow
 # enough that a fast gun is still climbing when its next round leaves.
-const RECOIL_RECOVER := 7.0   # per-second rate the camera recoil settles back
+const RECOIL_RECOVER := 6.0   # per-second rate the camera recoil settles back
 const RECOIL_YAW_SHARE := 0.55  # sideways lean, as a share of the pitch kick
 # Two ways to steady a gun, both things the player chooses in the moment.
 const ADS_RECOIL_MULT := 0.8
