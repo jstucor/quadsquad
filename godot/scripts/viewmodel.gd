@@ -20,11 +20,17 @@ const ADS_PULL_BACK := 0.05
 const AIM_TIME := 0.12       # seconds to fully raise/lower sights
 const RECOIL_DECAY := 6.0    # how fast the kick springs back
 const KICK_CEILING := 1.8    # a burst stacks up to here before it stops growing
-# How the accumulated kick reads on screen: shoved back toward the player, muzzle
-# climbing, with a small lateral lean.
-const KICK_PUSH := 0.085     # metres back per unit of kick
-const KICK_PITCH := 0.26     # radians of muzzle climb per unit of kick
-const KICK_LEAN := 0.07
+# How the accumulated kick reads on screen: slammed back toward the player,
+# muzzle flipping up, with a lateral lean.
+const KICK_PUSH := 0.22      # metres back per unit of kick
+const KICK_PITCH := 0.42     # radians of muzzle climb per unit of kick
+const KICK_LEAN := 0.11
+# ...but the pushback has a hard ceiling, because the gun only has so far to go
+# before it reaches your face: the Weapon anchor sits 0.3 m in front of the
+# camera and ADS pulls it back another ADS_PULL_BACK. Past that the receiver
+# crosses the near plane and the gun turns inside out. The MUZZLE FLIP is what
+# carries a heavy gun's kick instead — it costs no travel and reads harder.
+const MAX_PUSH := 0.17
 const FLASH_TIME := 0.045
 
 var aiming_source: Node3D    # the parent Weapon (aiming / has_scope live here)
@@ -354,7 +360,9 @@ func _process(delta: float) -> void:
 	var bob := Vector3(cos(_bob_t) * bob_amp, absf(sin(_bob_t)) * bob_amp, 0.0)
 
 	var pos := HIP_POS.lerp(_ads_pos, _aim_t) + bob
-	pos.z += _kick * KICK_PUSH  # recoil shoves the gun back toward the player
+	# Recoil slams the gun back toward the player, capped so a stacked burst
+	# can't drive it through the camera.
+	pos.z += minf(_kick * KICK_PUSH, MAX_PUSH)
 	position = pos
 	# Muzzle climbs (rotate about +X) with a small random lateral lean.
 	rotation = Vector3(_kick * KICK_PITCH, _kick * _kick_yaw * KICK_LEAN, 0.0)
