@@ -7,3 +7,4 @@ build-release/
 compile_commands.json
 .vscode/
 .idea/
+.claude/settings.local.json*

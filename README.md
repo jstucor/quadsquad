@@ -1,187 +1,223 @@
 # QuadSquad: Star Wars Skirmish
 
-4-player local co-op arena FPS for Linux. Split-screen gameplay targeting Raspberry Pi 5 and Ubuntu x86 laptops.
+4-player local co-op arena FPS for Linux, built in **Godot 4**. Split-screen
+gameplay targeting Raspberry Pi 5 and Ubuntu x86 laptops.
 
-## Tech Stack
+The original custom C++/SDL2/EnTT engine was retired in favor of Godot
+(history is in git if you need it); its feature set lives on as the roadmap
+below.
 
-| Layer | Library |
+## Running
+
+Requires Godot 4.7+ (official binary). The project uses the **GL
+Compatibility** renderer for the Pi 5 target.
+
+```bash
+godot --path godot            # run the game
+godot --editor --path godot   # open the editor
+```
+
+Headless sanity check (catches script/scene parse errors):
+
+```bash
+godot --headless --path godot --import
+```
+
+## Controls
+
+| Input | Player |
 |---|---|
-| Language | C++20 |
-| Build | CMake 3.20+ |
-| Window / Input | SDL2 |
-| Graphics | OpenGL 3.3 Core Profile (GLAD) |
-| Math | GLM |
-| ECS | EnTT 3.16 |
-| UI | Dear ImGui 1.92 |
+| Keyboard + mouse (WASD, Space jump, Shift sprint, Ctrl crouch, LMB fire, RMB aim, Q swap weapon, F gadget, G grenade, H health kit) | Player 1 |
+| Joypads (left stick move, right stick look, RT/RB fire, LT/LB aim, B crouch, A jump, L3 sprint, Y swap weapon, X gadget, d-pad up grenade, d-pad down health kit) | Players 2–4 |
 
-## Build
+On the buy screen: up / down picks a line, left / right changes it, and
+**Space / A** deploys once the button goes live.
 
-```bash
-# Debug
-cmake -B build -DCMAKE_BUILD_TYPE=Debug
-cmake --build build -j$(nproc)
-./build/quadsquad
+Launching drops you on the map-select menu — arrows / left stick to move,
+Enter / A to select (any joypad can drive it). In a match, click the window to
+capture the mouse; ESC releases it.
 
-# Release (recommended for Pi 5)
-cmake -B build-release -DCMAKE_BUILD_TYPE=Release
-cmake --build build-release -j$(nproc)
-```
+## Current State
 
-**Dependencies (Ubuntu / Debian):**
-```bash
-sudo apt install libsdl2-dev libglm-dev
-```
-EnTT and Dear ImGui are vendored under `vendor/` — no system install needed.
+- **Two modes**, picked on the menu:
+  - **Deathmatch** — kills score, first team to 25.
+  - **Zones** — a marked area somewhere on the map pays the team with the most
+    bodies inside it **one point per second**. It relocates every 30 s, and the
+    first team to 60 seconds of control wins. A tie inside (including an empty
+    area) pays nobody, and squads, team AI and placed turrets all count toward
+    holding it — so a lone player with three squadmates really can take an area
+    off two opponents. The AI push for the active area instead of the map centre.
+- **Team deathmatch, 2v2** (Republic vs Separatist): kills credit the killer's
+  team, friendly fire off, first team to the score limit wins, then the game
+  rotates to the next map. Team-tinted characters + a per-viewport scoreboard
+- **Map-select menu** on launch: pick any map, or "Map Rotation" to play the
+  whole roster in order. Driven by keyboard, mouse, or any joypad; a single-map
+  match returns to the menu when it ends. It also sets up the match:
+  - **Players** (1–4) — how many humans are at the couch. One is full-screen,
+    two split left/right, three or four go 2x2.
+  - **Team size** (per team) — humans fill the slots first and **AI make up the
+    difference**, so 2 humans at team size 3 is a 3v3 with four bots in it.
+    Team AI respawn, so a side never bleeds out.
+  - **AI skill** — which tier those teammates fight at.
+- **Five maps**: Crossfire, Foundry, the jungle Overgrowth and the mountain
+  **Highridge** (all procedural, from `scripts/arena.gd`) plus the Imperial
+  hangar.
+  - **Highridge** is the one with real terrain: a generated heightfield
+    mountain you can walk up (steepest face 26.6 degrees, measured), with
+    spurs and gullies rather than a smooth cone, bare rock showing through on
+    the steep faces, a flat plateau at the peak with a flag on it, a **tunnel
+    bored straight through the mountain** (walls, slab ceiling and portal
+    frames of its own), and boulders, trees and stacked shipping containers
+    scattered across the basin. The tunnel is a hollow rather than a carve — a heightfield is only a
+    skin, so the space under it is already empty; the mouths are cut where the
+    ground would rise into the corridor.
+  - **Overgrowth** is 86 x 68 m of flat daylight jungle. Both jungle maps grow
+    their forests through `scripts/foliage.gd`: two MultiMeshes, i.e. two draw
+    calls for the whole canopy
+- 4-way split-screen with one first-person player per quadrant; you never see
+  your own model (render-layer cull masks) but squadmates do
+- Procedural blocky characters built in code (no imported model, no skinning)
+  with idle / walk / run / jump — clean box limbs on real joints
+- **The match waits for everyone.** Nobody moves or shoots until every human
+  has bought a loadout and deployed; the last one in starts a GET READY
+  countdown, and only then does the match go live. Players, AI and turrets are
+  all held by the same flag. The deploy lock counts itself down out loud
+  ("ready in 3...") so a locked button never reads as a hung match.
 
-**Using Nix (Optional):**
-If you have [Nix](https://nixos.org/) installed, you don't need to install dependencies manually. You can build and run the game using the provided flake:
+- **Buy screen instead of classes.** Every life you get **200 tokens** and spec
+  a build: a gun, upgrades bolted to it, an armour frame, and consumables.
+  Nothing is earned or banked — the budget resets each life — and your build
+  persists across deaths, so respawning is one button press unless you want to
+  re-spec. **You deploy when you press the button, not on a timer** (there's a
+  short floor first: 5 s at match start, 2 s after a death).
 
-```bash
-# Run the game directly
-nix run .
+  | Row | Options (cost) |
+  |---|---|
+  | Primary | None 0 · Rifle 45 · Burst 50 · Semi 55 · Repeater 70 · HMG 80 · Sniper 85 · RPG 110 |
+  | Sidearm | DL-44 Pistol 0 · RK-3 Holdout 20 · SE-14 Revolver 35 — swap with Q / Y |
+  | Gadget | Jetpack 45 · Wrist Cable 30 (34 m grapple + vault, 5 s cooldown) · Front Shield 50 · Rotary Cannon 75 · Turret 65 |
+  | Sight | Iron 0 · **Holo ring 20** (mild zoom, tighter aim, hollow reticle you see through) · Scope 25 (magnified, blacks out the periphery) |
+  | Cooling vanes | 20 — -25% heat per shot, cools faster |
+  | Improved grip | 20 — -35% hip spread, so bloom builds less |
+  | Armour | Light Frame 20 (80 HP, +12% speed/jump) · None 0 (100 HP) · Plated 25 (130 HP) · Heavy Plate 60 (175 HP, -15% speed) |
+  | Grenades | 25 each, up to 3 — bounce off cover, 2 s fuse, radius splash |
+  | Health kit | 30 each, up to 2 — heals 60 |
+  | AI squad | headcount, up to 4 — priced **per head** at the skill you pick |
+  | Squad skill | Recruit 20 · Regular 35 · Veteran 55 · Elite 80 (each) |
 
-# Enter a development shell with all dependencies available
-nix develop
-```
+  Options you can't afford simply refuse to select, so anything on screen is a
+  build you can deploy with — 4 elites (320) won't fit in 200, 2 will. Your
+  sidearm is free and "no primary" is a real option, so an all-gadget build
+  still deploys armed.
 
-**Using Nix (Optional):**
-If you have [Nix](https://nixos.org/) installed, you don't need to install dependencies manually. You can build and run the game using the provided flake:
+- **Gadgets** (one slot, F / pad X) are verbs rather than more damage:
+  - **Jetpack** — hold to fly on a fuel pool that refills on the ground.
+  - **Wrist cable** — fires a visible claw and wire up to **34 m**, reels you
+    in, then vaults you up and over. The hop is solved from the anchor height,
+    so it lifts you onto the cover you grappled instead of leaving you against
+    the side of it. A miss still throws the line out to full range and reels it
+    back empty, so the reach is something you see rather than a number. **5 s
+    between uses**, hit or miss; the HUD counts it down.
+  - **Front shield** — a barrier that stops incoming fire but not yours: your
+    own shots are excluded from it, so you shoot through your own cover. It
+    wears down under fire and breaks.
+  - **Rotary cannon** — a spin-up heavy gun; enormous output, and you walk
+    while it's out.
+  - **Turret** — drop an auto-turret that acquires, tracks and fires on its
+    own, and can be shot down.
 
-```bash
-# Run the game directly
-nix run .
-
-# Enter a development shell with all dependencies available
-nix develop
-```
-
----
-
-## Controls (Player 1 — keyboard + mouse)
-
-| Input | Action |
-|---|---|
-| W / A / S / D | Move |
-| Mouse | Look |
-| Left Mouse | Fire |
-| Right Mouse (hold) | Aim down sights (Sniper only) |
-| Left Shift | Sprint |
-| Left Ctrl | Crouch |
-| 1 / 2 / 3 | Switch class (Soldier / Sniper / Heavy) |
-| ESC | Quit |
-
-**Respawn screen (while dead):**
-
-| Input | Action |
-|---|---|
-| W / S | Cycle class up / down |
-| D-pad Up / Down | Cycle class (gamepad) |
-| Space / A-button | Spawn immediately |
-| *(timer)* | Auto-spawns after 5 seconds |
-
----
-
-## Features
-
-### Game Loop
-- **Main Menu** — full-screen sci-fi UI, map selection list, keyboard and gamepad navigation (Enter / A-button to deploy)
-- **In-Game** — 4-player split-screen; each quadrant has its own camera and HUD
-- **Game Over** — triggers when all enemy droids are eliminated; shows final score
-
-### Split-Screen Rendering
-- 1280 × 720 window divided into four 640 × 360 viewports via `glViewport`
-- P1 uses a live FPS camera; P2–P4 use fixed observer cameras (SE corner, NW corner, overhead)
-- Two-pass HDR bloom post-process on the full scene each frame
-
-### Camera & Movement
-- Per-player FPS camera with physics position, eye height, and yaw/pitch
-- Three movement states: Walk, Sprint (locked fire), Crouch (reduced crosshair)
-- Zoom lerp for Sniper ADS; FOV adjusts per viewport each frame
-
-### ECS Architecture (EnTT)
-Components (`src/components/`): `Transform`, `DroidAI`, `Projectile`, `Lifetime`, `WeaponComponent`, `RenderMesh`, `Pickup`
-
-Systems (`src/systems/`): `EnemySystem`, `ProjectileSystem`, `PickupSystem`
-
-### Enemy AI
-- Droids spawn at level SPAWNER positions (pushed clear of walls via `resolveBox`)
-- Three-state FSM: **Idle** (gold) → **Patrol** (amber, random waypoints) → **Attack** (orange-red)
-- Line-of-sight gate: casts a segment from muzzle to player eye against all wall AABBs before firing
-- Anti-tunneling: bolt hit-tests use a swept segment each frame, not a point
-
-### Combat
-- **Weapon heat** — fires heat per shot; overheats into a timed lockout
-- **Three classes** with distinct HP, speed, zoom, and heat profiles:
-  | Class | HP | Speed | Heat pool |
-  |---|---|---|---|
-  | Soldier | 100 | Normal | Medium |
-  | Sniper | 60 | Fast | Low (ADS zoom) |
-  | Heavy | 150 | Slow | High |
-- Droid bolts deal damage on hit; death triggers the respawn timer
-
-### Respawn System
-- On death: `isDead` flag set, 5-second countdown starts; game world keeps running
-- Class selection overlay drawn **only inside the dead player's viewport** (pure `ImDrawList`, no ImGui windows)
-- Cyan countdown bar across the top; pulsing "ELIMINATED" heading; three class cards with live highlight
-- W / S or D-pad Up / Down cycle selection (rising-edge via `InputManager`); Space / A-button or timer expiry spawns
-
-### Particle System
-- Ring-buffer pool of 1024 `Particle` structs — no heap allocation per frame
-- **Impact sparks** on bolt–wall hits; **explosion burst** on droid kill
-- Single instanced draw call (`glDrawArraysInstanced`), additive blending for glow
-- Billboard particles: camera right/up extracted from view matrix per viewport
-
-### Level System
-- Text-based `.lvl` format (`assets/maps/`); keywords: `WALL`, `DECO`, `SPAWNER`, `PICKUP`, `PLAYER_START`
-- `LevelManager` parses the file and populates the ECS registry and collision AABB list
-- `CollisionSystem::resolveBox` pushes entities clear of walls (used for player, camera, and droid spawn)
-
-### HUD (Dear ImGui + DrawList)
-- Per-viewport: crosshair (standard 4-bar + full sniper scope at ADS), health bar, weapon heat bar, player label
-- Crosshair scale reflects movement state; heat bar blinks red during lockout
-- Dev console (top-right of P2 viewport): FPS, class, heat %, P1 position, score, droid count
-- Viewport divider lines between quadrants
-
-### Physics & Collision
-- AABB vs swept-segment intersection (slab method) — used for wall hit, LOS checks, and bolt anti-tunneling
-- Per-frame `CollisionSystem::resolve` keeps the player outside all static wall AABBs
-
----
+- **AI deploy real loadouts.** Seven presets (`Loadout.BOT_BUILDS`) are spent
+  out of the same 200 tokens a player gets — rifleman, marksman, gunner,
+  engineer, scout, grenadier, shock — so a firefight has scoped snipers, heavy
+  gunners behind 193 HP of plate, engineers dropping turrets and scouts
+  grappling ahead, instead of a dozen identical riflemen. They use what they
+  bought: grenades at 9–26 m, medkits below 45% health, turrets once they reach
+  the ground they're holding or make contact, front shields they can shoot
+  through. All of it runs the same in both modes — the mode only changes where
+  they push.
+- **AI squadmates** fight for your team: they acquire the nearest enemy they can
+  actually see (45–105 m by skill), close to their engagement range, strafe and
+  shoot. With nothing to fight, a bought squadmate falls in behind the player
+  who paid for it, and anyone else — team AI, or a squadmate whose owner is
+  down — pushes for the middle of the map, so a match with one human still
+  plays itself out. Skill is what you're paying for —
+  aim error, reaction time, sight range, turn speed and toughness all scale with
+  the tier, and every tier carries the same rifle so intelligence is the only
+  variable. They don't respawn; your next deploy tops the squad back up to the
+  headcount you bought (survivors are kept).
+- Twelve weapons with AUTO / SEMI / BURST fire modes and spin-up support, each
+  with its own viewmodel silhouette — sidearms are 0.2-0.3 m stubs, the NT-242
+  is a metre of barrel, the T-21 and NT-242 carry bipods, the Z-6 and R-90 sit
+  on drums, the R-90 has a four-barrel cluster and the PLX-1 is a fat tube
+- **Kill streak per life**: your kills on the current life show under your
+  player tag, popping on each one. Dying resets it
+- **Damage indicator**: your own screen washes red when YOU get hit, harder the
+  bigger the hit — a sniper round reads very differently from a stray pellet
+- The RPG fires a real travelling rocket with radius splash damage + falloff;
+  the rest are hitscan with fast bolt tracers
+- Camera recoil per shot (settles back), 2x headshots, and crouch (lower
+  profile + smaller hitbox, steadier, slower)
+- First-person weapon viewmodel (procedural, one silhouette per class) with
+  recoil kick, muzzle flash, and walk bob — rendered only for its owner
+- Aim-down-sights that zooms the camera, tightens spread, slows look, and
+  raises the viewmodel; the Sniper adds a scoped overlay (and hides its gun)
+- Weapon **heat** instead of ammo: sustained fire overheats and locks out until
+  it cools (fixed-timestep, so it's framerate-independent on the Pi)
+- Decorative squad NPCs (same procedural character) that idle or patrol
+- Per-viewport HUD: crosshair, HP, team scoreboard, player tag, weapon name +
+  heat bar, and the victory banner
 
 ## Project Structure
 
 ```
-src/
-  main.cpp                  — game loop, state machine, viewport rendering
-  camera/Camera             — FPS camera, movement states, zoom
-  components/               — ECS data structs (no logic)
-  input/InputManager        — keyboard + mouse polling, rising-edge detection
-  level/LevelManager        — .lvl file parser
-  particle/ParticleSystem   — instanced GPU particles
-  physics/                  — AABB struct, CollisionSystem
-  renderer/                 — Shader, CubeMesh, PostProcess (bloom)
-  systems/                  — EnemySystem, ProjectileSystem, PickupSystem
-  ui/HUD                    — ImGui HUD, respawn overlay
-
-assets/
-  maps/hangar.lvl           — "Hangar Bay 7" arena (30×30 m, 10 spawn points)
-
-vendor/
-  glad/                     — OpenGL loader (bundled)
-  entt/                     — header-only ECS
-  imgui/                    — Dear ImGui + SDL2/OpenGL3 backends
+godot/
+  project.godot             — GL Compatibility, autoloads, physics layers
+  scenes/
+    menu.tscn               — map-select menu (the main scene)
+    main.tscn               — bare bootstrap node (main.gd loads the map)
+    levels/                 — crossfire/foundry/overgrowth/highridge.tscn, hangar.tscn
+    actors/player.tscn      — CharacterBody3D FPS player
+    actors/bot.tscn         — CharacterBody3D AI squadmate
+    actors/turret.tscn      — placed auto-turret
+    fx/                     — blaster_bolt.tscn, rocket.tscn, grenade.tscn, corpse.tscn
+  scripts/
+    menu.gd                 — map-select menu: roster list, rotation, quit
+    main.gd                 — map load + split-screen + teams + score HUD + rotation
+    game_state.gd           — autoload: map roster, TDM score, teams, spawns, input map
+    loadout.gd              — the buy catalogue: weapons, upgrades, armour, gear, squads
+    bot.gd                  — AI squadmate: target/advance/engage, skill tiers
+    turret.gd               — placed auto-turret: stationary Bot cousin
+    zone.gd                 — ZONES capture area: scoring, relocation, marker
+    front_shield.gd         — shoot-through barrier gadget
+    cable_wire.gd           — the grapple's visible claw + line
+    player.gd               — movement, crouch, recoil, damage/frag, buy screen
+    character.gd            — procedural blocky humanoid + code-built anims
+    arena.gd                — procedural map base (env/floor/walls/lights/spawns),
+                              square or rectangular (size x depth)
+    map_crossfire.gd, map_foundry.gd, map_overgrowth.gd, map_highridge.gd
+                            — map layouts (extend arena)
+    foliage.gd              — shared jungle forest builder (MultiMesh trees)
+    weapon.gd               — 9-weapon blaster: fire modes, ADS, spread, heat
+    viewmodel.gd            — procedural first-person gun + recoil/flash/bob
+    rocket.gd               — RPG projectile: travel + splash damage
+    grenade.gd              — thrown grenade: bounces, fuse, splash damage
+    trooper.gd              — decorative NPC: extends CharacterModel + patrol
+    hangar.gd               — hangar spawn-point registration (both teams)
+  shaders/                  — starfield sky, floor panels, jungle ground
+assets/models/rep/          — retired Battlefront source GLB (unused)
+tools/animate_trooper.py    — retired Blender rig/animation pipeline (unused)
 ```
 
----
+## Roadmap (parity with the retired C++ prototype, then Battlefront)
 
-## Architecture Notes
+- Droid enemies as a match mode (the AI itself is in — see AI squadmates)
+- Conquest mode: command posts, spawn-point capture, ticket bleed
+- Game-over flow and a lobby (map select is in — see Current State)
+- Particles (impact sparks, explosions) — instanced, Pi-friendly
 
-All game objects are entities in an `entt::registry`. Systems are free functions or namespaces that query typed views each frame. Components are plain data structs with no logic.
+## Performance rules (Pi 5 target)
 
-Main loop order: **Events → Input → P1 physics (if alive) → World sim (AI / bolts / particles) → Render (4× viewport) → Post-process → ImGui HUD**
-
-**Performance rules (Pi 5 target):**
-- No heap allocations in per-frame systems
-- Single instanced draw call for all particles
-- Prefer SoA layouts in EnTT views
-- Target: 60 fps at 1280×720 split into 4 × 640×360 viewports
+- GL Compatibility renderer; no per-frame heap-happy scripts
+- Keep draw calls low — every mesh renders 4× (once per viewport) plus shadows
+- Directional shadow atlas capped at 2048
+- Target 60 fps at 1080p split into 4 × 960×540 viewports
