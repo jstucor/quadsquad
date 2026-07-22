@@ -15,7 +15,12 @@ extends Node3D
 signal heat_changed(heat: float, overheated: bool)
 signal fired(cam_recoil: float, kick_back: float)
 
-enum Class { SOLDIER, SNIPER, HEAVY, REVOLVER, HMG, BURST, SEMI, RPG, PISTOL, HOLDOUT, ROTARY, TURRET }
+enum Class {
+	SOLDIER, SNIPER, HEAVY, REVOLVER, HMG, BURST, SEMI, RPG, PISTOL, HOLDOUT,
+	ROTARY, TURRET,
+	SMG, CARBINE, SCATTERGUN, DMR,   # primaries
+	DH17, BRYAR,                     # sidearms
+}
 enum FireMode { AUTO, SEMI, BURST }
 
 # spread = fire-cone half-angle (deg); zoom_fov = FOV while aiming; heat_per_shot
@@ -113,6 +118,61 @@ const PROFILES := {
 		"recoil": 1.8, "cam_recoil": 0.18, "kick_back": 5.5,
 		"mode": FireMode.SEMI,
 		"projectile": true, "splash": 4.5, "splash_damage": 95.0,
+	},
+	# The cheap primary: it spits, but every round is a pinprick and the cone
+	# opens up fast, so it is a room-clearer rather than a rifle.
+	Class.SMG: {
+		"name": "Westar M5 SMG", "fire_interval": 0.07, "damage": 12.0,
+		"range": 55.0, "hip_spread": 3.6, "ads_spread": 1.4, "zoom_fov": 64.0,
+		"heat_per_shot": 0.05, "cool_rate": 0.30, "scope": false,
+		"recoil": 0.3, "cam_recoil": 0.016,
+	},
+	# Between the SMG and the DC-15: a shorter, faster rifle that gives up range.
+	Class.CARBINE: {
+		"name": "DC-15S Carbine", "fire_interval": 0.11, "damage": 16.0,
+		"range": 90.0, "hip_spread": 2.2, "ads_spread": 0.35, "zoom_fov": 52.0,
+		"heat_per_shot": 0.07, "cool_rate": 0.28, "scope": false,
+		"recoil": 0.45, "cam_recoil": 0.020,
+	},
+	# Pellets, not a bullet: devastating inside a room and near-useless past it.
+	# `pellets` rolls the spread cone once per pellet — see _fire_hitscan.
+	#
+	# The cone is tighter than a shotgun's reputation suggests, because spread is
+	# applied as two INDEPENDENT rotations, so the effective corner of the cone
+	# is ~1.4x the number here. At 3.2 it measures ~109 dmg/pull at 3.5 m (a
+	# one-shot kill, pellets landing in the head band count double) falling to
+	# ~18 with half the pulls missing entirely by 12 m. The falloff is the point;
+	# being unable to hit anything up close is not.
+	Class.SCATTERGUN: {
+		"name": "FWMB-10 Scatter", "fire_interval": 0.85, "damage": 12.0,
+		"range": 26.0, "hip_spread": 3.2, "ads_spread": 2.0, "zoom_fov": 66.0,
+		"heat_per_shot": 0.30, "cool_rate": 0.34, "scope": false,
+		"recoil": 1.4, "cam_recoil": 0.095, "kick_back": 2.2,
+		"mode": FireMode.SEMI, "pellets": 7,
+	},
+	# Scoped as issued, so it is pinpoint on the glass without buying a sight —
+	# the cheaper, faster-firing alternative to the bolt-action sniper.
+	Class.DMR: {
+		"name": "A280-CFE Marksman", "fire_interval": 0.55, "damage": 62.0,
+		"range": 250.0, "hip_spread": 2.4, "ads_spread": 0.0, "zoom_fov": 32.0,
+		"heat_per_shot": 0.30, "cool_rate": 0.30, "scope": true,
+		"recoil": 1.1, "cam_recoil": 0.075, "kick_back": 1.4,
+		"mode": FireMode.SEMI,
+	},
+	# Sidearms. The DH-17 is the only automatic one, which is what makes it the
+	# sidearm worth dual-wielding.
+	Class.DH17: {
+		"name": "DH-17 Sidearm", "fire_interval": 0.17, "damage": 17.0,
+		"range": 60.0, "hip_spread": 2.6, "ads_spread": 0.8, "zoom_fov": 58.0,
+		"heat_per_shot": 0.075, "cool_rate": 0.36, "scope": false,
+		"recoil": 0.5, "cam_recoil": 0.026,
+	},
+	Class.BRYAR: {
+		"name": "Bryar Pistol", "fire_interval": 0.5, "damage": 58.0,
+		"range": 120.0, "hip_spread": 1.2, "ads_spread": 0.1, "zoom_fov": 50.0,
+		"heat_per_shot": 0.28, "cool_rate": 0.32, "scope": false,
+		"recoil": 1.15, "cam_recoil": 0.085, "kick_back": 1.2,
+		"mode": FireMode.SEMI,
 	},
 }
 
@@ -301,8 +361,32 @@ func _fire_shot() -> void:
 		_fire_hitscan()
 
 
+## One trigger pull. Most guns fire a single ray; a scattergun fires `pellets`
+## of them through the same cone.
+##
+## Damage is POOLED per target rather than applied per pellet: seven separate
+## take_damage calls would fire seven hit-ticks and seven markers for one shot,
+## and would also let a single pellet's headshot flag decide the whole shot. A
+## pellet that lands on a head still counts double, but the target is told once.
 func _fire_hitscan() -> void:
 	var from := global_position
+	var muzzle := from - global_transform.basis.y * 0.12
+	var pellets: int = _profile.get("pellets", 1)
+	var damage: float = _profile["damage"]
+	var pooled := {}   # target -> [damage, any_headshot]
+	for i in pellets:
+		var end := _trace_pellet(from, pooled, damage)
+		var bolt := BOLT_SCENE.instantiate()
+		get_tree().current_scene.add_child(bolt)
+		bolt.launch(muzzle, end)
+	for target in pooled:
+		var entry: Array = pooled[target]
+		target.take_damage(entry[0], shooter, entry[1])
+
+
+## Trace one pellet, banking any damage it deals into `pooled`. Returns where it
+## stopped, for the tracer.
+func _trace_pellet(from: Vector3, pooled: Dictionary, damage: float) -> Vector3:
 	var dir := -global_transform.basis.z
 	var spread := current_spread_deg()
 	if spread > 0.0:
@@ -321,18 +405,17 @@ func _fire_hitscan() -> void:
 	var end: Vector3 = hit.get("position", to)
 	var col = hit.get("collider")
 	if col != null and col.has_method("take_damage"):
-		var dmg: float = _profile["damage"]
+		var dmg := damage
 		# The target is told it was a head hit as well as how much it cost, so it
 		# can confirm the hit back to the shooter without the shooter having to
 		# guess from the damage number.
 		var head: bool = col.has_method("is_headshot") and col.is_headshot(end)
 		if head:
 			dmg *= HEADSHOT_MULT
-		col.take_damage(dmg, shooter, head)
-
-	var bolt := BOLT_SCENE.instantiate()
-	get_tree().current_scene.add_child(bolt)
-	bolt.launch(from - global_transform.basis.y * 0.12, end)
+		var entry: Array = pooled.get_or_add(col, [0.0, false])
+		entry[0] += dmg
+		entry[1] = entry[1] or head
+	return end
 
 
 func _fire_rocket() -> void:

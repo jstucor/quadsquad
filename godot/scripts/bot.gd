@@ -150,7 +150,7 @@ func setup(owner: Node3D, bot_team: int, skill_index: int, build := -1) -> void:
 	_grenades = loadout.grenades
 	_medkits = loadout.medkits
 	model.set_team_color(GameState.TEAM_COLORS[team])
-	weapon.set_class(loadout.deploy_class(), loadout.weapon_mods())
+	weapon.set_class(loadout.deploy_class(), loadout.primary_mods())
 	if loadout.gadget == Loadout.Gadget.SHIELD:
 		_raise_shield()
 	# The bot's gun is a world object, not a viewmodel: everyone should see it.
@@ -265,6 +265,10 @@ func _acquire_target() -> void:
 func _can_see(other: Node3D) -> bool:
 	var from := global_position + Vector3.UP * EYE_HEIGHT
 	var to := other.global_position + Vector3.UP * EYE_HEIGHT * 0.6
+	# Smoke has no collider (it would stop bullets too), so it is checked
+	# separately — this is what makes a smoke grenade break an AI's lock.
+	if GameState.sight_blocked(from, to):
+		return false
 	var query := PhysicsRayQueryParameters3D.create(from, to)
 	query.exclude = [get_rid()]
 	query.collision_mask = 0b11  # world + bodies

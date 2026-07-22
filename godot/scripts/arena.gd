@@ -32,6 +32,9 @@ func _ready() -> void:
 	_build_cover()
 	_decorate()
 	_register_spawns()
+	# The map screen would otherwise have to infer the playable area from the
+	# geometry; a procedural map already knows it exactly.
+	GameState.register_map_bounds(global_position, half_extents())
 
 
 ## Override in the map script to fill in the layout.

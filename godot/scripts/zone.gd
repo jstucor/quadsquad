@@ -1,3 +1,4 @@
+class_name Zone
 extends Node3D
 ## The capture area for the ZONES mode: a marked circle somewhere on the map.
 ## Every second, whichever team has more bodies standing in it takes a point,

@@ -38,6 +38,7 @@ const ACTIONS: Array[Dictionary] = [
 	{"id": "gadget", "name": "GADGET", "pad": true},
 	{"id": "grenade", "name": "GRENADE", "pad": true},
 	{"id": "medkit", "name": "MEDKIT", "pad": true},
+	{"id": "map", "name": "MAP / STRIKE", "pad": true},
 	{"id": "forward", "name": "MOVE FORWARD", "pad": false},
 	{"id": "back", "name": "MOVE BACK", "pad": false},
 	{"id": "left", "name": "MOVE LEFT", "pad": false},
@@ -55,6 +56,7 @@ const DEFAULT_KEYS := {
 	"gadget": {"key": KEY_F},
 	"grenade": {"key": KEY_G},
 	"medkit": {"key": KEY_H},
+	"map": {"key": KEY_M},
 	"forward": {"key": KEY_W},
 	"back": {"key": KEY_S},
 	"left": {"key": KEY_A},
@@ -76,6 +78,7 @@ const DEFAULT_PAD := {
 	"gadget": [{"kind": Kind.BUTTON, "index": JOY_BUTTON_X}],
 	"grenade": [{"kind": Kind.BUTTON, "index": JOY_BUTTON_DPAD_UP}],
 	"medkit": [{"kind": Kind.BUTTON, "index": JOY_BUTTON_DPAD_DOWN}],
+	"map": [{"kind": Kind.BUTTON, "index": JOY_BUTTON_BACK}],
 }
 
 # Pads report a normalised layout, so naming the buttons is a fixed table rather

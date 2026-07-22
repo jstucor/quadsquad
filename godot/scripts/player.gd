@@ -21,6 +21,7 @@ signal killed_someone(streak: int)  # a kill this life; streak resets on death
 signal damaged(amount: float)       # took a hit: drives the red screen flash
 ## One of OUR shots landed on an enemy: drives the hit marker and its click.
 signal hit_confirmed(headshot: bool, killed: bool)
+signal map_toggled(open: bool)   # the map screen opened or closed
 signal squad_changed(alive: int)  # squadmates mustered or lost
 
 const CORPSE_SCENE := preload("res://scenes/fx/corpse.tscn")
@@ -28,6 +29,7 @@ const GRENADE_SCENE := preload("res://scenes/fx/grenade.tscn")
 const BOT_SCENE := preload("res://scenes/actors/bot.tscn")
 const SHIELD_SCENE := preload("res://scenes/fx/front_shield.tscn")
 const TURRET_SCENE := preload("res://scenes/actors/turret.tscn")
+const MORTAR_SCENE := preload("res://scenes/actors/mortar.tscn")
 const CABLE_WIRE_SCENE := preload("res://scenes/fx/cable_wire.tscn")
 
 # Gadgets. The jetpack burns a 0..1 fuel pool and refills on the ground; the
@@ -60,6 +62,9 @@ const DEPLOY_FLOOR := 5.0
 const RESPAWN_FLOOR := 2.0
 const GRENADE_THROW_SPEED := 13.0
 const GRENADE_LOB := 0.28  # upward share of the throw, so it arcs
+# Map screen. The cursor crosses the level in about this many seconds at full
+# stick, so it feels the same on a small arena and on the big terrain map.
+const MAP_CURSOR_CROSS_TIME := 2.2
 
 const WALK_SPEED := 4.0
 const SPRINT_SPEED := 6.0
@@ -151,6 +156,12 @@ var _vault_left := 0.0       # seconds the cable vault still owns steering
 var _vault_dir := Vector3.ZERO
 var _shield: Node3D          # deployed front shield, if any
 var _turret: Node3D          # placed turret, if any (one at a time)
+var _mortar: Mortar          # placed mortar tube, if any
+## The map screen. While it is up you stand still and your movement input
+## steers the strike cursor instead — reading the map is a real commitment,
+## not something you do mid-firefight.
+var map_open := false
+var map_cursor := Vector2.ZERO  # world XZ the cursor is over
 var _rotary_out := false
 var _jet_thrusting := false
 var _jet_pct := 20  # last fuel level pushed to the HUD, in 5% steps
@@ -170,6 +181,10 @@ var _corpse: Node3D        # the flop spawned on death, freed on respawn
 
 @onready var head: Node3D = $Head
 @onready var weapon: Weapon = $Head/Weapon
+## The dual-wield gun. Always present, hidden unless DUAL WIELD is bought and
+## the sidearm is in hand — a second Weapon node is far simpler than building
+## one at runtime, and it keeps the viewmodel layer wiring in one place.
+@onready var weapon_off: Weapon = $Head/WeaponOff
 @onready var remote_cam: RemoteTransform3D = $Head/RemoteTransform3D
 @onready var model: Node3D = $Model
 @onready var _collision: CollisionShape3D = $CollisionShape3D
@@ -183,10 +198,15 @@ func _ready() -> void:
 	# Put this player's viewmodel on its private layer (owner-only).
 	for mi in weapon.find_children("*", "MeshInstance3D", true, false):
 		mi.layers = 1 << (VIEWMODEL_BIT + player_index)
+	for mi in weapon_off.find_children("*", "MeshInstance3D", true, false):
+		mi.layers = 1 << (VIEWMODEL_BIT + player_index)
 	# Own copy of the capsule so crouch-resizing one player doesn't resize all.
 	_collision.shape = _collision.shape.duplicate()
 	weapon.shooter = self
 	weapon.fired.connect(_on_weapon_fired)
+	weapon_off.shooter = self
+	weapon_off.fired.connect(_on_weapon_fired)
+	weapon_off.visible = false
 	_apply_loadout()
 
 
@@ -285,7 +305,8 @@ func _apply_loadout() -> void:
 	kills_this_life = 0
 	_on_secondary = not loadout.has_primary()
 	_rotary_out = false
-	weapon.set_class(loadout.deploy_class(), loadout.weapon_mods())
+	weapon.set_class(loadout.deploy_class(), loadout.mods_for(_on_secondary))
+	_refresh_offhand()
 	gadget = loadout.gadget_id()
 	jet_fuel = 1.0
 	_cable_left = 0.0
@@ -295,7 +316,7 @@ func _apply_loadout() -> void:
 	_clear_gadget_props()
 	_muster_squad()
 	gear_changed.emit(grenades_left, medkits_left)
-	weapon_changed.emit(weapon.display_name())
+	weapon_changed.emit(_hand_name())
 
 
 ## Bring the squad up to the headcount you paid for. Survivors are kept and only
@@ -413,6 +434,9 @@ func _enter_buy_screen(floor_secs: float, eliminated: bool) -> void:
 	_dead = true
 	velocity = Vector3.ZERO
 	weapon.aiming = false
+	if map_open:
+		map_open = false  # the buy screen owns the view now
+		map_toggled.emit(false)
 	if _camera:
 		_camera.fov = _base_fov
 	# Hide the live body + turn off its collision; the camera stays put as a
@@ -522,6 +546,11 @@ func _physics_process(delta: float) -> void:
 		move_and_slide()
 		_update_anim(Vector2.ZERO, false)
 		return
+	if _map_pressed():
+		_toggle_map()
+	if map_open:
+		_process_map(delta)
+		return
 	_update_gear()
 	_update_aim(delta)
 	_update_crouch(delta)
@@ -560,7 +589,81 @@ func _physics_process(delta: float) -> void:
 		return
 
 	weapon.update_fire(_fire_held(), _fire_pressed())
+	# Dual wield spends the aim control on the left gun, which is the whole
+	# trade: two guns, no sights. Holding both triggers fires both.
+	if dual_active():
+		weapon_off.update_fire(_ads_held(), _edge("ads"))
 	_update_anim(move, sprinting)
+
+
+## --- map screen -------------------------------------------------------------
+
+## Open or close the map. It opens on your own position, so the first thing the
+## cursor tells you is where you are.
+func _toggle_map() -> void:
+	map_open = not map_open
+	if map_open:
+		map_cursor = Vector2(global_position.x, global_position.z)
+		weapon.aiming = false
+		if _camera:
+			_camera.fov = _base_fov
+	map_toggled.emit(map_open)
+
+
+## While the map is up: stand still, steer the cursor, and let the fire button
+## call a strike instead of shooting. Gravity still applies, so opening the map
+## in mid-air does not leave you hanging there.
+func _process_map(delta: float) -> void:
+	velocity.x = 0.0
+	velocity.z = 0.0
+	if not is_on_floor():
+		velocity.y -= _gravity * delta
+	move_and_slide()
+	_update_anim(Vector2.ZERO, false)
+
+	var move := _move_input()
+	var extents := GameState.map_extents
+	# Cursor speed is derived from the map's own size, so crossing a small
+	# arena and crossing the terrain map take about the same time.
+	var speed := extents.length() * 2.0 / MAP_CURSOR_CROSS_TIME
+	map_cursor += move * speed * delta
+	var c := GameState.map_center
+	map_cursor.x = clampf(map_cursor.x, c.x - extents.x, c.x + extents.x)
+	map_cursor.y = clampf(map_cursor.y, c.z - extents.y, c.z + extents.y)
+
+	if _fire_pressed():
+		_call_mortar_strike()
+
+
+## The placed mortar, or null. The map screen draws it.
+func mortar() -> Mortar:
+	return _mortar if is_instance_valid(_mortar) else null
+
+
+func mortar_ready() -> bool:
+	var m := mortar()
+	return m != null and m.ready_to_fire()
+
+
+## The line along the top of the map screen: what the fire button will do.
+func map_status() -> String:
+	var m := mortar()
+	if m == null:
+		if gadget == Loadout.Gadget.MORTAR:
+			return "MORTAR NOT PLACED  —  %s to set the tube down" % \
+				Controls.label(input_device, "gadget")
+		return "MAP"
+	if m.ready_to_fire():
+		return "MORTAR READY  —  %s to call the salvo" % \
+			Controls.label(input_device, "fire")
+	return "MORTAR RELOADING  %ds" % ceili(m.cooldown_left())
+
+
+func _call_mortar_strike() -> void:
+	var m := mortar()
+	if m == null or not m.ready_to_fire():
+		return
+	m.fire_at(Vector3(map_cursor.x, 0.0, map_cursor.y))
 
 
 ## Horizontal shove away from any living player we're standing inside, so the
@@ -618,7 +721,9 @@ func _on_weapon_fired(cam_recoil: float, kick_back: float) -> void:
 ## Hold-to-aim: eases the camera FOV toward the weapon's zoom, tells the weapon
 ## to tighten its spread cone, and scales look sensitivity down with the zoom.
 func _update_aim(delta: float) -> void:
-	var aiming := _ads_held()
+	# Dual wield spends the aim control on the off-hand trigger, so there are no
+	# sights to come up: two guns and hip fire is the deal.
+	var aiming := _ads_held() and not dual_active()
 	weapon.aiming = aiming
 	if aiming != _prev_aim:
 		_prev_aim = aiming
@@ -631,15 +736,41 @@ func _update_aim(delta: float) -> void:
 
 ## Consumables bought on the buy screen: a thrown grenade and a self-heal. Both
 ## are edge-triggered and simply do nothing when you have none left.
-## Q / Y swaps between the primary you bought and your sidearm. With no primary
-## there is nothing to swap to, and the rotary cannon overrides both while out.
+## The swap control moves between the primary you bought and your sidearm. With
+## no primary there is nothing to swap to, and the rotary cannon overrides both
+## while out.
 func _swap_weapon() -> void:
 	if not loadout.has_primary() or _rotary_out:
 		return
 	_on_secondary = not _on_secondary
 	weapon.set_class(loadout.secondary_class() if _on_secondary
-		else loadout.weapon_class() as Weapon.Class, loadout.weapon_mods())
-	weapon_changed.emit(weapon.display_name())
+		else loadout.weapon_class() as Weapon.Class, loadout.mods_for(_on_secondary))
+	_refresh_offhand()
+	weapon_changed.emit(_hand_name())
+
+
+## True while a second sidearm is actually in the off hand: you bought DUAL
+## WIELD, you have the sidearm out, and the rotary isn't overriding everything.
+func dual_active() -> bool:
+	return loadout.dual_wield() and _on_secondary and not _rotary_out
+
+
+## Raise or stow the off-hand gun to match the current state. Called anywhere
+## the hands can change: deploy, swap, and the rotary toggle.
+func _refresh_offhand() -> void:
+	var on := dual_active()
+	weapon_off.visible = on
+	if on:
+		weapon_off.set_class(loadout.secondary_class(), loadout.secondary_mods())
+	else:
+		# A stowed gun must not keep firing, and its heat should not carry over
+		# into the next time you draw it.
+		weapon_off.update_fire(false, false)
+		weapon_off.aiming = false
+
+
+func _hand_name() -> String:
+	return "DUAL %s" % weapon.display_name() if dual_active() else weapon.display_name()
 
 
 ## The gadget button. Toggles (shield, rotary) and one-shots (cable, turret) act
@@ -654,6 +785,8 @@ func _use_gadget() -> void:
 			_toggle_rotary()
 		Loadout.Gadget.TURRET:
 			_place_turret()
+		Loadout.Gadget.MORTAR:
+			_place_mortar()
 
 
 ## Velocity the gadget imposes, applied after normal movement so it wins: the
@@ -775,11 +908,12 @@ func _toggle_shield() -> void:
 func _toggle_rotary() -> void:
 	_rotary_out = not _rotary_out
 	if _rotary_out:
-		weapon.set_class(Weapon.Class.ROTARY, loadout.weapon_mods())
+		weapon.set_class(Weapon.Class.ROTARY, loadout.primary_mods())
 	else:
 		weapon.set_class(loadout.secondary_class() if _on_secondary
-			else loadout.weapon_class() as Weapon.Class, loadout.weapon_mods())
-	weapon_changed.emit(weapon.display_name())
+			else loadout.weapon_class() as Weapon.Class, loadout.mods_for(_on_secondary))
+	_refresh_offhand()
+	weapon_changed.emit(_hand_name())
 
 
 ## Drop an auto-turret a couple of metres ahead. One at a time: placing again
@@ -796,6 +930,19 @@ func _place_turret() -> void:
 	_turret.setup(self, team)
 
 
+## Set the mortar tube down a couple of metres ahead, or pick it back up. Same
+## one-at-a-time toggle as the turret; aiming it is a separate act, on the map.
+func _place_mortar() -> void:
+	if is_instance_valid(_mortar):
+		_mortar.queue_free()
+		_mortar = null
+		return
+	_mortar = MORTAR_SCENE.instantiate()
+	get_parent().add_child(_mortar)
+	_mortar.global_position = global_position - global_transform.basis.z * 2.2
+	_mortar.setup(self, team)
+
+
 ## Gadget leftovers that must not survive a death.
 func _clear_gadget_props() -> void:
 	if is_instance_valid(_wire):
@@ -807,6 +954,9 @@ func _clear_gadget_props() -> void:
 	if is_instance_valid(_turret):
 		_turret.queue_free()
 	_turret = null
+	if is_instance_valid(_mortar):
+		_mortar.queue_free()
+	_mortar = null
 
 
 ## Bodies our own hitscan must ignore: ourselves, and our own front shield.
@@ -840,7 +990,8 @@ func _throw_grenade() -> void:
 	# arcs instead of firing flat.
 	var aim := -head.global_transform.basis.z
 	var toss := (aim + Vector3.UP * GRENADE_LOB).normalized() * GRENADE_THROW_SPEED
-	grenade.launch(head.global_position + aim * 0.6, toss + velocity, self)
+	grenade.launch(head.global_position + aim * 0.6, toss + velocity, self,
+		loadout.grenade_type)
 
 
 func _move_input() -> Vector2:
@@ -899,6 +1050,10 @@ func _gadget_pressed() -> bool:
 
 func _switch_pressed() -> bool:
 	return _edge("switch")
+
+
+func _map_pressed() -> bool:
+	return _edge("map")
 
 
 ## Press edge for a control. The keyboard gets it from the InputMap action for

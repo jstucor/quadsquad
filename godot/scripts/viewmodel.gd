@@ -106,6 +106,30 @@ const SHAPES := {
 		"receiver": Vector3(0.09, 0.09, 0.3), "barrel": Vector3(0.04, 0.04, 0.4),
 		"stock": false, "grip": false, "muzzle": 0.07,
 	},
+	Weapon.Class.SMG: {  # Westar M5: small, stockless, tall magazine
+		"receiver": Vector3(0.045, 0.07, 0.18), "barrel": Vector3(0.022, 0.022, 0.16),
+		"stock": false, "grip": true, "mag": Vector3(0.03, 0.14, 0.04), "muzzle": 0.035,
+	},
+	Weapon.Class.CARBINE: {  # DC-15S: the rifle, cut down
+		"receiver": Vector3(0.05, 0.07, 0.21), "barrel": Vector3(0.026, 0.026, 0.22),
+		"stock": true, "grip": true, "mag": Vector3(0.03, 0.1, 0.045), "muzzle": 0.045,
+	},
+	Weapon.Class.SCATTERGUN: {  # FWMB-10: fat, short, no magazine
+		"receiver": Vector3(0.07, 0.085, 0.28), "barrel": Vector3(0.055, 0.055, 0.24),
+		"stock": true, "grip": true, "muzzle": 0.085,
+	},
+	Weapon.Class.DMR: {  # A280-CFE: long barrel, ships with optics
+		"receiver": Vector3(0.046, 0.068, 0.3), "barrel": Vector3(0.023, 0.023, 0.52),
+		"stock": true, "grip": true, "mag": Vector3(0.027, 0.095, 0.045), "muzzle": 0.055,
+	},
+	Weapon.Class.DH17: {  # DH-17: boxy service pistol
+		"receiver": Vector3(0.038, 0.06, 0.15), "barrel": Vector3(0.024, 0.024, 0.13),
+		"stock": false, "grip": false, "mag": Vector3(0.028, 0.09, 0.035), "muzzle": 0.03,
+	},
+	Weapon.Class.BRYAR: {  # Bryar: long-barrelled, cylinder under the receiver
+		"receiver": Vector3(0.04, 0.062, 0.16), "barrel": Vector3(0.024, 0.024, 0.24),
+		"stock": false, "grip": false, "cylinder": 0.04, "muzzle": 0.04,
+	},
 }
 
 

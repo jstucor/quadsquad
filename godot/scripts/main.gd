@@ -13,6 +13,7 @@ const ZONE_SCENE := preload("res://scenes/fx/zone.tscn")
 # one shared pool of clicks (audio isn't split four ways the way the screen is).
 const HIT_MARKER := preload("res://scripts/hit_marker.gd")
 const HIT_TICK := preload("res://scripts/hit_tick.gd")
+const MAP_VIEW := preload("res://scripts/map_view.gd")
 const MENU_SCENE := "res://scenes/menu.tscn"
 const AI_RESPAWN_DELAY := 4.0  # team AI come back, unlike a player's bought squad
 const MATCH_START_COUNTDOWN := 3  # seconds of GET READY once everyone has deployed
@@ -55,6 +56,8 @@ func _ready() -> void:
 	GameState.reset_match()
 	level = GameState.MAPS[GameState.map_index]["scene"].instantiate()
 	add_child(level)  # its _ready registers the team spawn points
+	# ...and now that its geometry exists, take the map screen's picture of it.
+	GameState.scan_map_geometry(level)
 
 	_hit_tick = HIT_TICK.new()
 	_hit_tick.name = "HitTick"
@@ -204,6 +207,7 @@ func _build_hud(player: Player) -> Control:
 	_add_gear_readout(hud, player, color)
 	_add_kill_streak(hud, player)
 	_add_damage_flash(hud, player)
+	_add_map(hud, player)
 	hud.add_child(_build_buy_screen(player, color))
 	_add_victory_banner(hud)
 	_add_countdown(hud)
@@ -219,6 +223,14 @@ func _add_player_tag(hud: Control, player: Player, color: Color) -> void:
 	tag.add_theme_color_override("font_color", color)
 	tag.position = Vector2(14, 8)
 	hud.add_child(tag)
+
+
+## The map screen: hidden until this player opens it, and drawn over the rest of
+## the HUD but under the buy screen (dying closes the map anyway).
+func _add_map(hud: Control, player: Player) -> void:
+	var map: Control = MAP_VIEW.new()
+	hud.add_child(map)
+	map.setup(player)
 
 
 ## Crosshair and scope overlay, built together because they are mutually

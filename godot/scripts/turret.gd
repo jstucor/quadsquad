@@ -107,6 +107,10 @@ func _acquire_target() -> void:
 func _can_see(other: Node3D) -> bool:
 	var from := global_position + Vector3.UP * EYE_HEIGHT
 	var to := other.global_position + Vector3.UP * TARGET_AIM_HEIGHT
+	# Smoke has no collider (it would stop bullets too), so it is checked
+	# separately — this is what makes a smoke grenade break an AI's lock.
+	if GameState.sight_blocked(from, to):
+		return false
 	var query := PhysicsRayQueryParameters3D.create(from, to)
 	query.exclude = [get_rid()]
 	query.collision_mask = 0b11  # world + bodies

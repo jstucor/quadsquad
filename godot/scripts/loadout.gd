@@ -18,10 +18,14 @@ const BUDGET := 200
 # entirely and still deploy armed.
 const WEAPONS: Array[Dictionary] = [
 	{"class": -1, "cost": 0},  # -1 = no primary, sidearm only
+	{"class": Weapon.Class.SMG, "cost": 40},
 	{"class": Weapon.Class.SOLDIER, "cost": 45},
 	{"class": Weapon.Class.BURST, "cost": 50},
+	{"class": Weapon.Class.CARBINE, "cost": 50},
 	{"class": Weapon.Class.SEMI, "cost": 55},
+	{"class": Weapon.Class.SCATTERGUN, "cost": 60},
 	{"class": Weapon.Class.HEAVY, "cost": 70},
+	{"class": Weapon.Class.DMR, "cost": 75},
 	{"class": Weapon.Class.HMG, "cost": 80},
 	{"class": Weapon.Class.SNIPER, "cost": 85},
 	{"class": Weapon.Class.RPG, "cost": 110},
@@ -29,11 +33,27 @@ const WEAPONS: Array[Dictionary] = [
 const NO_PRIMARY := 0  # index of the "none" row above
 
 # SECONDARY: sidearms. Everyone carries one, and the cheapest is free, so you
-# are never left without a gun. Q / Y swaps between primary and secondary.
+# are never left without a gun. The swap control moves between primary and
+# secondary; the secondary has its own modification slot (SECONDARY_MODS).
 const SECONDARIES: Array[Dictionary] = [
 	{"class": Weapon.Class.PISTOL, "cost": 0},
+	{"class": Weapon.Class.DH17, "cost": 15},
 	{"class": Weapon.Class.HOLDOUT, "cost": 20},
 	{"class": Weapon.Class.REVOLVER, "cost": 35},
+	{"class": Weapon.Class.BRYAR, "cost": 40},
+]
+
+# The sidearm's own slot. Deliberately NOT the primary's three upgrades: a
+# sidearm gets one pick, and dual wield is the one that changes how it plays
+# rather than how it shoots.
+enum SecondaryMod { NONE, SCOPE, COOLING, DUAL }
+const SECONDARY_MODS: Array[Dictionary] = [
+	{"name": "NONE", "cost": 0, "blurb": "Sidearm as issued"},
+	{"name": "SCOPE", "cost": 20,
+		"blurb": "Pinpoint while aimed, at the cost of the scope blackout"},
+	{"name": "COOLING", "cost": 15, "blurb": "-25% heat per shot, cools faster"},
+	{"name": "DUAL WIELD", "cost": 35,
+		"blurb": "Carry two. Fire is the right gun, aim is the left, both to fire together"},
 ]
 
 # Sights are one slot with three options rather than a toggle, because a holo
@@ -69,7 +89,7 @@ const DEFAULT_ARMOR := 1
 
 # GADGETS: one slot, on the rebindable "gadget" control. Each is a different
 # verb rather than more damage — see Player._use_gadget and the gadget scenes.
-enum Gadget { NONE, JETPACK, CABLE, SHIELD, ROTARY, TURRET }
+enum Gadget { NONE, JETPACK, CABLE, SHIELD, ROTARY, TURRET, MORTAR }
 const GADGETS: Array[Dictionary] = [
 	{"name": "NONE", "cost": 0, "blurb": "No gadget"},
 	{"name": "JETPACK", "cost": 45,
@@ -82,6 +102,8 @@ const GADGETS: Array[Dictionary] = [
 		"blurb": "Toggle a spin-up rotary gun. Huge output, but you walk"},
 	{"name": "TURRET", "cost": 65,
 		"blurb": "Drop an auto-turret that fights for you until it's destroyed"},
+	{"name": "MORTAR", "cost": 60,
+		"blurb": "Drop a tube, then call salvos from the map screen. 14s between them"},
 ]
 
 # AI squadmates: you buy a headcount and a skill tier, and pay the tier's price
@@ -96,19 +118,37 @@ const SQUAD_SKILLS: Array[Dictionary] = [
 	{"name": "ELITE", "cost": 80, "blurb": "Deadly aim, near-instant, long sight"},
 ]
 
-# Consumables, bought by the unit.
-const GRENADE_COST := 25
+# Consumables, bought by the unit. You carry ONE type of grenade, chosen on its
+# own row: they are different verbs, not different damage numbers, so mixing
+# them would just mean carrying a worse version of each.
+enum GrenadeType { FRAG, SMOKE, STICKY }
+const GRENADE_TYPES: Array[Dictionary] = [
+	{"name": "FRAG", "cost": 25, "blurb": "Bounces, 2s fuse, heavy splash"},
+	{"name": "SMOKE", "cost": 15,
+		"blurb": "Blinds the area for 9s — nothing sees through it, AI included"},
+	{"name": "STICKY", "cost": 35,
+		"blurb": "Sticks where it lands, people included, then detonates"},
+]
 const GRENADE_MAX := 3
 const MEDKIT_COST := 30
 const MEDKIT_MAX := 2
 const MEDKIT_HEAL := 60.0
 
-## The buy screen is one row per line, in this order.
-enum Row { WEAPON, SECONDARY, SIGHT, COOLING, GRIP, GADGET, ARMOR, GRENADES, MEDKITS, SQUAD, SQUAD_SKILL }
+## The buy screen is one row per line, in this order. SIGHT/COOLING/GRIP sit
+## directly under WEAPON because they now fit the PRIMARY only; the sidearm's
+## single slot sits under SECONDARY for the same reason.
+enum Row {
+	WEAPON, SIGHT, COOLING, GRIP,
+	SECONDARY, SECONDARY_MOD,
+	GADGET, ARMOR, GRENADE_TYPE, GRENADES, MEDKITS, SQUAD, SQUAD_SKILL,
+}
 
 var weapon := 0        # index into WEAPONS (NO_PRIMARY = sidearm only)
 var secondary := 0     # index into SECONDARIES
+var secondary_mod := SecondaryMod.NONE
+var grenade_type := GrenadeType.FRAG
 var gadget := 0        # index into GADGETS
+## Primary-only upgrades. The sidearm has its own slot and ignores these.
 var sight := Sight.NONE
 var cooling := false
 var grip := false
@@ -123,21 +163,32 @@ var squad_skill := 1  # index into SQUAD_SKILLS, paid per squadmate
 # engineers in it rather than a dozen identical riflemen. Each one is spent out
 # of the same BUDGET a player gets — they are legal loadouts, not cheats — and
 # each is checked against it by the bot_builds_are_legal test.
+## NOTE: `weapon` / `secondary` are indices into WEAPONS / SECONDARIES, so
+## inserting a gun into either table shifts every preset below it. Adding guns
+## means re-checking these numbers, which the bot_builds_are_legal test only
+## catches when the shift also breaks the budget.
 const BOT_BUILDS: Array[Dictionary] = [
-	{"name": "RIFLEMAN", "weapon": 1, "secondary": 0, "sight": Sight.HOLO,
+	{"name": "RIFLEMAN", "weapon": 2, "secondary": 0, "sight": Sight.HOLO,
 		"armor": 2, "grenades": 1},                                    # 45+20+25+25
-	{"name": "MARKSMAN", "weapon": 6, "secondary": 0, "sight": Sight.SCOPE,
+	{"name": "MARKSMAN", "weapon": 10, "secondary": 0, "sight": Sight.SCOPE,
 		"armor": 0, "grip": true},                                     # 85+25+20+20
-	{"name": "GUNNER", "weapon": 5, "secondary": 0, "sight": Sight.NONE,
+	{"name": "GUNNER", "weapon": 9, "secondary": 0, "sight": Sight.NONE,
 		"armor": 3, "cooling": true},                                  # 80+60+20
-	{"name": "ENGINEER", "weapon": 1, "secondary": 2, "sight": Sight.HOLO,
+	{"name": "ENGINEER", "weapon": 2, "secondary": 3, "sight": Sight.HOLO,
 		"gadget": Gadget.TURRET, "armor": 1},                          # 45+35+20+65
-	{"name": "SCOUT", "weapon": 3, "secondary": 1, "sight": Sight.HOLO,
+	{"name": "SCOUT", "weapon": 5, "secondary": 2, "sight": Sight.HOLO,
 		"gadget": Gadget.CABLE, "armor": 0, "medkits": 1},             # 55+20+20+30+20+30
-	{"name": "GRENADIER", "weapon": 2, "secondary": 0, "sight": Sight.HOLO,
+	{"name": "GRENADIER", "weapon": 3, "secondary": 0, "sight": Sight.HOLO,
 		"armor": 2, "grenades": 3},                                    # 50+20+25+75
-	{"name": "SHOCK", "weapon": 4, "secondary": 0, "sight": Sight.NONE,
+	{"name": "SHOCK", "weapon": 7, "secondary": 0, "sight": Sight.NONE,
 		"gadget": Gadget.SHIELD, "armor": 2, "medkits": 1},            # 70+50+25+30
+	# New guns get presets of their own, so the AI actually field them.
+	{"name": "BREACHER", "weapon": 6, "secondary": 1, "sight": Sight.NONE,
+		"armor": 2, "grenades": 1},                                    # 60+15+25+25
+	{"name": "SKIRMISHER", "weapon": 1, "secondary": 2, "sight": Sight.HOLO,
+		"armor": 0, "gadget": Gadget.CABLE, "medkits": 1},             # 40+20+20+20+30+30
+	{"name": "DESIGNATOR", "weapon": 8, "secondary": 0, "sight": Sight.NONE,
+		"armor": 1, "gadget": Gadget.MORTAR, "grenades": 1},           # 75+60+25
 ]
 
 
@@ -152,10 +203,20 @@ static func bot_build(index: int) -> Loadout:
 
 
 ## A starter build that spends part of the budget: standard armour, basic rifle.
+## The gun is looked up by CLASS, not by a literal index — inserting a cheaper
+## primary into WEAPONS silently changed what every player deployed with.
 static func starter() -> Loadout:
 	var l := Loadout.new()
-	l.weapon = 1  # DC-15 Rifle
+	l.weapon = weapon_index(Weapon.Class.SOLDIER)
 	return l
+
+
+## Where a gun sits in WEAPONS, or NO_PRIMARY if it isn't sold as a primary.
+static func weapon_index(gun: Weapon.Class) -> int:
+	for i in WEAPONS.size():
+		if WEAPONS[i]["class"] == gun:
+			return i
+	return NO_PRIMARY
 
 
 ## Delegates to _copy_from so there's exactly one list of fields to keep in
@@ -170,13 +231,14 @@ func duplicate_loadout() -> Loadout:
 func cost() -> int:
 	var total: int = WEAPONS[weapon]["cost"]
 	total += SECONDARIES[secondary]["cost"]
+	total += SECONDARY_MODS[secondary_mod]["cost"]
 	total += SIGHTS[sight]["cost"]
 	total += GADGETS[gadget]["cost"]
 	total += ARMOR[armor]["cost"]
 	for up in UPGRADES:
 		if get(up["key"]):
 			total += int(up["cost"])
-	total += grenades * GRENADE_COST
+	total += grenades * int(GRENADE_TYPES[grenade_type]["cost"])
 	total += medkits * MEDKIT_COST
 	total += squad_cost()
 	return total
@@ -230,9 +292,32 @@ func squad_skill_stats() -> Dictionary:
 	return SQUAD_SKILLS[squad_skill]
 
 
-## The upgrade flags in the shape Weapon.set_class wants.
-func weapon_mods() -> Dictionary:
+## The PRIMARY's upgrade flags, in the shape Weapon.set_class wants.
+func primary_mods() -> Dictionary:
 	return {"sight": sight, "cooling": cooling, "grip": grip}
+
+
+## The SIDEARM's, from its own one-pick slot. Dual wield changes how the gun is
+## carried rather than how it shoots, so it contributes no flags here.
+func secondary_mods() -> Dictionary:
+	return {
+		"sight": Sight.SCOPE if secondary_mod == SecondaryMod.SCOPE else Sight.NONE,
+		"cooling": secondary_mod == SecondaryMod.COOLING,
+		"grip": false,
+	}
+
+
+## Whichever set applies to the gun currently in hand.
+func mods_for(on_secondary: bool) -> Dictionary:
+	return secondary_mods() if on_secondary else primary_mods()
+
+
+func dual_wield() -> bool:
+	return secondary_mod == SecondaryMod.DUAL
+
+
+func grenade_type_stats() -> Dictionary:
+	return GRENADE_TYPES[grenade_type]
 
 
 ## Move one option along `row` by `dir` (-1/+1). Anything the budget can't cover
@@ -253,6 +338,10 @@ func _step_unchecked(row: int, dir: int) -> void:
 			weapon = clampi(weapon + dir, 0, WEAPONS.size() - 1)
 		Row.SECONDARY:
 			secondary = clampi(secondary + dir, 0, SECONDARIES.size() - 1)
+		Row.SECONDARY_MOD:
+			secondary_mod = clampi(secondary_mod + dir, 0, SECONDARY_MODS.size() - 1)
+		Row.GRENADE_TYPE:
+			grenade_type = clampi(grenade_type + dir, 0, GRENADE_TYPES.size() - 1)
 		Row.GADGET:
 			gadget = clampi(gadget + dir, 0, GADGETS.size() - 1)
 		Row.SIGHT:
@@ -275,6 +364,8 @@ func _step_unchecked(row: int, dir: int) -> void:
 
 func _same_as(other: Loadout) -> bool:
 	return weapon == other.weapon and secondary == other.secondary \
+		and secondary_mod == other.secondary_mod \
+		and grenade_type == other.grenade_type \
 		and gadget == other.gadget and sight == other.sight \
 		and cooling == other.cooling and grip == other.grip \
 		and armor == other.armor and grenades == other.grenades \
@@ -285,6 +376,8 @@ func _same_as(other: Loadout) -> bool:
 func _copy_from(other: Loadout) -> void:
 	weapon = other.weapon
 	secondary = other.secondary
+	secondary_mod = other.secondary_mod
+	grenade_type = other.grenade_type
 	gadget = other.gadget
 	sight = other.sight
 	cooling = other.cooling
@@ -302,6 +395,8 @@ func row_label(row: int) -> String:
 	match row:
 		Row.WEAPON: return "PRIMARY"
 		Row.SECONDARY: return "SIDEARM"
+		Row.SECONDARY_MOD: return "SIDEARM MOD"
+		Row.GRENADE_TYPE: return "GRENADE"
 		Row.GADGET: return "GADGET"
 		Row.SIGHT: return "SIGHT"
 		Row.ARMOR: return "ARMOR"
@@ -316,6 +411,8 @@ func row_value(row: int) -> String:
 	match row:
 		Row.WEAPON: return weapon_name()
 		Row.SECONDARY: return secondary_name()
+		Row.SECONDARY_MOD: return SECONDARY_MODS[secondary_mod]["name"]
+		Row.GRENADE_TYPE: return GRENADE_TYPES[grenade_type]["name"]
 		Row.GADGET: return GADGETS[gadget]["name"]
 		Row.SIGHT: return SIGHTS[sight]["name"]
 		Row.ARMOR: return ARMOR[armor]["name"]
@@ -330,10 +427,12 @@ func row_cost(row: int) -> int:
 	match row:
 		Row.WEAPON: return WEAPONS[weapon]["cost"]
 		Row.SECONDARY: return SECONDARIES[secondary]["cost"]
+		Row.SECONDARY_MOD: return SECONDARY_MODS[secondary_mod]["cost"]
+		Row.GRENADE_TYPE: return 0  # the type is free; the rounds are what cost
 		Row.GADGET: return GADGETS[gadget]["cost"]
 		Row.SIGHT: return SIGHTS[sight]["cost"]
 		Row.ARMOR: return ARMOR[armor]["cost"]
-		Row.GRENADES: return grenades * GRENADE_COST
+		Row.GRENADES: return grenades * int(GRENADE_TYPES[grenade_type]["cost"])
 		Row.MEDKITS: return medkits * MEDKIT_COST
 		Row.SQUAD, Row.SQUAD_SKILL: return squad_cost()
 		_:
@@ -355,16 +454,21 @@ func row_blurb(row: int, device: int = -1) -> String:
 			var sp: Dictionary = Weapon.PROFILES[secondary_class()]
 			return "%d dmg   swap with %s" % [
 				sp["damage"], Controls.label(device, "switch")]
+		Row.SECONDARY_MOD:
+			return SECONDARY_MODS[secondary_mod]["blurb"]
+		Row.GRENADE_TYPE:
+			return GRENADE_TYPES[grenade_type]["blurb"]
 		Row.GADGET:
 			return GADGETS[gadget]["blurb"]
 		Row.SIGHT:
-			return SIGHTS[sight]["blurb"]
+			return "%s   (primary only)" % SIGHTS[sight]["blurb"]
 		Row.ARMOR:
 			var a := armor_stats()
 			return "%s   %d HP" % [a["blurb"], roundi(a["health"])]
 		Row.GRENADES:
-			return "%d each, thrown with %s" % [
-				GRENADE_COST, Controls.label(device, "grenade")]
+			return "%s, %d each, thrown with %s" % [
+				GRENADE_TYPES[grenade_type]["name"],
+				GRENADE_TYPES[grenade_type]["cost"], Controls.label(device, "grenade")]
 		Row.MEDKITS:
 			return "%d each, heals %d with %s" % [
 				MEDKIT_COST, roundi(MEDKIT_HEAL), Controls.label(device, "medkit")]
@@ -377,7 +481,7 @@ func row_blurb(row: int, device: int = -1) -> String:
 			return "%s   (%d each)" % [skill["blurb"], skill["cost"]]
 		_:
 			var up: Dictionary = UPGRADES[_upgrade_index(row)]
-			return "%s   (%d)" % [up["blurb"], up["cost"]]
+			return "%s   (%d, primary only)" % [up["blurb"], up["cost"]]
 
 
 func _upgrade_index(row: int) -> int:

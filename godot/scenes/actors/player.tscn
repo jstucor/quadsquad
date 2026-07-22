@@ -32,3 +32,11 @@ script = ExtResource("2_weapon")
 
 [node name="Viewmodel" type="Node3D" parent="Head/Weapon"]
 script = ExtResource("4_viewmodel")
+
+[node name="WeaponOff" type="Node3D" parent="Head"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.18, -0.12, -0.3)
+visible = false
+script = ExtResource("2_weapon")
+
+[node name="Viewmodel" type="Node3D" parent="Head/WeaponOff"]
+script = ExtResource("4_viewmodel")

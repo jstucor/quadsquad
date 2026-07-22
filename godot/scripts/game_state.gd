@@ -47,6 +47,14 @@ const MAPS: Array[Dictionary] = [
 		"scene": preload("res://scenes/levels/highridge.tscn")},
 	{"name": "HANGAR", "blurb": "Imperial deck, close quarters",
 		"scene": preload("res://scenes/levels/hangar.tscn")},
+	{"name": "SPILLWAY", "blurb": "Long narrow channel, staggered blocks",
+		"scene": preload("res://scenes/levels/spillway.tscn")},
+	{"name": "CITADEL", "blurb": "Central keep and corner towers, fought in a rotation",
+		"scene": preload("res://scenes/levels/citadel.tscn")},
+	{"name": "RELAY", "blurb": "Wide open plain, low cover, long sight lines",
+		"scene": preload("res://scenes/levels/relay.tscn")},
+	{"name": "CATWALK", "blurb": "Cramped corridors, every fight is a corner",
+		"scene": preload("res://scenes/levels/catwalk.tscn")},
 ]
 const TEAM_NAMES := {Team.REPUBLIC: "REPUBLIC", Team.CIS: "SEPARATIST"}
 const TEAM_COLORS := {
@@ -76,6 +84,18 @@ var mode := Mode.DEATHMATCH
 ## read these to decide where to push in ZONES.
 var zone_point := Vector3.ZERO
 var zone_active := false
+
+## What the map screen draws. `map_extents` is the playable half-size on XZ;
+## `map_shapes` are top-down footprints of the solid geometry, scanned once at
+## match start (see scan_map_geometry).
+var map_center := Vector3.ZERO
+var map_extents := Vector2(40.0, 40.0)
+var map_shapes: Array = []  # [{pos: Vector2, size: Vector2, angle: float}, ...]
+var map_bounds_known := false
+
+# A box whose top is at or below this is the floor slab, not an obstacle.
+const MAP_FLOOR_TOP := 0.05
+const MAP_MAX_SHAPES := 500  # the map is a sketch, not a second render of the level
 
 var human_players := 4
 var team_size := 2
@@ -131,8 +151,60 @@ func reset_match() -> void:
 	match_over = false
 	match_live = false
 	zone_active = false
+	map_shapes.clear()
+	map_bounds_known = false
+	smokes.clear()
 	_spawns.clear()
 	combatants.clear()
+
+
+## A map declares its playable area. Arena does this for every procedural map;
+## anything hand-authored falls back to the scanned geometry's own extents.
+func register_map_bounds(center: Vector3, extents: Vector2) -> void:
+	map_center = center
+	map_extents = extents
+	map_bounds_known = true
+
+
+## Build the map screen's picture of the level: every world-layer box collider,
+## flattened to a top-down footprint. Scanned rather than declared per map, so a
+## new map draws on the map screen without doing anything — including the
+## hand-authored hangar, which has no layout table to read.
+##
+## Only layer-1 (world) bodies count, which is what keeps turrets, shields and
+## players out of it; and only box shapes, so the terrain map's trimesh hill is
+## skipped and Highridge shows its props rather than its contours.
+func scan_map_geometry(level: Node) -> void:
+	map_shapes.clear()
+	var lo := Vector2(INF, INF)
+	var hi := Vector2(-INF, -INF)
+	for body in level.find_children("*", "StaticBody3D", true, false):
+		if (body.collision_layer & 1) == 0:
+			continue
+		for node in body.find_children("*", "CollisionShape3D", true, false):
+			if map_shapes.size() >= MAP_MAX_SHAPES:
+				break
+			var box := node.shape as BoxShape3D
+			if box == null:
+				continue
+			var xform: Transform3D = node.global_transform
+			var scale: Vector3 = xform.basis.get_scale()
+			if xform.origin.y + box.size.y * 0.5 * scale.y <= MAP_FLOOR_TOP:
+				continue  # the floor slab; drawing it would black out the whole map
+			var half := Vector2(box.size.x * scale.x, box.size.z * scale.z) * 0.5
+			var at := Vector2(xform.origin.x, xform.origin.z)
+			map_shapes.append({
+				"pos": at,
+				"size": half * 2.0,
+				"angle": atan2(-xform.basis.z.x, -xform.basis.z.z),
+			})
+			var reach := half.length()  # rotation-proof outer bound
+			lo = lo.min(at - Vector2(reach, reach))
+			hi = hi.max(at + Vector2(reach, reach))
+	if not map_bounds_known and lo.x < INF:
+		map_center = Vector3((lo.x + hi.x) * 0.5, 0.0, (lo.y + hi.y) * 0.5)
+		map_extents = (hi - lo) * 0.5
+		map_bounds_known = true
 
 
 func register_combatant(body: Node3D) -> void:
@@ -142,6 +214,41 @@ func register_combatant(body: Node3D) -> void:
 
 func unregister_combatant(body: Node3D) -> void:
 	combatants.erase(body)
+
+
+## Smoke clouds currently on the field. They have no collider on purpose (that
+## would stop bullets and bodies), so sight checks consult this list instead.
+var smokes: Array[Node3D] = []
+
+
+func register_smoke(cloud: Node3D) -> void:
+	if not smokes.has(cloud):
+		smokes.append(cloud)
+
+
+func unregister_smoke(cloud: Node3D) -> void:
+	smokes.erase(cloud)
+
+
+## Does a sight line pass through smoke? Segment-vs-sphere, closest approach
+## clamped to the segment, so a cloud behind the viewer or past the target does
+## not count. Every AI vision check runs this, so it stays allocation-free and
+## returns immediately in the normal case of no smoke on the field.
+func sight_blocked(from: Vector3, to: Vector3) -> bool:
+	if smokes.is_empty():
+		return false
+	var seg := to - from
+	var len_sq := seg.length_squared()
+	for cloud in smokes:
+		if not is_instance_valid(cloud):
+			continue
+		var centre: Vector3 = cloud.global_position
+		var t := 0.0 if len_sq < 0.0001 else clampf((centre - from).dot(seg) / len_sq, 0.0, 1.0)
+		var nearest := from + seg * t
+		var r: float = cloud.radius()
+		if nearest.distance_squared_to(centre) <= r * r:
+			return true
+	return false
 
 
 func register_spawn_point(team: int, marker: Node3D) -> void:
