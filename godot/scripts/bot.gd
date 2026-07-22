@@ -117,6 +117,10 @@ var team: int = GameState.Team.REPUBLIC
 var owner_player: Node3D          # who paid for it; the bot falls in behind them
 var health := 90.0
 var loadout: Loadout              # the preset it deployed with
+## Bots act on the FIRST gadget slot only. The Mandalorian preset carries a
+## second one it never uses, which costs it nothing it would otherwise have.
+var _force_cd := 0.0
+var _shove := Vector3.ZERO        # decaying push from someone else's Force power
 
 var _skill: Dictionary = SKILLS[1]
 var _state: int = State.HOLD
@@ -147,6 +151,9 @@ var _dead := false
 @onready var weapon: Weapon = $Head/Weapon
 @onready var model: CharacterModel = $Model
 @onready var _collision: CollisionShape3D = $CollisionShape3D
+
+
+const SHOVE_DECAY := 22.0   # m/s of shove bled off per second, as Player's kick
 
 
 func _ready() -> void:
@@ -237,6 +244,7 @@ func _physics_process(delta: float) -> void:
 		return
 	_grenade_cd = maxf(_grenade_cd - delta, 0.0)
 	_cable_cd = maxf(_cable_cd - delta, 0.0)
+	_force_cd = maxf(_force_cd - delta, 0.0)
 	_use_medkit_if_hurt()
 	_retarget_in -= delta
 	_memory_left = maxf(_memory_left - delta, 0.0)
@@ -261,6 +269,17 @@ func _physics_process(delta: float) -> void:
 			_cable_left = 0.0
 		else:
 			velocity = to_anchor.normalized() * CABLE_SPEED
+	# An outside shove (a Force push or pull) rides its own decaying velocity and
+	# is added LAST, after everything above has written velocity for the frame.
+	# A bot rewrites velocity.x/z every physics tick, so anything added earlier
+	# is gone before it moves — the same trap as a gun's kick_back on a Player.
+	if _shove.length_squared() > 0.0001:
+		velocity.x += _shove.x
+		velocity.z += _shove.z
+		if _shove.y > 0.0:
+			velocity.y = maxf(velocity.y, _shove.y)
+			_shove.y = 0.0
+		_shove = _shove.move_toward(Vector3.ZERO, SHOVE_DECAY * delta)
 	move_and_slide()
 	_animate()
 
@@ -317,7 +336,11 @@ func _fight(delta: float) -> void:
 	_face(flat, delta)
 	_aim_head(delta)
 
-	var hold: float = _skill["hold"]
+	# Never hold at a range the weapon cannot reach. Every blaster outranges the
+	# skill tier's stand-off so this changes nothing for them, but a lightsaber
+	# reaches 3.4 m: without this a saber bot would stop at twenty metres and
+	# swing at the air for the rest of the match.
+	var hold: float = minf(_skill["hold"], weapon.max_range() * 0.8)
 	_state = State.ENGAGE if gap <= hold else State.ADVANCE
 	var speed := _speed
 	if _state == State.ADVANCE:
@@ -342,6 +365,7 @@ func _fight(delta: float) -> void:
 
 	_place_turret_if_ready(false)  # in contact: dig in where we stand
 	_place_mortar_if_ready(false)
+	_force_push_if_crowded(gap)
 	_call_mortar_strike(delta)
 	_reaction_left = maxf(_reaction_left - delta, 0.0)
 	var facing := Vector3.FORWARD.rotated(Vector3.UP, rotation.y)
@@ -517,6 +541,24 @@ func _try_cable(goal: Vector3) -> void:
 	var wire := CABLE_WIRE_SCENE.instantiate()
 	get_parent().add_child(wire)
 	wire.launch(self, weapon, _cable_anchor, 0.12)
+
+
+## A Force adept shoves whatever has closed on it. The gate is the same idea as
+## the bot's grenade: a power it only spends when the situation it is for has
+## actually arrived, so it is not simply on cooldown forever.
+func _force_push_if_crowded(gap: float) -> void:
+	if loadout == null or loadout.gadget != Loadout.Gadget.FORCE_PUSH:
+		return
+	if _force_cd > 0.0 or gap > ForcePowers.PUSH_RANGE * 0.7:
+		return
+	if ForcePowers.push(self, team) > 0:
+		_force_cd = float(Loadout.GADGET_COOLDOWNS[Loadout.Gadget.FORCE_PUSH])
+
+
+## Take a shove from someone else's Force power. See _physics_process for why it
+## cannot simply be added to velocity here.
+func apply_impulse(impulse: Vector3) -> void:
+	_shove += impulse
 
 
 func _raise_shield() -> void:

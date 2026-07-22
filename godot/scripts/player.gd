@@ -23,6 +23,7 @@ signal damaged(amount: float)       # took a hit: drives the red screen flash
 signal hit_confirmed(headshot: bool, killed: bool)
 signal map_toggled(open: bool)   # the map screen opened or closed
 signal squad_changed(alive: int)  # squadmates mustered or lost
+signal block_changed(level: float, broken: bool)  # saber guard, for the HUD
 
 const CORPSE_SCENE := preload("res://scenes/fx/corpse.tscn")
 const GRENADE_SCENE := preload("res://scenes/fx/grenade.tscn")
@@ -38,7 +39,10 @@ const CABLE_WIRE_SCENE := preload("res://scenes/fx/cable_wire.tscn")
 const JET_THRUST := 24.0   # acceleration while thrusting; must beat gravity
 const JET_KICK := 4.2      # instant lift when taking off, so you clear the floor
 const JET_BURN := 0.5      # fuel per second of thrust
-const JET_REFILL := 0.34   # fuel per second, only while on the floor
+# Refill is per second and only on the floor. At 0.45 against JET_BURN a full
+# tank is ~2.2s of standing for ~2s of flight, so landing to top up is a real
+# choice in a firefight rather than a walk to the shops.
+const JET_REFILL := 0.45
 const JET_MAX_RISE := 7.0
 const CABLE_COOLDOWN := 5.0     # seconds between uses, hit or miss
 const CABLE_RANGE := 34.0       # a miss flies the full length, so you see the limit
@@ -55,6 +59,19 @@ const CABLE_VAULT_MAX_UP := 13.0
 const CABLE_VAULT_PUSH := 6.0   # horizontal carry, to land past the edge
 const CABLE_VAULT_TIME := 0.55  # how long the vault owns your steering
 const ROTARY_SPEED_MULT := 0.55
+# Saber guard. BLOCK_COST is per point of damage stopped, so the pool is worth
+# roughly 1/BLOCK_COST damage: at 0.009 a full guard eats ~110, or about five
+# rifle rounds, and then you are open. That is the exhaustion the class trades
+# its range for — blocking buys you the walk in, it does not win the fight.
+const BLOCK_COST := 0.009
+const BLOCK_IDLE_DRAIN := 0.14   # pool per second just holding it up
+const BLOCK_REGEN := 0.28        # pool per second once lowered
+const BLOCK_RECOVER_AT := 0.35   # a broken guard cannot be raised until here
+const BLOCK_ARC := deg_to_rad(105.0)  # half-angle in front that the blade covers
+# The Force adept's double jump. Slightly weaker than the standing jump, so the
+# second one reads as a Force-assisted correction rather than a free ladder, and
+# it still scales with the armour frame like every other jump.
+const AIR_JUMP_MULT := 0.9
 # You deploy on a button press, not a timer. These are only the floor before the
 # button goes live: long enough at match start for everyone to spec a build, and
 # short enough after a death that you're never sat waiting on a decision made.
@@ -144,6 +161,9 @@ var grenades_left := 0
 var medkits_left := 0
 var squad: Array[Bot] = []  # the AI squadmates currently alive under this player
 var gadget := Loadout.Gadget.NONE
+## The Mandalorian's second gadget, driven by the GRENADE control. See
+## Loadout.gadget2 for why that button rather than a new binding.
+var gadget2 := Loadout.Gadget.NONE
 var jet_fuel := 1.0
 
 var _anim: AnimationPlayer
@@ -179,6 +199,19 @@ var pickup_pressed := false
 ## release this as the player walks in and out of them.
 var pickup_in_reach: Node3D
 var _rotary_out := false
+var _force_cd := [0.0, 0.0]   # seconds left on each gadget slot's cooldown
+var _force_shown := [0, 0]    # last whole second pushed to the HUD, per slot
+## Saber guard. `_block` is the exhaustion pool, 0..1; it drains while raised
+## and, much faster, per point of damage it stops. At zero the guard BREAKS and
+## cannot be raised again until it has recovered past BLOCK_RECOVER_AT — without
+## that, a pool that empties and refills to a sliver would flicker the block on
+## and off every frame under sustained fire.
+var _block := 1.0
+var _block_broken := false
+## Mid-air jumps left this flight. Only the Force adept gets any, and the count
+## is refilled on the floor rather than decremented toward a total, so a jump
+## spent falling off a ledge cannot be carried into the next hop.
+var _air_jumps := 0
 var _jet_thrusting := false
 var _jet_pct := 20  # last fuel level pushed to the HUD, in 5% steps
 var _look_pitch := 0.0     # head pitch from look input (recoil is added on top)
@@ -265,6 +298,12 @@ func take_damage(amount: float, attacker: Node = null, headshot := false) -> voi
 	if attacker != null and attacker != self and "team" in attacker \
 			and attacker.team == team:
 		return
+	# The saber guard stops what it can pay for, and tires doing it. Anything
+	# left over goes through as normal — a broken guard is not a shield that
+	# merely stops working, it is one that stops covering you mid-burst.
+	amount = _absorb_with_guard(amount, attacker)
+	if amount <= 0.0:
+		return
 	health -= amount
 	health_changed.emit(health)
 	damaged.emit(amount)
@@ -275,6 +314,81 @@ func take_damage(amount: float, attacker: Node = null, headshot := false) -> voi
 		attacker.on_hit_confirmed(headshot, health <= 0.0)
 	if health <= 0.0:
 		_die(attacker)
+
+
+## How many mid-air jumps this build gets. A property of the CLASS rather than
+## of the saber, so a Force adept keeps it while holding a sidearm.
+func air_jump_allowance() -> int:
+	return 1 if loadout.kit == Loadout.Kit.FORCE else 0
+
+
+## True while the lightsaber guard is actually up: blade in hand, aim held, and
+## the exhaustion pool not spent. Nothing else can block — a raised guard is the
+## Force adept's answer to having no gun, not a general-purpose defence.
+func guard_up() -> bool:
+	return not _dead and not map_open and weapon.is_melee() \
+		and _ads_held() and not _block_broken and _block > 0.0
+
+
+## The exhaustion pool, 0..1, for the HUD.
+func guard_level() -> float:
+	return _block
+
+
+func guard_broken() -> bool:
+	return _block_broken
+
+
+## Drain the guard while it is up, refill it while it is down, and un-break it
+## once there is enough back to be worth raising.
+func _update_guard(delta: float) -> void:
+	if not weapon.is_melee():
+		return
+	var before := _block
+	var was_broken := _block_broken
+	if guard_up():
+		_block = maxf(_block - BLOCK_IDLE_DRAIN * delta, 0.0)
+		if _block <= 0.0:
+			_block_broken = true
+	else:
+		_block = minf(_block + BLOCK_REGEN * delta, 1.0)
+		if _block_broken and _block >= BLOCK_RECOVER_AT:
+			_block_broken = false
+	# The HUD only needs telling on a visible change; this runs every frame.
+	if absf(_block - before) > 0.02 or was_broken != _block_broken:
+		block_changed.emit(_block, _block_broken)
+
+
+## How much of a hit the guard stops. It only covers the ARC you are facing, so
+## being flanked beats it, and it pays BLOCK_COST of the pool per point stopped
+## — when the pool runs dry mid-hit the remainder lands.
+func _absorb_with_guard(amount: float, attacker: Node) -> float:
+	if not guard_up() or attacker == null or not attacker is Node3D:
+		return amount
+	var to: Vector3 = attacker.global_position - global_position
+	to.y = 0.0
+	if to.length() < 0.01:
+		return amount
+	var facing := -global_transform.basis.z
+	facing.y = 0.0
+	if facing.length() < 0.01 or facing.normalized().angle_to(to.normalized()) > BLOCK_ARC:
+		return amount   # came in from behind the blade
+	var affordable := _block / BLOCK_COST
+	var stopped := minf(amount, affordable)
+	_block = maxf(_block - stopped * BLOCK_COST, 0.0)
+	if _block <= 0.0:
+		_block_broken = true
+	block_changed.emit(_block, _block_broken)
+	return amount - stopped
+
+
+## Take an outside shove — a Force push or pull. It rides _kick_vel rather than
+## being added to velocity, because movement rewrites velocity.x/z from the
+## stick every frame and would erase it before it rendered.
+func apply_impulse(impulse: Vector3) -> void:
+	_kick_vel += Vector3(impulse.x, 0.0, impulse.z)
+	if impulse.y > 0.0:
+		velocity.y = maxf(velocity.y, impulse.y)
 
 
 ## Called BY whatever we just damaged, on the same duck-typed contract as
@@ -362,6 +476,12 @@ func _apply_loadout() -> void:
 	weapon.set_class(loadout.deploy_class(), loadout.mods_for(_on_secondary))
 	_refresh_offhand()
 	gadget = loadout.gadget_id()
+	gadget2 = loadout.gadget2_id()
+	_force_cd = [0.0, 0.0]
+	_air_jumps = air_jump_allowance()
+	_block = 1.0
+	_block_broken = false
+	block_changed.emit(_block, _block_broken)
 	jet_fuel = 1.0
 	_cable_left = 0.0
 	_hook_left = 0.0
@@ -415,9 +535,15 @@ func _spawn_bot() -> Bot:
 func _update_buy_input() -> void:
 	var move := _buy_axis()
 	if move.y != 0:
-		buy_row = wrapi(buy_row + move.y, 0, Loadout.Row.size())
+		buy_row = pending.next_row(
+			wrapi(buy_row + move.y, 0, Loadout.Row.size()), move.y)
 		buy_changed.emit(buy_row)
 	if move.x != 0 and pending.step(buy_row, move.x):
+		# Changing class rewrites the whole build, which can take the row the
+		# cursor is sitting on out of existence (the grenade rows, most often).
+		# Walk it forward to the next real one rather than leaving it parked on a
+		# line that is no longer drawn.
+		buy_row = pending.next_row(buy_row, 1)
 		buy_changed.emit(buy_row)
 	# The button has to be pressed, not merely held down from before you died.
 	var deploy := _deploy_held()
@@ -613,6 +739,7 @@ func _physics_process(delta: float) -> void:
 	pickup_pressed = _interact_pressed()
 	_update_gear()
 	_update_aim(delta)
+	_update_guard(delta)
 	_update_crouch(delta)
 
 	# Settle the camera recoil back toward zero, and bleed off the shot's shove.
@@ -640,8 +767,16 @@ func _physics_process(delta: float) -> void:
 
 	if not is_on_floor():
 		velocity.y -= _gravity * delta
+		# The Force adept can push off nothing. Setting velocity outright rather
+		# than adding to it means a double jump saves you just as well on the way
+		# down as at the top of the arc, which is the whole point of having one.
+		if _air_jumps > 0 and _jump_pressed():
+			_air_jumps -= 1
+			velocity.y = JUMP_VELOCITY * _jump_mult * AIR_JUMP_MULT
 	elif _jump_pressed():
 		velocity.y = JUMP_VELOCITY * _jump_mult
+	if is_on_floor():
+		_air_jumps = air_jump_allowance()
 	var unstick := _unstick_push()
 	velocity.x = dir.x * speed + unstick.x + _kick_vel.x
 	velocity.z = dir.z * speed + unstick.z + _kick_vel.z
@@ -713,7 +848,7 @@ func mortar_ready() -> bool:
 func map_status() -> String:
 	var m := mortar()
 	if m == null:
-		if gadget == Loadout.Gadget.MORTAR:
+		if has_gadget(Loadout.Gadget.MORTAR):
 			return "MORTAR NOT PLACED  —  %s to set the tube down" % \
 				Controls.label(input_device, "gadget")
 		return "MAP"
@@ -890,7 +1025,9 @@ func _update_aim(delta: float) -> void:
 	# with — that's the cost of carrying cover with you. Both are checked every
 	# frame, so throwing the shield up mid-aim drops you straight back to the hip
 	# rather than leaving the sights stuck on the glass.
-	var aiming := _ads_held() and not dual_active() and not shield_up()
+	# A blade has no sights either, and its aim control is spent on the guard.
+	var aiming := _ads_held() and not dual_active() and not shield_up() \
+		and not weapon.is_melee()
 	weapon.aiming = aiming
 	if aiming != _prev_aim:
 		_prev_aim = aiming
@@ -942,8 +1079,14 @@ func _hand_name() -> String:
 
 ## The gadget button. Toggles (shield, rotary) and one-shots (cable, turret) act
 ## on the press; the jetpack burns while held, in _apply_gadget_motion.
-func _use_gadget() -> void:
-	match gadget:
+func _use_gadget(slot: int) -> void:
+	var id := gadget_in(slot)
+	# The force powers are the only gadgets on a cooldown of their own; the rest
+	# are toggles, placements, or (the cable) time themselves.
+	var cd: float = Loadout.GADGET_COOLDOWNS.get(id, 0.0)
+	if cd > 0.0 and _force_cd[slot] > 0.0:
+		return
+	match id:
 		Loadout.Gadget.CABLE:
 			_fire_cable()
 		Loadout.Gadget.SHIELD:
@@ -954,14 +1097,77 @@ func _use_gadget() -> void:
 			_place_turret()
 		Loadout.Gadget.MORTAR:
 			_place_mortar()
+		Loadout.Gadget.FORCE_PUSH:
+			ForcePowers.push(self, team)
+			_start_gadget_cd(slot, cd)
+		Loadout.Gadget.FORCE_PULL:
+			# A pull that caught nobody costs a fraction of the cooldown, not the
+			# whole thing: the power needs a target and missing should not take
+			# the class out of the fight for seven seconds.
+			var caught := ForcePowers.pull(self, team)
+			_start_gadget_cd(slot, cd if caught != null else cd * 0.3)
+		Loadout.Gadget.FORCE_LEAP:
+			var launch := ForcePowers.leap_velocity(self)
+			velocity.y = launch.y
+			# Horizontal carry rides _kick_vel for the same reason a gun's shove
+			# does: movement rewrites velocity.x/z from the stick every frame.
+			_kick_vel += Vector3(launch.x, 0.0, launch.z)
+			_start_gadget_cd(slot, cd)
+
+
+## Which gadget is on a slot. Slot 0 is the gadget control, slot 1 the grenade
+## control.
+func gadget_in(slot: int) -> int:
+	return gadget if slot == 0 else gadget2
+
+
+## True if either slot carries this gadget — the jetpack and the cable have to
+## work from whichever hand the Mandalorian bought them into.
+func has_gadget(id: int) -> bool:
+	return gadget == id or gadget2 == id
+
+
+## Which slot holds it, or -1. Used to pick which BUTTON drives it.
+func slot_of(id: int) -> int:
+	if gadget == id:
+		return 0
+	return 1 if gadget2 == id else -1
+
+
+## Is the button for this slot down right now?
+func _slot_held(slot: int) -> bool:
+	return _gadget_held() if slot == 0 else Controls.held(input_device, "grenade")
+
+
+func _start_gadget_cd(slot: int, seconds: float) -> void:
+	_force_cd[slot] = seconds
+	gear_changed.emit(grenades_left, medkits_left)
+
+
+## Seconds until the gadget on `slot` can be used again, 0 when it is ready.
+func gadget_cooldown(slot: int) -> float:
+	return _force_cd[slot]
 
 
 ## Velocity the gadget imposes, applied after normal movement so it wins: the
 ## jetpack overrides gravity while thrusting, the cable overrides steering while
 ## reeling you in.
 func _apply_gadget_motion(delta: float) -> void:
-	if gadget == Loadout.Gadget.JETPACK:
-		var thrusting := _gadget_held() and jet_fuel > 0.0
+	# Tick the force powers' cooldowns, whichever slot they sit in.
+	for slot in 2:
+		if _force_cd[slot] <= 0.0:
+			continue
+		_force_cd[slot] = maxf(_force_cd[slot] - delta, 0.0)
+		var left := ceili(_force_cd[slot])
+		if left != _force_shown[slot]:
+			_force_shown[slot] = left
+			gear_changed.emit(grenades_left, medkits_left)
+	# Asked of BOTH slots, not of `gadget`: a Mandalorian can buy the jetpack
+	# into either hand, and keying this off slot 0 alone left the pack dead for
+	# anyone who bought it second.
+	var jet_slot := slot_of(Loadout.Gadget.JETPACK)
+	if jet_slot >= 0:
+		var thrusting := _slot_held(jet_slot) and jet_fuel > 0.0
 		if thrusting:
 			jet_fuel = maxf(jet_fuel - JET_BURN * delta, 0.0)
 			# Taking off needs a kick: on the floor move_and_slide keeps zeroing
@@ -969,13 +1175,13 @@ func _apply_gadget_motion(delta: float) -> void:
 			if not _jet_thrusting and is_on_floor():
 				velocity.y = JET_KICK
 			velocity.y = minf(velocity.y + JET_THRUST * delta, JET_MAX_RISE)
-			# Only tell the HUD on a visible change: this runs every frame you fly.
-			var step_pct := roundi(jet_fuel * 20.0)
-			if step_pct != _jet_pct:
-				_jet_pct = step_pct
-				gear_changed.emit(grenades_left, medkits_left)
 		elif is_on_floor():
 			jet_fuel = minf(jet_fuel + JET_REFILL * delta, 1.0)
+		# Push the level to the HUD on BOTH paths. Refilling used to be silent,
+		# so the gauge sat wherever it was when you landed and only jumped back
+		# up on the next thrust — the pack recharged, but nothing on screen said
+		# so, which reads exactly like a pack that does not recharge at all.
+		_show_jet_fuel()
 		_jet_thrusting = thrusting
 	if _cable_cd > 0.0:
 		_cable_cd = maxf(_cable_cd - delta, 0.0)
@@ -1011,6 +1217,16 @@ func _apply_gadget_motion(delta: float) -> void:
 		velocity.z = _vault_dir.z
 		if velocity.y <= 0.0 and is_on_floor():
 			_vault_left = 0.0
+
+
+## Tell the HUD the fuel level, on a visible change only: this runs every frame
+## you are flying OR standing on the ground with a pack, and gear_changed
+## redraws the whole readout.
+func _show_jet_fuel() -> void:
+	var step_pct := roundi(jet_fuel * 20.0)
+	if step_pct != _jet_pct:
+		_jet_pct = step_pct
+		gear_changed.emit(grenades_left, medkits_left)
 
 
 ## Launch up and over whatever we just reeled ourselves to. The rise is solved
@@ -1152,11 +1368,17 @@ func _update_gear() -> void:
 	if _switch_pressed():
 		_swap_weapon()
 	if _gadget_pressed():
-		_use_gadget()
-	if _grenade_pressed() and grenades_left > 0:
-		grenades_left -= 1
-		_throw_grenade()
-		gear_changed.emit(grenades_left, medkits_left)
+		_use_gadget(0)
+	# The grenade control drives the second gadget for whoever carries one. No
+	# kit has both, so the two never contend: the class with two gadget slots is
+	# exactly the class with no grenades.
+	if _grenade_pressed():
+		if gadget2 != Loadout.Gadget.NONE:
+			_use_gadget(1)
+		elif grenades_left > 0:
+			grenades_left -= 1
+			_throw_grenade()
+			gear_changed.emit(grenades_left, medkits_left)
 	if _medkit_pressed() and medkits_left > 0 and health < max_health:
 		medkits_left -= 1
 		health = minf(health + Loadout.MEDKIT_HEAL, max_health)

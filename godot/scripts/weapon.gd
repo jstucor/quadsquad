@@ -20,6 +20,7 @@ enum Class {
 	ROTARY, TURRET,
 	SMG, CARBINE, SCATTERGUN, DMR,   # primaries
 	DH17, BRYAR,                     # sidearms
+	SABER,                           # the Force adept's melee primary
 }
 enum FireMode { AUTO, SEMI, BURST }
 
@@ -174,6 +175,20 @@ const PROFILES := {
 		"recoil": 1.15, "cam_recoil": 0.160, "kick_back": 1.2,
 		"mode": FireMode.SEMI,
 	},
+	# The lightsaber: the Force adept's only primary, and the only MELEE weapon.
+	# It is still a hitscan — a ray three metres long — so it needs no new code
+	# path anywhere, it just cannot reach. That range is the entire balance of
+	# the class: it hits harder than any rifle and kills a standard trooper in
+	# two swings, but every one of them is a decision to close.
+	#
+	# No heat: a blade does not overheat, and the exhaustion that limits the
+	# class is the BLOCK pool on Player, not the trigger.
+	Class.SABER: {
+		"name": "Lightsaber", "fire_interval": 0.40, "damage": 55.0,
+		"range": 3.4, "hip_spread": 0.0, "ads_spread": 0.0, "zoom_fov": 75.0,
+		"heat_per_shot": 0.0, "cool_rate": 1.0, "scope": false,
+		"recoil": 1.1, "cam_recoil": 0.022, "melee": true,
+	},
 }
 
 # Purchased upgrades (Loadout.SIGHTS / UPGRADES) as multipliers on the base
@@ -278,6 +293,18 @@ func has_holo() -> bool:
 	return _profile.get("holo", false)
 
 
+## A blade rather than a gun: same hitscan, no tracer, no muzzle flash, and no
+## sights to raise — the aim control blocks with it instead (see Player).
+func is_melee() -> bool:
+	return _profile.get("melee", false)
+
+
+## How far this weapon can actually reach. Bots read it so they never sit at
+## their preferred stand-off range holding a weapon that cannot get there.
+func max_range() -> float:
+	return _profile["range"]
+
+
 ## The spread cone half-angle (deg) a shot would use right now — hip fire adds
 ## the accumulated bloom, aiming stays tight. Used by the bloom crosshair.
 ##
@@ -376,6 +403,10 @@ func _fire_hitscan() -> void:
 	var pooled := {}   # target -> [damage, any_headshot]
 	for i in pellets:
 		var end := _trace_pellet(from, pooled, damage)
+		# A blade fires no bolt: the swing is the viewmodel's, and a tracer three
+		# metres long reads as a misfire rather than a strike.
+		if is_melee():
+			continue
 		var bolt := BOLT_SCENE.instantiate()
 		get_tree().current_scene.add_child(bolt)
 		bolt.launch(muzzle, end)

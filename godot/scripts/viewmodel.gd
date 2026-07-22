@@ -147,7 +147,22 @@ const SHAPES := {
 		"receiver": Vector3(0.04, 0.062, 0.16), "barrel": Vector3(0.024, 0.024, 0.24),
 		"stock": false, "grip": false, "cylinder": 0.04, "muzzle": 0.04,
 	},
+	# The lightsaber is built by _build_saber, not from these fields: a hilt and
+	# a blade share nothing with a receiver and a barrel. The entry exists so
+	# the class is present in the table and `saber` can flag the branch.
+	Weapon.Class.SABER: {
+		"receiver": Vector3(0.042, 0.042, 0.24), "barrel": Vector3(0.03, 0.03, 0.0),
+		"stock": false, "grip": false, "saber": true,
+	},
 }
+
+## Blade dimensions and colour. The blade is drawn a good deal SHORTER than the
+## weapon's 3.4 m reach on purpose: a true-length blade fills the whole screen
+## from a first-person camera and you cannot see what you are swinging at.
+const BLADE_LENGTH := 0.78
+const BLADE_RADIUS := 0.019
+const BLADE_CORE := Color(0.75, 0.92, 1.0)
+const BLADE_GLOW := Color(0.25, 0.65, 1.0)
 
 
 func _build(class_id: int, scoped: bool, holo: bool) -> void:
@@ -162,6 +177,9 @@ func _build(class_id: int, scoped: bool, holo: bool) -> void:
 	_flash = null
 
 	var shape: Dictionary = SHAPES.get(class_id, SHAPES[Weapon.Class.SOLDIER])
+	if shape.get("saber", false):
+		_build_saber()
+		return
 	var gun := StandardMaterial3D.new()
 	gun.albedo_color = Color(0.12, 0.12, 0.14)
 	gun.metallic = 0.1  # keep low: a near-black sky reflects into metal (Gotchas)
@@ -278,6 +296,59 @@ func _build(class_id: int, scoped: bool, holo: bool) -> void:
 	_ads_pos = Vector3(-(anchor.x + sight_at.x), -(anchor.y + sight_at.y), ADS_PULL_BACK)
 
 	_build_flash(barrel_z - barrel.z * 0.5 - 0.06)
+
+
+## The lightsaber: a machined hilt with a blade standing out of it. Built on its
+## own path because it shares no part with a gun.
+##
+## The blade is TWO nested cylinders — a near-white core inside a wider, softer
+## coloured shell — because a single emissive cylinder reads as a flat plastic
+## rod under GL Compatibility. Both are unshaded, so the blade keeps its colour
+## on the night maps where a lit surface would go black on its shadow side (the
+## same reason the cable's wire is unshaded).
+##
+## It leaves `_flash` null: a blade has no muzzle. kick() already null-checks it.
+func _build_saber() -> void:
+	var hilt_mat := StandardMaterial3D.new()
+	hilt_mat.albedo_color = Color(0.16, 0.17, 0.19)
+	hilt_mat.metallic = 0.15  # keep low: a near-black sky reflects into metal
+	hilt_mat.roughness = 0.35
+	var ring_mat := StandardMaterial3D.new()
+	ring_mat.albedo_color = Color(0.42, 0.36, 0.20)
+	ring_mat.metallic = 0.15
+	ring_mat.roughness = 0.4
+
+	# The hilt sits in the hand, angled like the pistol grip every gun carries.
+	var hilt := _cyl(0.021, 0.24, Vector3(0, -0.015, 0.0), hilt_mat)
+	_cyl(0.025, 0.02, Vector3(0, -0.015, -0.10), ring_mat)   # emitter shroud
+	_cyl(0.024, 0.015, Vector3(0, -0.015, 0.06), ring_mat)   # pommel band
+	_box(Vector3(0.012, 0.014, 0.03), Vector3(0.02, -0.015, 0.02), ring_mat)
+
+	var core_mat := StandardMaterial3D.new()
+	core_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	core_mat.albedo_color = BLADE_CORE
+	core_mat.emission_enabled = true
+	core_mat.emission = BLADE_CORE
+	core_mat.emission_energy_multiplier = 5.0
+
+	var glow_mat := StandardMaterial3D.new()
+	glow_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	glow_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	glow_mat.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+	glow_mat.albedo_color = Color(BLADE_GLOW.r, BLADE_GLOW.g, BLADE_GLOW.b, 0.5)
+	glow_mat.emission_enabled = true
+	glow_mat.emission = BLADE_GLOW
+	glow_mat.emission_energy_multiplier = 3.0
+
+	# Blade runs down -Z out of the emitter, the same axis every barrel uses.
+	var blade_z := -0.11 - BLADE_LENGTH * 0.5
+	_cyl(BLADE_RADIUS, BLADE_LENGTH, Vector3(0, -0.015, blade_z), core_mat)
+	_cyl(BLADE_RADIUS * 1.9, BLADE_LENGTH * 0.99, Vector3(0, -0.015, blade_z), glow_mat)
+	hilt.name = "SaberHilt"
+
+	# No sights on a sword. Aiming blocks instead, so the ADS slide is a small
+	# guard-raise rather than bringing anything onto the camera axis.
+	_ads_pos = Vector3(-0.05, 0.02, 0.02)
 
 
 func _build_flash(tip_z: float) -> void:

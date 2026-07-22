@@ -596,13 +596,18 @@ func _add_gear_readout(hud: Control, player: Player, color: Color) -> void:
 	hud.add_child(gear)
 	var refresh := func() -> void:
 		var parts: Array[String] = []
-		if player.gadget == Loadout.Gadget.JETPACK:
-			parts.append("JET %d%%" % roundi(player.jet_fuel * 100.0))
-		elif player.gadget == Loadout.Gadget.CABLE:
-			var cd := player.cable_cooldown()
-			parts.append("CABLE READY" if cd <= 0.0 else "CABLE %ds" % ceili(cd))
-		elif player.gadget != Loadout.Gadget.NONE:
-			parts.append(Loadout.GADGETS[player.gadget]["name"])
+		# BOTH gadget slots, not just the first: a Mandalorian carries two and
+		# reporting only slot 0 hides half of what they bought.
+		for slot in 2:
+			var line := _gadget_readout(player, slot)
+			if line != "":
+				parts.append(line)
+		# The saber guard, whenever a blade is in hand. Exhaustion you cannot see
+		# is exhaustion you cannot play around, and this is the only thing that
+		# tells you how much block you have left.
+		if player.weapon.is_melee():
+			parts.append("GUARD SPENT" if player.guard_broken()
+				else "GUARD %d%%" % roundi(player.guard_level() * 100.0))
 		if player.grenades_left > 0:
 			parts.append("GRENADE x%d" % player.grenades_left)
 		if player.medkits_left > 0:
@@ -612,7 +617,29 @@ func _add_gear_readout(hud: Control, player: Player, color: Color) -> void:
 		gear.text = "   ".join(parts)
 	player.gear_changed.connect(func(_g: int, _m: int) -> void: refresh.call())
 	player.squad_changed.connect(func(_alive: int) -> void: refresh.call())
+	player.block_changed.connect(func(_l: float, _b: bool) -> void: refresh.call())
+	player.weapon_changed.connect(func(_n: String) -> void: refresh.call())
 	refresh.call()
+
+
+## One gadget slot's line, or "" when the slot is empty. Each gadget reports the
+## thing you actually need from it: fuel, or seconds until you may use it again.
+func _gadget_readout(player: Player, slot: int) -> String:
+	var id := player.gadget_in(slot)
+	match id:
+		Loadout.Gadget.NONE:
+			return ""
+		Loadout.Gadget.JETPACK:
+			return "JET %d%%" % roundi(player.jet_fuel * 100.0)
+		Loadout.Gadget.CABLE:
+			var cd := player.cable_cooldown()
+			return "CABLE READY" if cd <= 0.0 else "CABLE %ds" % ceili(cd)
+	var name: String = Loadout.GADGETS[id]["name"]
+	# The force powers run on their own cooldown, so they can say when they are up.
+	if Loadout.GADGET_COOLDOWNS.has(id):
+		var left := player.gadget_cooldown(slot)
+		return name if left <= 0.0 else "%s %ds" % [name, ceili(left)]
+	return name
 
 
 func _add_victory_banner(hud: Control) -> void:
@@ -642,11 +669,13 @@ func _show_victory(team: int) -> void:
 ## shop at once on one screen: only P1 has a mouse, so navigation has to stay on
 ## each player's own stick or keys.
 const BUY_BOXES: Array[Dictionary] = [
+	# CLASS comes first because it decides what every box under it may hold.
+	{"name": "CLASS", "rows": [Loadout.Row.KIT]},
 	{"name": "PRIMARY", "rows": [Loadout.Row.WEAPON, Loadout.Row.SIGHT,
 		Loadout.Row.COOLING, Loadout.Row.GRIP]},
 	{"name": "SIDEARM", "rows": [Loadout.Row.SECONDARY, Loadout.Row.SECONDARY_MOD]},
 	{"name": "GRENADES", "rows": [Loadout.Row.GRENADE_TYPE, Loadout.Row.GRENADES]},
-	{"name": "GADGET", "rows": [Loadout.Row.GADGET]},
+	{"name": "GADGET", "rows": [Loadout.Row.GADGET, Loadout.Row.GADGET2]},
 	{"name": "ARMOUR", "rows": [Loadout.Row.ARMOR]},
 	{"name": "HEALTH", "rows": [Loadout.Row.MEDKITS]},
 	{"name": "AI SQUAD", "rows": [Loadout.Row.SQUAD, Loadout.Row.SQUAD_SKILL]},
@@ -779,6 +808,13 @@ func _refresh_buy_screen(player: Player, color: Color, names: Array[Label],
 		build.cost(), build.remaining(), Loadout.BUDGET]
 	var active: PanelContainer = frames[player.buy_row]
 	for i in names.size():
+		# A row this class does not have is hidden outright rather than shown
+		# dead: the cursor already skips it, and a line you cannot move reads as
+		# a broken screen from across a four-way split.
+		var available := build.row_available(i)
+		names[i].get_parent().visible = available
+		if not available:
+			continue
 		var selected := i == player.buy_row
 		var tint := color if selected else Color(1, 1, 1, 0.72)
 		names[i].text = "%s %s" % ["\u25b8" if selected else " ", build.row_label(i)]
@@ -788,6 +824,16 @@ func _refresh_buy_screen(player: Player, color: Color, names: Array[Label],
 			values[i].text += "   %d" % cost
 		names[i].add_theme_color_override("font_color", tint)
 		values[i].add_theme_color_override("font_color", tint)
+	# ...and a box with nothing left in it goes too, so the Mandalorian's screen
+	# has no empty GRENADES panel sitting on it.
+	for box in BUY_BOXES:
+		var frame: PanelContainer = frames[box["rows"][0]]
+		if frame == null:
+			continue
+		var any := false
+		for row in box["rows"]:
+			any = any or build.row_available(row)
+		frame.visible = any
 	for frame in frames:
 		if frame != null:
 			frame.add_theme_stylebox_override("panel",
