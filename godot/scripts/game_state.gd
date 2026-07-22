@@ -18,15 +18,22 @@ signal zone_state(holder: int, contested: bool, seconds_left: int)
 enum Team { REPUBLIC, CIS }
 ## DEATHMATCH scores on kills; ZONES scores a point per second for whichever
 ## team has the most bodies inside the roaming capture area.
-enum Mode { DEATHMATCH, ZONES }
-const MODE_NAMES := {Mode.DEATHMATCH: "DEATHMATCH", Mode.ZONES: "ZONES"}
+## ROYALE is the odd one out: it is not scored at all. Nobody respawns, you
+## start with a sidearm and scavenge the rest off the ground, a shrinking storm
+## herds everyone together, and the last side still standing wins.
+enum Mode { DEATHMATCH, ZONES, ROYALE }
+const MODE_NAMES := {
+	Mode.DEATHMATCH: "DEATHMATCH", Mode.ZONES: "ZONES", Mode.ROYALE: "BATTLE ROYALE",
+}
 const MODE_BLURBS := {
 	Mode.DEATHMATCH: "First to %d kills",
 	Mode.ZONES: "Hold the area. A point a second, new area every %ds, first to %d",
+	Mode.ROYALE: "No respawns. Scavenge your gear, outlast the storm, last side wins",
 }
 
-# What each mode plays to: kills, or seconds of control.
-const SCORE_LIMITS := {Mode.DEATHMATCH: 25, Mode.ZONES: 60}
+# What each mode plays to: kills, seconds of control, or simply being the last
+# side left, which is one "point" awarded once.
+const SCORE_LIMITS := {Mode.DEATHMATCH: 25, Mode.ZONES: 60, Mode.ROYALE: 1}
 
 # A respawn must never land on a living body: two overlapping capsules push each
 # other apart every physics frame and ride that ejection out of the map, which
@@ -314,18 +321,52 @@ func get_spawn_point(team: int, index: int = -1) -> Node3D:
 	return free.pick_random() if not free.is_empty() else roomiest
 
 
-## Markers a team may start on. Maps only ever author two sides, so a three- or
-## four-way match pools EVERY marker for the teams beyond those — better a
-## shared start than no start at all, and the anti-stacking clearance below
-## keeps them from landing on each other.
+## Markers a team may start on.
 func _spawn_list(team: int) -> Array:
-	var own: Array = _spawns.get(team, [])
-	if not own.is_empty():
-		return own
-	var pooled: Array = []
-	for t in _spawns:
-		pooled.append_array(_spawns[t])
-	return pooled
+	return _spawns.get(team, [])
+
+
+## Put each side in its own corner of the map.
+##
+## Maps only ever author TWO sets of markers, at two ends. With three or four
+## teams that leaves the extra sides sharing somebody else's start, which in a
+## free-for-all means spawning on top of an enemy. So for a 3+ team match the
+## authored layout is replaced wholesale: every side gets a corner of its own,
+## as far from the others as the map allows.
+##
+## Two-team matches are left completely alone — those layouts are hand-placed
+## and tuned, and a corner is not automatically better than the spot a map
+## author chose.
+##
+## Ground height comes from the level's own `height_at` when it has one (the
+## terrain maps), because colliders are not in the physics world yet when this
+## runs and a downward raycast would find nothing.
+func place_corner_spawns(level: Node) -> void:
+	if active_teams() <= 2:
+		return
+	_spawns.clear()
+	var inset: Vector2 = map_extents * 0.72
+	var corners := [
+		Vector2(-inset.x, -inset.y), Vector2(inset.x, inset.y),
+		Vector2(inset.x, -inset.y), Vector2(-inset.x, inset.y),
+	]
+	for team in active_teams():
+		var at: Vector2 = corners[team % corners.size()]
+		# Three markers spread around the corner, so a side of several bodies
+		# does not have to funnel through one point.
+		for k in 3:
+			var a := TAU * float(k) / 3.0
+			var spot := at + Vector2(cos(a), sin(a)) * 5.0
+			var y := 0.0
+			if level.has_method("height_at"):
+				y = level.height_at(spot.x, spot.y)
+			var m := Marker3D.new()
+			m.position = Vector3(map_center.x + spot.x, y, map_center.z + spot.y)
+			level.add_child(m)
+			# Face the middle, so a side spawns looking into the map.
+			if Vector2(spot.x, spot.y).length() > 0.1:
+				m.look_at(Vector3(map_center.x, y, map_center.z), Vector3.UP)
+			register_spawn_point(team, m)
 
 
 ## Last line of defence for the crowded case: shove a spawn transform sideways
@@ -365,10 +406,29 @@ func _nearest_body(pos: Vector3) -> Node3D:
 
 
 ## Credit a kill. Only DEATHMATCH scores for it — in ZONES a kill is a means to
-## an end, not the end itself.
+## an end, and in ROYALE the only thing that counts is who is left.
 func add_frag(team: int) -> void:
 	if mode == Mode.DEATHMATCH:
 		_award(team)
+
+
+## Royale has no score, so the match ends the moment one side is the only one
+## with anybody left alive. Called whenever a combatant dies.
+##
+## Deliberately counts COMBATANTS, not players: a squad of bought AI keeps their
+## owner's side alive after they personally go down, which is what makes buying
+## a squad matter in a mode with no respawns.
+func check_last_standing() -> void:
+	if mode != Mode.ROYALE or match_over or not match_live:
+		return
+	var alive := {}
+	for c in combatants:
+		if is_instance_valid(c) and c.is_alive():
+			alive[c.team] = true
+	if alive.size() == 1:
+		_award(alive.keys()[0])
+	elif alive.is_empty():
+		match_over = true   # everyone went down together; nobody wins
 
 
 ## A second of holding the capture area.

@@ -14,6 +14,14 @@ const ZONE_SCENE := preload("res://scenes/fx/zone.tscn")
 const HIT_MARKER := preload("res://scripts/hit_marker.gd")
 const HIT_TICK := preload("res://scripts/hit_tick.gd")
 const MAP_VIEW := preload("res://scripts/map_view.gd")
+const STORM := preload("res://scripts/storm.gd")
+const PICKUP := preload("res://scripts/pickup.gd")
+# Battle royale. You deploy with a sidearm and nothing else, and everything
+# worth having is on the ground — the count scales with the map so a 300 m
+# basin is not as bare as a 34 m corridor.
+const ROYALE_PICKUPS_PER_HA := 9.0   # items per hectare of playable ground
+const ROYALE_MIN_PICKUPS := 24
+const ROYALE_MAX_PICKUPS := 220
 const MENU_SCENE := "res://scenes/menu.tscn"
 const AI_RESPAWN_DELAY := 4.0  # team AI come back, unlike a player's bought squad
 const MATCH_START_COUNTDOWN := 3  # seconds of GET READY once everyone has deployed
@@ -50,6 +58,7 @@ var _zone_labels: Array[Label] = []
 var _deployed := {}          # players who have finished their loadout at least once
 var _countdown_running := false
 var _hit_tick: Node          # the shared click pool
+var storm: Node3D            # the royale storm, when there is one
 
 
 func _ready() -> void:
@@ -58,6 +67,10 @@ func _ready() -> void:
 	add_child(level)  # its _ready registers the team spawn points
 	# ...and now that its geometry exists, take the map screen's picture of it.
 	GameState.scan_map_geometry(level)
+	# A three- or four-way match needs a corner each; two-team layouts are the
+	# map author's and are left alone. Must run after scan_map_geometry, which
+	# is what establishes the extents the corners are measured from.
+	GameState.place_corner_spawns(level)
 
 	_hit_tick = HIT_TICK.new()
 	_hit_tick.name = "HitTick"
@@ -101,6 +114,8 @@ func _ready() -> void:
 		player.begin_deploy()  # after the HUD exists, so it sees the select screen
 
 	_fill_teams_with_ai()
+	if GameState.mode == GameState.Mode.ROYALE:
+		_start_royale()
 	if GameState.mode == GameState.Mode.ZONES:
 		var zone := ZONE_SCENE.instantiate()
 		zone.setup(level)
@@ -112,6 +127,63 @@ func _ready() -> void:
 	GameState.match_won.connect(_show_victory)
 	GameState.match_won.connect(_on_match_won)
 	_refresh_scores()
+
+
+## Battle royale setup: the storm, and the gear to fight over. Both go in the
+## level rather than under Main so they are torn down with the map.
+func _start_royale() -> void:
+	storm = STORM.new()
+	storm.name = "Storm"
+	level.add_child(storm)
+	storm.setup(int(Time.get_unix_time_from_system()))
+	_scatter_pickups()
+
+
+## Gear on the ground. Weighted so guns are the common find and gadgets the rare
+## one, and placed on the map's own ground height so nothing floats over a dune
+## or sinks into a mesa.
+func _scatter_pickups() -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = int(Time.get_unix_time_from_system()) ^ 0x5eed
+	var extents := GameState.map_extents
+	var hectares := (extents.x * 2.0) * (extents.y * 2.0) / 10000.0
+	var count := clampi(roundi(hectares * ROYALE_PICKUPS_PER_HA),
+		ROYALE_MIN_PICKUPS, ROYALE_MAX_PICKUPS)
+	for i in count:
+		var spot := _royale_spot(rng, extents)
+		var item: Pickup = PICKUP.new()
+		level.add_child(item)
+		item.global_position = spot
+		_roll_pickup(item, rng)
+
+
+func _royale_spot(rng: RandomNumberGenerator, extents: Vector2) -> Vector3:
+	var margin := 6.0
+	var x := GameState.map_center.x + rng.randf_range(-extents.x + margin, extents.x - margin)
+	var z := GameState.map_center.z + rng.randf_range(-extents.y + margin, extents.y - margin)
+	var y := 0.0
+	if level.has_method("height_at"):
+		y = level.height_at(x, z)
+	return Vector3(x, y, z)
+
+
+## What a given crate turns out to be. Guns dominate because a royale where you
+## cannot find a rifle is just a pistol duel; gadgets are rare because they are
+## the strongest single thing you can pick up.
+func _roll_pickup(item: Pickup, rng: RandomNumberGenerator) -> void:
+	var roll := rng.randf()
+	if roll < 0.34:
+		# Never the "no primary" row: a crate has to contain an actual gun.
+		item.setup(Pickup.Kind.PRIMARY, rng.randi_range(1, Loadout.WEAPONS.size() - 1))
+	elif roll < 0.48:
+		item.setup(Pickup.Kind.SIDEARM, rng.randi_range(0, Loadout.SECONDARIES.size() - 1))
+	elif roll < 0.60:
+		item.setup(Pickup.Kind.GADGET, rng.randi_range(1, Loadout.GADGETS.size() - 1))
+	elif roll < 0.80:
+		item.setup(Pickup.Kind.GRENADES,
+			rng.randi_range(0, Loadout.GRENADE_TYPES.size() - 1), 1)
+	else:
+		item.setup(Pickup.Kind.MEDKIT, 0, 1)
 
 
 ## Nobody fights until every human has bought a loadout and deployed. The last
@@ -207,6 +279,8 @@ func _build_hud(player: Player) -> Control:
 	_add_gear_readout(hud, player, color)
 	_add_kill_streak(hud, player)
 	_add_damage_flash(hud, player)
+	if GameState.mode == GameState.Mode.ROYALE:
+		_add_storm_readout(hud, player)
 	_add_map(hud, player)
 	hud.add_child(_build_buy_screen(player, color))
 	_add_victory_banner(hud)
@@ -223,6 +297,31 @@ func _add_player_tag(hud: Control, player: Player, color: Color) -> void:
 	tag.add_theme_color_override("font_color", color)
 	tag.position = Vector2(14, 8)
 	hud.add_child(tag)
+
+
+## Storm readout: whether it is closing, how long until it moves, and a warning
+## while you are actually standing in it. Polled rather than driven by a signal
+## because the storm changes every frame while it closes.
+func _add_storm_readout(hud: Control, player: Player) -> void:
+	var label := _full_rect_label("", 17, Color(0.7, 0.8, 1.0))
+	label.offset_top = 34.0
+	hud.add_child(label)
+	label.draw.connect(func() -> void:
+		if storm == null or not is_instance_valid(storm):
+			return
+		var flat := Vector2(player.global_position.x - storm.centre.x,
+			player.global_position.z - storm.centre.z)
+		var outside: bool = flat.length() > storm.radius
+		if outside:
+			label.text = "IN THE STORM  —  %.0f dps  —  RUN" % storm.damage_rate()
+			label.add_theme_color_override("font_color", Color(1.0, 0.45, 0.4))
+		elif storm.is_closing():
+			label.text = "STORM CLOSING  %ds" % storm.seconds_left()
+			label.add_theme_color_override("font_color", Color(1.0, 0.8, 0.45))
+		else:
+			label.text = "STORM MOVES IN  %ds" % storm.seconds_left()
+			label.add_theme_color_override("font_color", Color(0.7, 0.8, 1.0)))
+	get_tree().process_frame.connect(label.queue_redraw)
 
 
 ## The map screen: hidden until this player opens it, and drawn over the rest of

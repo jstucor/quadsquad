@@ -202,6 +202,20 @@ static func bot_build(index: int) -> Loadout:
 	return built
 
 
+## What you drop in with in battle royale: the free sidearm and nothing else.
+## Everything better is on the ground, which is the entire mode.
+static func royale_start() -> Loadout:
+	var l := Loadout.new()
+	l.weapon = NO_PRIMARY
+	l.secondary = 0
+	l.gadget = Gadget.NONE
+	l.armor = DEFAULT_ARMOR
+	l.grenades = 0
+	l.medkits = 0
+	l.squad = 0
+	return l
+
+
 ## A starter build that spends part of the budget: standard armour, basic rifle.
 ## The gun is looked up by CLASS, not by a literal index — inserting a cheaper
 ## primary into WEAPONS silently changed what every player deployed with.

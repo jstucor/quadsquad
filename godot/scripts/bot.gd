@@ -225,6 +225,7 @@ func _die(attacker: Node) -> void:
 		_turret.queue_free()  # the engineer's turret dies with the engineer
 	if is_instance_valid(_mortar):
 		_mortar.queue_free()  # ...and so does the tube
+	GameState.check_last_standing()
 	queue_free()  # bots don't respawn; the owner re-buys them on their next deploy
 
 

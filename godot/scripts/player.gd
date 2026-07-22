@@ -227,6 +227,13 @@ func _exit_tree() -> void:
 
 
 func begin_deploy() -> void:
+	# Royale has no shop: you drop in with a sidearm and scavenge the rest, so
+	# there is nothing to put on a buy screen. Deploy straight away.
+	if GameState.mode == GameState.Mode.ROYALE:
+		pending = Loadout.royale_start()
+		loadout = pending.duplicate_loadout()
+		_respawn()
+		return
 	_enter_buy_screen(DEPLOY_FLOOR, false)
 
 
@@ -269,6 +276,32 @@ func take_damage(amount: float, attacker: Node = null, headshot := false) -> voi
 ## the attacker cares. Bots don't implement it — they need no feedback.
 func on_hit_confirmed(headshot: bool, killed: bool) -> void:
 	hit_confirmed.emit(headshot, killed)
+
+
+## Take a pickup's contents into the current build and re-apply it, so a gun
+## found on the ground behaves exactly like one that was bought. Health kits and
+## grenades are counted rather than swapped, and re-applying would reset them,
+## so those two are added after the fact.
+func collect(item: Pickup) -> void:
+	var grenades := grenades_left
+	var medkits := medkits_left
+	var health_before := health
+	pending = loadout.duplicate_loadout()
+	_apply_loadout()
+	# _apply_loadout refills to the build's counts; put back what we were
+	# carrying and add what was on the ground.
+	grenades_left = grenades
+	medkits_left = medkits
+	match item.kind:
+		Pickup.Kind.GRENADES:
+			grenades_left = mini(grenades + item.amount, Loadout.GRENADE_MAX)
+		Pickup.Kind.MEDKIT:
+			medkits_left = mini(medkits + item.amount, Loadout.MEDKIT_MAX)
+	# A pickup is not a heal: you keep the damage you were carrying.
+	health = minf(health_before, max_health)
+	health_changed.emit(health)
+	gear_changed.emit(grenades_left, medkits_left)
+	weapon_changed.emit(_hand_name())
 
 
 ## Credited by whatever we just killed. Duck-typed like the rest of the combat
@@ -440,6 +473,7 @@ func _die(attacker: Node = null) -> void:
 		attacker.credit_kill()
 	_spawn_corpse(attacker)
 	_enter_buy_screen(RESPAWN_FLOOR, true)
+	GameState.check_last_standing()
 
 
 ## Go to the buy screen. It stays up until the player presses deploy — `floor`
@@ -485,6 +519,10 @@ func _spawn_corpse(attacker: Node) -> void:
 
 
 func _process_dead(delta: float) -> void:
+	# Royale has no respawns: once you are down you stay down, and the buy
+	# screen never arms. Main's last-side-standing check ends the match.
+	if GameState.mode == GameState.Mode.ROYALE and GameState.match_live:
+		return
 	if not _deploy_armed:
 		var whole_before := ceili(_deploy_wait)
 		_deploy_wait -= delta
