@@ -10,6 +10,7 @@ extends Control
 ## explicit focus wiring.
 
 const GAME_SCENE := "res://scenes/main.tscn"
+const SETTINGS_SCENE := "res://scenes/settings.tscn"
 
 const BG_COLOR := Color(0.06, 0.07, 0.09)
 const ACCENT := Color(0.45, 0.72, 1.0)
@@ -55,6 +56,8 @@ func _build() -> void:
 	column.add_child(_spacer(14))
 	_row(column, "MAP ROTATION", "Play every map in order").pressed.connect(
 		_start.bind(0, true))
+	_row(column, "CONTROLS", "Rebind the keyboard and any pad").pressed.connect(
+		func() -> void: get_tree().change_scene_to_file(SETTINGS_SCENE))
 	_row(column, "QUIT", "").pressed.connect(func() -> void: get_tree().quit())
 
 	column.add_child(_spacer(20))

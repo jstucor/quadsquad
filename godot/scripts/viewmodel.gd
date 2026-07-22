@@ -19,6 +19,12 @@ const HIP_POS := Vector3.ZERO
 const ADS_PULL_BACK := 0.05
 const AIM_TIME := 0.12       # seconds to fully raise/lower sights
 const RECOIL_DECAY := 6.0    # how fast the kick springs back
+const KICK_CEILING := 1.8    # a burst stacks up to here before it stops growing
+# How the accumulated kick reads on screen: shoved back toward the player, muzzle
+# climbing, with a small lateral lean.
+const KICK_PUSH := 0.085     # metres back per unit of kick
+const KICK_PITCH := 0.26     # radians of muzzle climb per unit of kick
+const KICK_LEAN := 0.07
 const FLASH_TIME := 0.045
 
 var aiming_source: Node3D    # the parent Weapon (aiming / has_scope live here)
@@ -28,7 +34,7 @@ var _scope: MeshInstance3D
 var _holo: Node3D
 var _flash: MeshInstance3D
 
-var _kick := 0.0             # current recoil amount (0..~1.2), springs to 0
+var _kick := 0.0             # current recoil amount (0..KICK_CEILING), springs to 0
 var _kick_yaw := 0.0         # random left/right lean per shot
 var _aim_t := 0.0            # 0 hip .. 1 aimed
 var _ads_pos := Vector3(-0.165, 0.055, ADS_PULL_BACK)  # solved in _build
@@ -297,7 +303,7 @@ func configure(class_id: int, scoped := false, holo := false) -> void:
 
 ## Called on each shot; strength scales the kick per weapon class.
 func kick(strength: float) -> void:
-	_kick = minf(_kick + strength, 1.2)
+	_kick = minf(_kick + strength, KICK_CEILING)
 	_kick_yaw = randf_range(-1.0, 1.0)
 	_flash_t = FLASH_TIME
 	if _flash:
@@ -324,10 +330,10 @@ func _process(delta: float) -> void:
 	var bob := Vector3(cos(_bob_t) * bob_amp, absf(sin(_bob_t)) * bob_amp, 0.0)
 
 	var pos := HIP_POS.lerp(_ads_pos, _aim_t) + bob
-	pos.z += _kick * 0.06  # recoil shoves the gun back toward the player
+	pos.z += _kick * KICK_PUSH  # recoil shoves the gun back toward the player
 	position = pos
 	# Muzzle climbs (rotate about +X) with a small random lateral lean.
-	rotation = Vector3(_kick * 0.18, _kick * _kick_yaw * 0.05, 0.0)
+	rotation = Vector3(_kick * KICK_PITCH, _kick * _kick_yaw * KICK_LEAN, 0.0)
 
 	if _flash:
 		_flash_t = maxf(_flash_t - delta, 0.0)

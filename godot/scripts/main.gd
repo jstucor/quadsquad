@@ -9,6 +9,10 @@ extends Node3D
 const PLAYER_SCENE := preload("res://scenes/actors/player.tscn")
 const BOT_SCENE := preload("res://scenes/actors/bot.tscn")
 const ZONE_SCENE := preload("res://scenes/fx/zone.tscn")
+# Hit confirmation: a marker per HUD (each player only sees their own hits) and
+# one shared pool of clicks (audio isn't split four ways the way the screen is).
+const HIT_MARKER := preload("res://scripts/hit_marker.gd")
+const HIT_TICK := preload("res://scripts/hit_tick.gd")
 const MENU_SCENE := "res://scenes/menu.tscn"
 const AI_RESPAWN_DELAY := 4.0  # team AI come back, unlike a player's bought squad
 const MATCH_START_COUNTDOWN := 3  # seconds of GET READY once everyone has deployed
@@ -44,12 +48,17 @@ var _countdown_labels: Array[Label] = []
 var _zone_labels: Array[Label] = []
 var _deployed := {}          # players who have finished their loadout at least once
 var _countdown_running := false
+var _hit_tick: Node          # the shared click pool
 
 
 func _ready() -> void:
 	GameState.reset_match()
 	level = GameState.MAPS[GameState.map_index]["scene"].instantiate()
 	add_child(level)  # its _ready registers the team spawn points
+
+	_hit_tick = HIT_TICK.new()
+	_hit_tick.name = "HitTick"
+	add_child(_hit_tick)
 
 	var grid := GridContainer.new()
 	# One human is full-screen, two split left/right, three or four go 2x2.
@@ -240,6 +249,15 @@ func _add_reticle(hud: Control, player: Player) -> void:
 	holo.draw.connect(_draw_holo.bind(holo))
 	holo.resized.connect(holo.queue_redraw)
 	hud.add_child(holo)
+
+	# Added LAST so it draws over every reticle — it has to show through the
+	# scope blackout too, or a sniper never gets told they connected. Each HUD
+	# only ever confirms its own player's hits; the click is shared.
+	var marker: Control = HIT_MARKER.new()
+	hud.add_child(marker)
+	player.hit_confirmed.connect(func(headshot: bool, killed: bool) -> void:
+		marker.flash(headshot, killed)
+		_hit_tick.play(headshot, killed))
 
 	var refresh := func() -> void:
 		var live := player.is_alive()
@@ -562,7 +580,7 @@ func _refresh_buy_screen(player: Player, color: Color, rows: Array[Label],
 			values[i].text += "   %d" % cost
 		rows[i].add_theme_color_override("font_color", tint)
 		values[i].add_theme_color_override("font_color", tint)
-	blurb.text = build.row_blurb(player.buy_row)
+	blurb.text = build.row_blurb(player.buy_row, player.input_device)
 	# Count the lock down out loud: a silent "standby" for five seconds reads
 	# exactly like a match that has failed to start.
 	prompt.text = "%s  to deploy" % player.deploy_button_name() \

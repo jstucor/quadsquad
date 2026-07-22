@@ -25,7 +25,11 @@ func setup(team_color: Color) -> void:
 	_build(team_color)
 
 
-func take_damage(amount: float, _attacker: Node = null) -> void:
+## Same signature as every other damageable thing (see Player.take_damage) — a
+## shield is hit by the same calls, so it has to accept the same arguments. It
+## confirms nothing back to the shooter: a hit on a barrier is not a hit on a
+## body, and reporting it would mark every blocked shot as though it landed.
+func take_damage(amount: float, _attacker: Node = null, _headshot := false) -> void:
 	health -= amount
 	if health <= 0.0:
 		queue_free()  # overloaded: the owner can throw up a fresh one

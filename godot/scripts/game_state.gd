@@ -2,7 +2,8 @@ extends Node
 ## Autoload: match state — teams, team-deathmatch score, spawn points, and the
 ## map rotation. Levels register spawn markers per team; actors credit frags
 ## here on a kill, so the mode rules live in one place. Also bootstraps the
-## keyboard/mouse InputMap (registered in code, no project.godot serialization).
+## control bindings (Controls, registered in code — no project.godot
+## serialization) before anything can ask what a button does.
 
 signal score_changed(team: int, score: int)
 signal match_won(team: int)
@@ -116,7 +117,9 @@ var _spawns: Dictionary = {}  # Team -> Array[Node3D]
 
 
 func _init() -> void:
-	_register_kb_actions()
+	# Bindings (the kb_* InputMap actions and every pad profile) live in Controls
+	# and are read back from user://controls.cfg here, before anything can ask.
+	Controls.ensure_loaded()
 
 
 func score_limit() -> int:
@@ -225,38 +228,3 @@ func _award(team: int) -> void:
 	if scores[team] >= score_limit():
 		match_over = true
 		match_won.emit(team)
-
-
-func _register_kb_actions() -> void:
-	var keys := {
-		"kb_forward": KEY_W,
-		"kb_back": KEY_S,
-		"kb_left": KEY_A,
-		"kb_right": KEY_D,
-		"kb_jump": KEY_SPACE,
-		"kb_sprint": KEY_SHIFT,
-		"kb_crouch": KEY_CTRL,
-		"kb_grenade": KEY_G,
-		"kb_medkit": KEY_H,
-		"kb_gadget": KEY_F,
-		"kb_switch": KEY_Q,  # swap primary <-> sidearm
-	}
-	for action in keys:
-		if InputMap.has_action(action):
-			continue
-		InputMap.add_action(action)
-		var ev := InputEventKey.new()
-		ev.physical_keycode = keys[action]
-		InputMap.action_add_event(action, ev)
-	# Mouse-button actions: left = fire, right = aim down sights.
-	var mouse_actions := {
-		"kb_fire": MOUSE_BUTTON_LEFT,
-		"kb_ads": MOUSE_BUTTON_RIGHT,
-	}
-	for action in mouse_actions:
-		if InputMap.has_action(action):
-			continue
-		InputMap.add_action(action)
-		var mb := InputEventMouseButton.new()
-		mb.button_index = mouse_actions[action]
-		InputMap.action_add_event(action, mb)

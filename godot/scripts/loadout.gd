@@ -44,14 +44,14 @@ const SIGHTS: Array[Dictionary] = [
 	{"name": "HOLO RING", "cost": 20,
 		"blurb": "Hollow ring sight: clear view, mild zoom, tighter aim"},
 	{"name": "SCOPE", "cost": 25,
-		"blurb": "Magnified optics, but the scope blacks out everything around it"},
+		"blurb": "Pinpoint accurate while aimed, but it blacks out everything around it"},
 ]
 
 # Bolt-ons that modify the gun's profile (see Weapon.set_class). Each is owned
 # or not; `key` is the field on this object that stores that.
 const UPGRADES: Array[Dictionary] = [
 	{"key": "cooling", "name": "COOLING VANES", "cost": 20, "blurb": "-25% heat per shot, cools faster"},
-	{"key": "grip", "name": "IMPROVED GRIP", "cost": 20, "blurb": "-35% hip spread, less bloom"},
+	{"key": "grip", "name": "IMPROVED GRIP", "cost": 20, "blurb": "-35% hip spread, -30% kick"},
 ]
 
 # Armour frames: health against speed/jump. Index 1 (NONE) is the default.
@@ -67,13 +67,13 @@ const ARMOR: Array[Dictionary] = [
 ]
 const DEFAULT_ARMOR := 1
 
-# GADGETS: one slot, fired with F / pad X. Each is a different verb rather than
-# more damage — see Player._use_gadget and the gadget scenes.
+# GADGETS: one slot, on the rebindable "gadget" control. Each is a different
+# verb rather than more damage — see Player._use_gadget and the gadget scenes.
 enum Gadget { NONE, JETPACK, CABLE, SHIELD, ROTARY, TURRET }
 const GADGETS: Array[Dictionary] = [
 	{"name": "NONE", "cost": 0, "blurb": "No gadget"},
 	{"name": "JETPACK", "cost": 45,
-		"blurb": "Hold F / X to fly. Fuel burns fast, refills on the ground"},
+		"blurb": "Hold the gadget button to fly. Fuel burns fast, refills on the ground"},
 	{"name": "WRIST CABLE", "cost": 30,
 		"blurb": "Grapple within 34 m, reel in and vault on top. 5s between uses"},
 	{"name": "FRONT SHIELD", "cost": 50,
@@ -341,7 +341,10 @@ func row_cost(row: int) -> int:
 			return int(up["cost"]) if get(up["key"]) else 0
 
 
-func row_blurb(row: int) -> String:
+## The line under the cursor. `device` is the shopping player's input_device, so
+## the rows that name a control name the one THAT player would actually press
+## (and keep naming the right one after a rebind).
+func row_blurb(row: int, device: int = -1) -> String:
 	match row:
 		Row.WEAPON:
 			if not has_primary():
@@ -350,7 +353,8 @@ func row_blurb(row: int) -> String:
 			return "%d dmg   %.0fm range" % [p["damage"], p["range"]]
 		Row.SECONDARY:
 			var sp: Dictionary = Weapon.PROFILES[secondary_class()]
-			return "%d dmg   swap with Q / Y" % sp["damage"]
+			return "%d dmg   swap with %s" % [
+				sp["damage"], Controls.label(device, "switch")]
 		Row.GADGET:
 			return GADGETS[gadget]["blurb"]
 		Row.SIGHT:
@@ -359,9 +363,11 @@ func row_blurb(row: int) -> String:
 			var a := armor_stats()
 			return "%s   %d HP" % [a["blurb"], roundi(a["health"])]
 		Row.GRENADES:
-			return "%d each, thrown with G / d-pad up" % GRENADE_COST
+			return "%d each, thrown with %s" % [
+				GRENADE_COST, Controls.label(device, "grenade")]
 		Row.MEDKITS:
-			return "%d each, heals %d with H / d-pad down" % [MEDKIT_COST, roundi(MEDKIT_HEAL)]
+			return "%d each, heals %d with %s" % [
+				MEDKIT_COST, roundi(MEDKIT_HEAL), Controls.label(device, "medkit")]
 		Row.SQUAD:
 			var each: int = SQUAD_SKILLS[squad_skill]["cost"]
 			return "%d each at %s   (max %d, they fight for your team)" % [

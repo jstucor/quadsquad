@@ -77,6 +77,14 @@ const UNSTICK_SPEED := 5.0
 const EYE_HEIGHT := 1.5
 const TARGET_AIM_HEIGHT := 1.0  # aim at the chest, not the feet
 const AIM_REROLL := 0.25  # seconds a given aim error is held for
+# Recoil applies to bots too, or raising it across the board would just be a
+# one-sided nerf to the humans. It's added straight onto the head, and _aim_head
+# lerping back toward the target IS the recovery — so a bot holding the trigger
+# climbs off its mark exactly like a player does. Scaled down a little because
+# that lerp is slower than the player's RECOIL_RECOVER and a bot can't pull
+# down against the climb the way a player can.
+const RECOIL_TAKE := 0.75
+const RECOIL_YAW_SHARE := 0.5  # sideways lean per shot, as a share of the pitch
 
 enum State { HOLD, ADVANCE, ENGAGE }
 
@@ -119,6 +127,7 @@ func _ready() -> void:
 	# Own capsule instance, so one bot's shape isn't shared with every other.
 	_collision.shape = _collision.shape.duplicate()
 	weapon.shooter = self
+	weapon.fired.connect(_on_weapon_fired)
 	# Stagger the search so a squad of four doesn't retarget on the same frame.
 	_retarget_in = randf() * RETARGET_INTERVAL
 	_strafe_dir = 1.0 if randf() < 0.5 else -1.0
@@ -158,12 +167,16 @@ func is_headshot(world_pos: Vector3) -> bool:
 	return world_pos.y - global_position.y >= 1.42
 
 
-func take_damage(amount: float, attacker: Node = null) -> void:
+func take_damage(amount: float, attacker: Node = null, headshot := false) -> void:
 	if _dead:
 		return
 	if attacker != null and "team" in attacker and attacker.team == team:
 		return  # friendly fire is off for bots too
 	health -= amount
+	# Same contract as Player: confirm the hit back to whoever landed it, only
+	# once the damage is real.
+	if attacker != null and attacker.has_method("on_hit_confirmed"):
+		attacker.on_hit_confirmed(headshot, health <= 0.0)
 	if health <= 0.0:
 		_die(attacker)
 
@@ -473,6 +486,15 @@ func _aim_head(delta: float) -> void:
 	var blend := clampf(delta * 8.0, 0.0, 1.0)
 	head.rotation.x = lerpf(head.rotation.x, pitch + _aim_offset.y, blend)
 	head.rotation.y = lerpf(head.rotation.y, _aim_offset.x, blend)
+
+
+## The gun kicks the bot's aim up the same way it kicks a player's camera. The
+## shove big guns give (kick_back) is ignored: a bot walks by writing its own
+## velocity every frame and would simply erase it.
+func _on_weapon_fired(cam_recoil: float, _kick_back: float) -> void:
+	head.rotation.x += cam_recoil * RECOIL_TAKE
+	head.rotation.y += randf_range(-RECOIL_YAW_SHARE, RECOIL_YAW_SHARE) \
+		* cam_recoil * RECOIL_TAKE
 
 
 ## Same horizontal separation the players use: two capsules inside each other

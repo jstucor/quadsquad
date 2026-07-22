@@ -19,6 +19,8 @@ signal deploy_ready()            # the minimum wait elapsed; the button is live
 signal gear_changed(grenades: int, medkits: int)
 signal killed_someone(streak: int)  # a kill this life; streak resets on death
 signal damaged(amount: float)       # took a hit: drives the red screen flash
+## One of OUR shots landed on an enemy: drives the hit marker and its click.
+signal hit_confirmed(headshot: bool, killed: bool)
 signal squad_changed(alive: int)  # squadmates mustered or lost
 
 const CORPSE_SCENE := preload("res://scenes/fx/corpse.tscn")
@@ -68,7 +70,20 @@ const STICK_LOOK_SPEED := 2.6
 const STICK_DEADZONE := 0.15
 const BUY_DEADZONE := 0.6  # stick push that counts as one buy-screen step
 const AIM_FOV_LERP := 14.0  # per-second rate the camera eases toward zoom FOV
-const RECOIL_RECOVER := 12.0  # per-second rate the camera recoil settles back
+# Recoil. The camera kick always settles all the way back to where you were
+# looking, so a burst climbs and then hands your aim back rather than stealing
+# it — the cost of firing is the climb, not a permanent drift. Recovery is slow
+# enough that a fast gun is still climbing when its next round leaves.
+const RECOIL_RECOVER := 7.0   # per-second rate the camera recoil settles back
+const RECOIL_YAW_SHARE := 0.55  # sideways lean, as a share of the pitch kick
+# Two ways to steady a gun, both things the player chooses in the moment.
+const ADS_RECOIL_MULT := 0.8
+const CROUCH_RECOIL_MULT := 0.6
+# The backwards shove big guns give you. It can't just be added to velocity:
+# movement rewrites velocity.x/z from the stick every frame (same reason the
+# cable vault has to hold its heading), so it rides alongside as its own
+# decaying push, like _unstick_push.
+const KICK_DECAY := 22.0  # m/s of shove bled off per second
 # Crouch: lower stance = smaller hitbox, steadier, slower. Values are lerped by
 # _crouch_t between standing and crouched.
 const STAND_HEIGHT := 1.8
@@ -121,10 +136,7 @@ var _base_fov := 75.0
 # Look sensitivity scales with zoom so aiming down a scope isn't twitchy.
 var _look_scale := 1.0
 var _prev_aim := false
-var _grenade_down := false # joypad gear-button edge tracking
-var _medkit_down := false
-var _gadget_down := false
-var _switch_down := false
+var _downs := {}             # control id -> was it down last frame (joypad edges)
 var _on_secondary := false   # which weapon slot is in hand
 var _cable_left := 0.0       # seconds of grapple pull remaining
 var _cable_anchor := Vector3.ZERO
@@ -140,10 +152,10 @@ var _turret: Node3D          # placed turret, if any (one at a time)
 var _rotary_out := false
 var _jet_thrusting := false
 var _jet_pct := 20  # last fuel level pushed to the HUD, in 5% steps
-var _fire_down := false    # joypad fire-button edge tracking
 var _look_pitch := 0.0     # head pitch from look input (recoil is added on top)
 var _recoil_pitch := 0.0   # transient camera kick, settles back to 0
 var _recoil_yaw := 0.0
+var _kick_vel := Vector3.ZERO  # horizontal shove from the last shot, decaying
 var _crouch_t := 0.0       # 0 standing .. 1 crouched
 var _dead := false
 var _speed_mult := 1.0     # from the armour frame: scales walk + sprint
@@ -197,7 +209,7 @@ func bind_camera(cam: Camera3D) -> void:
 	_base_fov = cam.fov
 
 
-func take_damage(amount: float, attacker: Node = null) -> void:
+func take_damage(amount: float, attacker: Node = null, headshot := false) -> void:
 	if _dead:
 		return  # already eliminated, waiting to respawn
 	# Friendly fire is off: teammates deal no damage (self-damage still counts).
@@ -206,8 +218,20 @@ func take_damage(amount: float, attacker: Node = null) -> void:
 	health -= amount
 	health_changed.emit(health)
 	damaged.emit(amount)
+	# Tell whoever shot us that it landed. This is deliberately AFTER the
+	# friendly-fire check and the health subtraction, so the hit marker only
+	# ever confirms damage that was actually dealt.
+	if attacker != null and attacker != self and attacker.has_method("on_hit_confirmed"):
+		attacker.on_hit_confirmed(headshot, health <= 0.0)
 	if health <= 0.0:
 		_die(attacker)
+
+
+## Called BY whatever we just damaged, on the same duck-typed contract as
+## credit_kill: anything that takes damage reports it back to its attacker if
+## the attacker cares. Bots don't implement it — they need no feedback.
+func on_hit_confirmed(headshot: bool, killed: bool) -> void:
+	hit_confirmed.emit(headshot, killed)
 
 
 ## Credited by whatever we just killed. Duck-typed like the rest of the combat
@@ -239,9 +263,10 @@ func deploy_armed() -> bool:
 	return _deploy_armed
 
 
-## What to call the deploy button in this player's prompt.
+## What to call the deploy button in this player's prompt — whatever they have
+## jump bound to, so the prompt follows a rebind.
 func deploy_button_name() -> String:
-	return "SPACE" if input_device < 0 else "A"
+	return Controls.label(input_device, "jump")
 
 
 ## Take on the bought build: armour stats, the gun with its upgrades fitted, and
@@ -401,7 +426,7 @@ func _enter_buy_screen(floor_secs: float, eliminated: bool) -> void:
 	# Forget any held trigger/button: the new life starts on a fresh press.
 	_buy_latch = Vector2.ZERO
 	_deploy_latch = true  # released-then-pressed, so a held jump can't deploy
-	_fire_down = false
+	_downs.clear()
 	_deploy_wait = floor_secs
 	_deploy_armed = false
 	died.emit(eliminated)
@@ -446,6 +471,7 @@ func _respawn() -> void:
 	velocity = Vector3.ZERO
 	_recoil_pitch = 0.0
 	_recoil_yaw = 0.0
+	_kick_vel = Vector3.ZERO
 	_apply_loadout()
 	health_changed.emit(health)
 	if is_instance_valid(_corpse):
@@ -498,9 +524,10 @@ func _physics_process(delta: float) -> void:
 	_update_aim(delta)
 	_update_crouch(delta)
 
-	# Settle the camera recoil back toward zero.
+	# Settle the camera recoil back toward zero, and bleed off the shot's shove.
 	_recoil_pitch = lerpf(_recoil_pitch, 0.0, clampf(delta * RECOIL_RECOVER, 0.0, 1.0))
 	_recoil_yaw = lerpf(_recoil_yaw, 0.0, clampf(delta * RECOIL_RECOVER, 0.0, 1.0))
+	_kick_vel = _kick_vel.move_toward(Vector3.ZERO, KICK_DECAY * delta)
 	_refresh_head()
 
 	if input_device >= 0:
@@ -522,8 +549,8 @@ func _physics_process(delta: float) -> void:
 	elif _jump_pressed():
 		velocity.y = JUMP_VELOCITY * _jump_mult
 	var unstick := _unstick_push()
-	velocity.x = dir.x * speed + unstick.x
-	velocity.z = dir.z * speed + unstick.z
+	velocity.x = dir.x * speed + unstick.x + _kick_vel.x
+	velocity.z = dir.z * speed + unstick.z + _kick_vel.z
 	_apply_gadget_motion(delta)
 	move_and_slide()
 	if global_position.y > BOUNDS_MAX_Y or global_position.y < BOUNDS_MIN_Y:
@@ -566,9 +593,23 @@ func _update_crouch(delta: float) -> void:
 	_collision.position.y = cap.height * 0.5
 
 
-func _on_weapon_fired(cam_recoil: float) -> void:
-	_recoil_pitch += cam_recoil
-	_recoil_yaw += randf_range(-0.4, 0.4) * cam_recoil
+## A shot went off: throw the camera up and lean it sideways, and shove the body
+## backwards if the gun is heavy enough to have a kick_back. The stance you were
+## in when you pulled the trigger decides how much of that you actually eat.
+func _on_weapon_fired(cam_recoil: float, kick_back: float) -> void:
+	var steady := 1.0
+	if weapon.aiming:
+		steady *= ADS_RECOIL_MULT
+	steady *= lerpf(1.0, CROUCH_RECOIL_MULT, _crouch_t)
+	_recoil_pitch += cam_recoil * steady
+	_recoil_yaw += randf_range(-RECOIL_YAW_SHARE, RECOIL_YAW_SHARE) * cam_recoil * steady
+	if kick_back > 0.0:
+		# Straight back from where the gun is pointed, flattened: a shot fired at
+		# the floor should stagger you, not launch you.
+		var back := head.global_transform.basis.z
+		back.y = 0.0
+		if back.length() > 0.01:
+			_kick_vel += back.normalized() * kick_back * steady
 
 
 ## Hold-to-aim: eases the camera FOV toward the weapon's zoom, tells the weapon
@@ -810,100 +851,70 @@ func _stick(ax: JoyAxis, ay: JoyAxis) -> Vector2:
 	return Vector2.ZERO if v.length() < STICK_DEADZONE else v
 
 
+## Every control below goes through Controls, so all of it is rebindable and
+## none of it names a key or a pad button. Held states are a straight lookup;
+## edges need the split below.
 func _jump_pressed() -> bool:
-	if input_device < 0:
-		return Input.is_action_just_pressed("kb_jump")
-	return Input.is_joy_button_pressed(input_device, JOY_BUTTON_A)
+	return _edge("jump")
 
 
 func _sprint_held() -> bool:
-	if input_device < 0:
-		return Input.is_action_pressed("kb_sprint")
-	return Input.is_joy_button_pressed(input_device, JOY_BUTTON_LEFT_STICK)
+	return Controls.held(input_device, "sprint")
 
 
 func _fire_held() -> bool:
-	if input_device < 0:
-		return Input.is_action_pressed("kb_fire")
-	return Input.get_joy_axis(input_device, JOY_AXIS_TRIGGER_RIGHT) > 0.5 \
-		or Input.is_joy_button_pressed(input_device, JOY_BUTTON_RIGHT_SHOULDER)
-
-
-## Trigger-down edge for semi/burst weapons. Keyboard uses the action's edge;
-## joypad is polled per-device, so we track the previous state ourselves.
-func _fire_pressed() -> bool:
-	if input_device < 0:
-		return Input.is_action_just_pressed("kb_fire")
-	var down := _fire_held()
-	var edge := down and not _fire_down
-	_fire_down = down
-	return edge
+	return Controls.held(input_device, "fire")
 
 
 func _crouch_held() -> bool:
-	if input_device < 0:
-		return Input.is_action_pressed("kb_crouch")
-	return Input.is_joy_button_pressed(input_device, JOY_BUTTON_B)
+	return Controls.held(input_device, "crouch")
 
 
 func _ads_held() -> bool:
-	if input_device < 0:
-		return Input.is_action_pressed("kb_ads")
-	return Input.get_joy_axis(input_device, JOY_AXIS_TRIGGER_LEFT) > 0.5 \
-		or Input.is_joy_button_pressed(input_device, JOY_BUTTON_LEFT_SHOULDER)
-
-
-## Gear buttons are edge-triggered. Keyboard uses the InputMap action's own edge
-## detection; joypad buttons are polled per-device (device-scoped, unlike a
-## shared InputMap action), so we track the previous state ourselves.
-func _grenade_pressed() -> bool:
-	if input_device < 0:
-		return Input.is_action_just_pressed("kb_grenade")
-	var down := Input.is_joy_button_pressed(input_device, JOY_BUTTON_DPAD_UP)
-	var edge := down and not _grenade_down
-	_grenade_down = down
-	return edge
-
-
-func _medkit_pressed() -> bool:
-	if input_device < 0:
-		return Input.is_action_just_pressed("kb_medkit")
-	var down := Input.is_joy_button_pressed(input_device, JOY_BUTTON_DPAD_DOWN)
-	var edge := down and not _medkit_down
-	_medkit_down = down
-	return edge
-
-
-func _gadget_pressed() -> bool:
-	if input_device < 0:
-		return Input.is_action_just_pressed("kb_gadget")
-	var down := Input.is_joy_button_pressed(input_device, JOY_BUTTON_X)
-	var edge := down and not _gadget_down
-	_gadget_down = down
-	return edge
+	return Controls.held(input_device, "ads")
 
 
 func _gadget_held() -> bool:
-	if input_device < 0:
-		return Input.is_action_pressed("kb_gadget")
-	return Input.is_joy_button_pressed(input_device, JOY_BUTTON_X)
+	return Controls.held(input_device, "gadget")
+
+
+func _fire_pressed() -> bool:
+	return _edge("fire")
+
+
+func _grenade_pressed() -> bool:
+	return _edge("grenade")
+
+
+func _medkit_pressed() -> bool:
+	return _edge("medkit")
+
+
+func _gadget_pressed() -> bool:
+	return _edge("gadget")
 
 
 func _switch_pressed() -> bool:
+	return _edge("switch")
+
+
+## Press edge for a control. The keyboard gets it from the InputMap action for
+## free; a pad cannot, because an InputMap action is device-wide and four
+## players are on four pads — so for those we poll and remember the previous
+## state per control, in this player's own _downs.
+func _edge(id: String) -> bool:
 	if input_device < 0:
-		return Input.is_action_just_pressed("kb_switch")
-	var down := Input.is_joy_button_pressed(input_device, JOY_BUTTON_Y)
-	var edge := down and not _switch_down
-	_switch_down = down
+		return Controls.kb_pressed(id)
+	var down := Controls.pad_held(input_device, id)
+	var edge: bool = down and not _downs.get(id, false)
+	_downs[id] = down
 	return edge
 
 
-## Deploy off the buy screen: the same button as jump, held-state (the edge is
+## Deploy off the buy screen: the same control as jump, held-state (the edge is
 ## tracked by the buy screen itself, which needs a fresh press).
 func _deploy_held() -> bool:
-	if input_device < 0:
-		return Input.is_action_pressed("kb_jump")
-	return Input.is_joy_button_pressed(input_device, JOY_BUTTON_A)
+	return Controls.held(input_device, "jump")
 
 
 func _update_anim(move: Vector2, sprinting: bool) -> void:

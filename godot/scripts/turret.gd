@@ -51,12 +51,16 @@ func is_alive() -> bool:
 	return not _dead
 
 
-func take_damage(amount: float, attacker: Node = null) -> void:
+func take_damage(amount: float, attacker: Node = null, headshot := false) -> void:
 	if _dead:
 		return
 	if attacker != null and "team" in attacker and attacker.team == team:
 		return  # friendly fire is off, same as everywhere else
 	health -= amount
+	# Shooting out a turret confirms like any other hit, so wearing one down
+	# gives the same feedback as shooting a body.
+	if attacker != null and attacker.has_method("on_hit_confirmed"):
+		attacker.on_hit_confirmed(headshot, health <= 0.0)
 	if health <= 0.0:
 		_destroy(attacker)
 
