@@ -16,18 +16,32 @@ var anim_player: AnimationPlayer
 var _suit_mat: StandardMaterial3D  # torso/upper-limb colour, tinted per team
 
 # Proportions in metres. Feet rest at y = 0 and the model faces -Z.
-const HIP_Y := 0.9
-const UPPER_LEG := 0.46
-const LOWER_LEG := 0.44
-const TORSO := 0.62
-const SHOULDER_Y := 0.5   # above the hips
-const SHOULDER_X := 0.24
-const HIP_X := 0.11
-const UPPER_ARM := 0.34
-const LOWER_ARM := 0.32
+#
+# These are the TROOPER's own bone lengths, measured off the model and scaled to
+# the 1.82 m the game is built around. Re-proportioning the rig rather than
+# stretching the mesh is what lets the trooper fit with no gaps at the joints,
+# and it costs the animation nothing: every clip is a set of joint ROTATIONS, so
+# changing a limb's length leaves the motion identical. (See TrooperParts, which
+# reads the same bones to cut the mesh up.)
+## Written out rather than computed from TrooperParts' bone table, because a
+## GDScript `const` cannot call a method — and these have to stay constants,
+## since CROUCH_HIP_Y is derived from them at parse time. The derivation is the
+## bone spacing along the rig's own axis (the limbs here are purely vertical, so
+## it is the axis distance, not the bone's diagonal length) times SCALE, which
+## is 1.82 / 2.055 = 0.8856.
+const HIP_Y := 1.0265        # pelvis   1.159
+const HIP_DROP := 0.0930     # pelvis -> thigh, 1.159 - 1.054
+const UPPER_LEG := 0.4189    # thigh  -> calf,  1.054 - 0.581
+const LOWER_LEG := 0.4012    # calf   -> foot,  0.581 - 0.128
+const TORSO := 0.4933        # pelvis -> neck,  1.716 - 1.159
+const SHOULDER_Y := 0.4340   # pelvis -> upperarm, 1.649 - 1.159
+const SHOULDER_X := 0.2028   # upperarm x 0.229
+const HIP_X := 0.0832        # thigh x 0.094
+const UPPER_ARM := 0.2064    # upperarm -> forearm, x 0.462 - 0.229
+const LOWER_ARM := 0.2586    # forearm  -> hand,    x 0.754 - 0.462
 
 # Held-gun position, spine-local (in front of the chest, barrel toward -Z).
-const GUN_POS := Vector3(0.0, 0.34, -0.24)
+const GUN_POS := Vector3(0.0, 0.30, -0.26)
 
 const IDLE_LEN := 2.4
 const WALK_LEN := 1.0
@@ -105,30 +119,29 @@ func set_team_color(c: Color) -> void:
 
 
 func _build_body() -> void:
-	var suit := _mat(Color(0.50, 0.53, 0.60))
+	var suit := _mat(Color(0.72, 0.74, 0.78))   # trooper plate, tinted per team
 	_suit_mat = suit
-	var dark := _mat(Color(0.28, 0.30, 0.36))
-	var head_mat := _mat(Color(0.82, 0.80, 0.78))
-	var visor := _mat(Color(0.08, 0.09, 0.12))
+	var parts := TrooperParts.meshes()
+	# Joint placement comes from the model's own bones, not from nominal limb
+	# lengths, so every piece lands exactly where its geometry was cut from.
+	var at := TrooperParts.joint_offsets()
 
-	var hips := _joint(self, "Hips", Vector3(0, HIP_Y, 0))
+	var hips := _joint(self, "Hips", Vector3(0.0, HIP_Y, 0.0))
+	_part(hips, parts, "hips", suit)
 
 	# Torso pivots at the hips so run/idle can lean from the waist.
 	var spine := _joint(hips, "Spine", Vector3.ZERO)
-	_box(spine, Vector3(0.42, TORSO, 0.24), Vector3(0, TORSO * 0.5, 0), suit)
-	_box(spine, Vector3(0.44, 0.12, 0.26), Vector3(0, 0.06, 0), dark)  # belt
+	_part(spine, parts, "spine", suit)
 
-	var head := _joint(spine, "Head", Vector3(0, TORSO, 0))
-	_box(head, Vector3(0.28, 0.30, 0.28), Vector3(0, 0.15, 0), head_mat)
-	_box(head, Vector3(0.24, 0.09, 0.02), Vector3(0, 0.15, -0.14), visor)  # visor (front = -Z)
+	var head := _joint(spine, "Head", at["head"])
+	_part(head, parts, "head", suit)
 
 	for side in [-1, 1]:
 		var sn := "L" if side < 0 else "R"
-		var sh := _joint(spine, "Shoulder" + sn, Vector3(side * SHOULDER_X, SHOULDER_Y, 0))
-		_box(sh, Vector3(0.13, UPPER_ARM, 0.13), Vector3(0, -UPPER_ARM * 0.5, 0), suit)
-		var el := _joint(sh, "Elbow" + sn, Vector3(0, -UPPER_ARM, 0))
-		_box(el, Vector3(0.12, LOWER_ARM, 0.12), Vector3(0, -LOWER_ARM * 0.5, 0), dark)
-		_box(el, Vector3(0.13, 0.10, 0.14), Vector3(0, -LOWER_ARM, 0), dark)  # hand
+		var sh := _joint(spine, "Shoulder" + sn, at["s" + sn])
+		_part(sh, parts, "s" + sn, suit)
+		var el := _joint(sh, "Elbow" + sn, at["e" + sn])
+		_part(el, parts, "e" + sn, suit)
 
 	# Third-person blaster, held two-handed in front. Other players see this;
 	# the owner sees only the first-person viewmodel. Parented to the spine so
@@ -141,11 +154,21 @@ func _build_body() -> void:
 
 	for side in [-1, 1]:
 		var ln := "L" if side < 0 else "R"
-		var hip := _joint(hips, "Hip" + ln, Vector3(side * HIP_X, 0, 0))
-		_box(hip, Vector3(0.17, UPPER_LEG, 0.18), Vector3(0, -UPPER_LEG * 0.5, 0), suit)
-		var knee := _joint(hip, "Knee" + ln, Vector3(0, -UPPER_LEG, 0))
-		_box(knee, Vector3(0.16, LOWER_LEG, 0.17), Vector3(0, -LOWER_LEG * 0.5, 0), dark)
-		_box(knee, Vector3(0.17, 0.09, 0.26), Vector3(0, -LOWER_LEG + 0.045, -0.06), dark)  # foot
+		var hip := _joint(hips, "Hip" + ln, at["h" + ln])
+		_part(hip, parts, "h" + ln, suit)
+		var knee := _joint(hip, "Knee" + ln, at["k" + ln])
+		_part(knee, parts, "k" + ln, suit)
+
+
+## Hang one cut-up piece of the trooper on a joint. Falls back to nothing if the
+## slice came out empty, so a bad cut leaves a gap rather than crashing.
+func _part(parent: Node3D, parts: Dictionary, key: String, mat: Material) -> void:
+	if not parts.has(key):
+		return
+	var mi := MeshInstance3D.new()
+	mi.mesh = parts[key]
+	mi.material_override = mat
+	parent.add_child(mi)
 
 
 # --- animation clips (generated in code) -----------------------------------
