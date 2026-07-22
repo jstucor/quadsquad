@@ -55,6 +55,8 @@ const MAPS: Array[Dictionary] = [
 		"scene": preload("res://scenes/levels/relay.tscn")},
 	{"name": "CATWALK", "blurb": "Cramped corridors, every fight is a corner",
 		"scene": preload("res://scenes/levels/catwalk.tscn")},
+	{"name": "GEONOSIS", "blurb": "Vast red basin: five mesas around an arena. 300m across",
+		"scene": preload("res://scenes/levels/geonosis.tscn")},
 ]
 ## A team is just an index now, 0 .. active_teams()-1. Two is the classic
 ## Republic/Separatist match; three or four makes it a free-for-all between
