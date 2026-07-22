@@ -235,7 +235,12 @@ func take_damage(amount: float, attacker: Node = null, headshot := false) -> voi
 	if _dead:
 		return  # already eliminated, waiting to respawn
 	# Friendly fire is off: teammates deal no damage (self-damage still counts).
-	if attacker is Player and attacker != self and attacker.team == team:
+	# Tested on `team`, not on `attacker is Player`, so it also blocks a friendly
+	# BOT — which used to get through. Harmless while the only AI weapon was a
+	# rifle aimed at enemies, but AI artillery drops splash on an area, and that
+	# area has your own side standing in it.
+	if attacker != null and attacker != self and "team" in attacker \
+			and attacker.team == team:
 		return
 	health -= amount
 	health_changed.emit(health)
@@ -931,7 +936,12 @@ func _place_turret() -> void:
 
 
 ## Set the mortar tube down a couple of metres ahead, or pick it back up. Same
-## one-at-a-time toggle as the turret; aiming it is a separate act, on the map.
+## one-at-a-time toggle as the turret.
+##
+## Placing it opens the map immediately: a tube you have not given a target is
+## doing nothing, and the map is the only place you can give it one, so the two
+## are one action. Picking the tube back up does NOT open the map — there would
+## be nothing to aim.
 func _place_mortar() -> void:
 	if is_instance_valid(_mortar):
 		_mortar.queue_free()
@@ -941,6 +951,8 @@ func _place_mortar() -> void:
 	get_parent().add_child(_mortar)
 	_mortar.global_position = global_position - global_transform.basis.z * 2.2
 	_mortar.setup(self, team)
+	if not map_open:
+		_toggle_map()
 
 
 ## Gadget leftovers that must not survive a death.

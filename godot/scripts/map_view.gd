@@ -190,5 +190,8 @@ func _draw_legend() -> void:
 	var line := player.map_status()
 	if line.is_empty():
 		return
+	# Wrapped to the VIEWPORT's remaining width, not the panel's: on a map whose
+	# aspect ratio leaves the panel narrow, the panel width clips the line.
 	draw_string(_font, Vector2(_area.position.x, _area.position.y - 11.0), line,
-		HORIZONTAL_ALIGNMENT_LEFT, _area.size.x, _font_size + 1, LABEL_COLOR)
+		HORIZONTAL_ALIGNMENT_LEFT, size.x - _area.position.x, _font_size + 1,
+		LABEL_COLOR)

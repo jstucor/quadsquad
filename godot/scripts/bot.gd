@@ -18,6 +18,7 @@ extends CharacterBody3D
 const CORPSE_SCENE := preload("res://scenes/fx/corpse.tscn")
 const GRENADE_SCENE := preload("res://scenes/fx/grenade.tscn")
 const TURRET_SCENE := preload("res://scenes/actors/turret.tscn")
+const MORTAR_SCENE := preload("res://scenes/actors/mortar.tscn")
 const SHIELD_SCENE := preload("res://scenes/fx/front_shield.tscn")
 const CABLE_WIRE_SCENE := preload("res://scenes/fx/cable_wire.tscn")
 
@@ -48,6 +49,13 @@ const GRENADE_RANGE := Vector2(9.0, 26.0)   # too close and it kills itself
 const GRENADE_COOLDOWN := 6.0
 const MEDKIT_AT := 0.45        # heal below this share of health
 const TURRET_PLACE_GAP := 12.0  # drop it once we're near where we're heading
+# Mortar habits. A bot cannot read a map, so its knowledge gate is its own
+# target: it only ever shells somewhere it has actually seen an enemy. The
+# minimum range is what keeps it INDIRECT fire — anything closer is the gun's
+# job, and lobbing shells onto your own position is not a tactic.
+const MORTAR_PLACE_GAP := 12.0
+const MORTAR_MIN_RANGE := 15.0
+const MORTAR_CLUSTER := 9.0   # enemies this close to the mark get aimed between
 const CABLE_COOLDOWN := 6.0
 const CABLE_MIN_GOAL := 22.0   # only worth grappling toward something far off
 const CABLE_SPEED := 17.0
@@ -111,6 +119,7 @@ var _cable_cd := 0.0
 var _cable_left := 0.0
 var _cable_anchor := Vector3.ZERO
 var _turret: Node3D
+var _mortar: Node3D
 var _shield: Node3D
 var _strafe_dir := 1.0
 var _gravity: float = ProjectSettings.get_setting("physics/3d/default_gravity")
@@ -196,6 +205,8 @@ func _die(attacker: Node) -> void:
 		GameState.TEAM_COLORS[team], push)
 	if is_instance_valid(_turret):
 		_turret.queue_free()  # the engineer's turret dies with the engineer
+	if is_instance_valid(_mortar):
+		_mortar.queue_free()  # ...and so does the tube
 	queue_free()  # bots don't respawn; the owner re-buys them on their next deploy
 
 
@@ -298,6 +309,8 @@ func _fight(delta: float) -> void:
 	_apply_unstick()
 
 	_place_turret_if_ready(false)  # in contact: dig in where we stand
+	_place_mortar_if_ready(false)
+	_call_mortar_strike()
 	_reaction_left = maxf(_reaction_left - delta, 0.0)
 	var facing := Vector3.FORWARD.rotated(Vector3.UP, rotation.y)
 	var on_aim := rad_to_deg(facing.angle_to(flat.normalized())) <= FIRE_CONE_DEG
@@ -322,6 +335,7 @@ func _patrol(delta: float) -> void:
 	var gap := flat.length()
 	var arrive := FOLLOW_DISTANCE if _has_owner() else ROAM_ARRIVE
 	_place_turret_if_ready(gap <= TURRET_PLACE_GAP)
+	_place_mortar_if_ready(gap <= MORTAR_PLACE_GAP)
 	if gap <= arrive:
 		velocity.x = 0.0
 		velocity.z = 0.0
@@ -385,6 +399,60 @@ func _place_turret_if_ready(near_goal: bool) -> void:
 	get_parent().add_child(_turret)
 	_turret.global_position = global_position - global_transform.basis.z * 2.0
 	_turret.setup(self, team)
+
+
+## The other placeable, gated exactly like the turret: set the tube down once
+## we're near where we were heading, or the moment we make contact.
+func _place_mortar_if_ready(near_goal: bool) -> void:
+	if loadout == null or loadout.gadget != Loadout.Gadget.MORTAR:
+		return
+	if is_instance_valid(_mortar):
+		return
+	if not near_goal and not is_instance_valid(_target):
+		return
+	_mortar = MORTAR_SCENE.instantiate()
+	get_parent().add_child(_mortar)
+	_mortar.global_position = global_position - global_transform.basis.z * 2.0
+	_mortar.setup(self, team)
+
+
+## Call a salvo. A player picks the spot off the map screen; a bot has no map,
+## so it shells its OWN target's position — it never drops rounds somewhere it
+## has not actually seen an enemy, which is what keeps AI artillery honest
+## rather than omniscient.
+##
+## It aims at the middle of whatever group the target is standing in, so a
+## mortar punishes a bunched-up push instead of chasing one runner. The shells
+## take over a second to arrive and are visible on the way in, so walking out of
+## them is the counterplay.
+##
+## Keyed to the bot's own target, not to the capture area, so it behaves the
+## same in deathmatch as in zones — the same rule the turret follows.
+func _call_mortar_strike() -> void:
+	if not is_instance_valid(_mortar) or not _mortar.ready_to_fire():
+		return
+	# Same gate the gun uses: it has to have held the target long enough to
+	# react, so a mortar never fires on a target it has only just glimpsed.
+	if not is_instance_valid(_target) or _reaction_left > 0.0:
+		return
+	var mark: Vector3 = _target.global_position
+	if _mortar.global_position.distance_to(mark) < MORTAR_MIN_RANGE:
+		return  # close enough to shoot at; a lob would land on our own line
+	_mortar.fire_at(_enemy_cluster(mark))
+
+
+## Centroid of the enemies bunched around a mark, so a salvo lands BETWEEN a
+## group rather than on the one of them we happen to be looking at.
+func _enemy_cluster(mark: Vector3) -> Vector3:
+	var sum := mark
+	var count := 1.0
+	for c in GameState.combatants:
+		if c == _target or c.team == team or not c.is_alive():
+			continue
+		if c.global_position.distance_to(mark) <= MORTAR_CLUSTER:
+			sum += c.global_position
+			count += 1.0
+	return sum / count
 
 
 ## Scouts grapple ahead when they have a long way to go, which is both faster
