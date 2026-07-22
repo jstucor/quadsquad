@@ -71,6 +71,10 @@ func _ready() -> void:
 	# map author's and are left alone. Must run after scan_map_geometry, which
 	# is what establishes the extents the corners are measured from.
 	GameState.place_corner_spawns(level)
+	# ...and the same footprints become the grid the AI walks on. After the scan
+	# for the obvious reason, and after the spawns so a corner spawn is inside
+	# the area the grid covers.
+	GameState.nav.build(GameState.map_center, GameState.map_extents, GameState.map_shapes)
 
 	_hit_tick = HIT_TICK.new()
 	_hit_tick.name = "HitTick"

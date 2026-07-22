@@ -113,6 +113,10 @@ var zone_active := false
 var map_center := Vector3.ZERO
 var map_extents := Vector2(40.0, 40.0)
 var map_shapes: Array = []  # [{pos: Vector2, size: Vector2, angle: float}, ...]
+## Where the AI may walk. Built from map_shapes once the level exists (see
+## Main), and shared by every bot — the grid is the same for all of them, and
+## one per bot would be the same work sixteen times over.
+var nav := NavGrid.new()
 var map_bounds_known := false
 
 # A box whose top is at or below this is the floor slab, not an obstacle.
@@ -216,6 +220,7 @@ func reset_match() -> void:
 	match_live = false
 	zone_active = false
 	map_shapes.clear()
+	nav = NavGrid.new()
 	map_bounds_known = false
 	smokes.clear()
 	_spawns.clear()

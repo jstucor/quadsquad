@@ -121,6 +121,13 @@ var loadout: Loadout              # the preset it deployed with
 ## second one it never uses, which costs it nothing it would otherwise have.
 var _force_cd := 0.0
 var _shove := Vector3.ZERO        # decaying push from someone else's Force power
+var _path := PackedVector2Array()
+var _path_i := 0
+var _path_goal := Vector3.ZERO
+var _repath_cd := 0.0
+var _stuck_for := 0.0
+var _sidestep_left := 0.0
+var _sidestep := Vector3.ZERO
 
 var _skill: Dictionary = SKILLS[1]
 var _state: int = State.HOLD
@@ -154,6 +161,18 @@ var _dead := false
 
 
 const SHOVE_DECAY := 22.0   # m/s of shove bled off per second, as Player's kick
+
+# --- routing (see _route) ---------------------------------------------------
+const REPATH_INTERVAL := 0.7   # seconds between plans while the goal holds still
+const GOAL_DRIFT := 3.5        # ...or sooner, if the goal has moved this far
+const WAYPOINT_REACH := 1.6    # close enough; move on to the next one
+const SMOOTH_LOOKAHEAD := 4    # waypoints to try to skip straight to
+# A bot that is trying to walk and is not moving has snagged on something the
+# grid does not know about (another body, a prop, a lip in the terrain). Give it
+# a moment, then send it sideways rather than letting it grind.
+const STUCK_SPEED := 0.6       # m/s below which "trying to move" counts as stuck
+const STUCK_TIME := 0.5
+const SIDESTEP_TIME := 0.6
 
 
 func _ready() -> void:
@@ -351,14 +370,18 @@ func _fight(delta: float) -> void:
 		# the owner wins and the bot gives ground rather than chasing. It keeps
 		# facing and shooting the whole time — this limits where it WALKS, not
 		# what it fights.
-		var step := flat.normalized() * speed
+		var want := _route(_target.global_position, delta)
 		if _leashed():
 			var home: Vector3 = owner_player.global_position - global_position
 			home.y = 0.0
 			if home.length() > LEASH:
-				step = home.normalized() * speed
+				# Past the leash the pull home wins, and it is routed too — the
+				# way back is as full of walls as the way out.
+				want = _route(owner_player.global_position, delta)
+		var step := want * speed
 		velocity.x = step.x
 		velocity.z = step.z
+		_watch_for_snag(want, delta)
 	else:
 		# In range: circle rather than stand still, so it isn't a free headshot.
 		var side := flat.normalized().cross(Vector3.UP) * _strafe_dir
@@ -404,10 +427,90 @@ func _patrol(delta: float) -> void:
 		return
 	_state = State.ADVANCE
 	_face(flat, delta)
-	var step := flat.normalized() * _speed
+	var want := _route(goal, delta)
+	var step := want * _speed
 	velocity.x = step.x
 	velocity.z = step.z
 	_apply_unstick()
+	_watch_for_snag(want, delta)
+
+
+## The direction to WALK in to reach `goal` — around the level's geometry rather
+## than straight through it. Returns a flat unit vector, or zero if there is
+## nowhere to go.
+##
+## This only chooses where the feet go. Which way the bot FACES and what it
+## shoots at are decided by the caller and are unaffected: a bot rounding a
+## crate keeps its gun on the target the whole way.
+##
+## A failed plan falls back to the straight line rather than standing still. An
+## AI that stops when pathing fails is worse than one that occasionally scrapes
+## a wall, and on a map with no scanned geometry at all (nothing but terrain)
+## the straight line is the correct answer anyway.
+func _route(goal: Vector3, delta: float) -> Vector3:
+	var straight := goal - global_position
+	straight.y = 0.0
+	if straight.length() < 0.01:
+		return Vector3.ZERO
+	straight = straight.normalized()
+
+	# Shoved off a corner and going nowhere: commit to a sidestep for a moment.
+	# Committing matters — re-deciding every frame just jitters in place.
+	if _sidestep_left > 0.0:
+		_sidestep_left -= delta
+		return _sidestep
+
+	var nav: NavGrid = GameState.nav
+	if not nav.ready:
+		return straight
+
+	_repath_cd -= delta
+	if _path.is_empty() or _repath_cd <= 0.0 \
+			or goal.distance_to(_path_goal) > GOAL_DRIFT:
+		_repath_cd = REPATH_INTERVAL
+		_path_goal = goal
+		_path = nav.path(global_position, goal)
+		_path_i = 0
+
+	# Drop waypoints already reached.
+	var here := Vector2(global_position.x, global_position.z)
+	while _path_i < _path.size() and here.distance_to(_path[_path_i]) <= WAYPOINT_REACH:
+		_path_i += 1
+	if _path_i >= _path.size():
+		return straight   # arrived, or nothing was found: close the last gap direct
+
+	# String-pulling: aim at the furthest waypoint we can actually see, so the
+	# bot cuts across open ground instead of walking the grid's staircase.
+	var target_i := _path_i
+	for i in range(_path_i + 1, mini(_path_i + SMOOTH_LOOKAHEAD, _path.size())):
+		var p: Vector2 = _path[i]
+		if nav.line_clear(global_position, Vector3(p.x, global_position.y, p.y)):
+			target_i = i
+	var wp: Vector2 = _path[target_i]
+	var dir := Vector3(wp.x - global_position.x, 0.0, wp.y - global_position.z)
+	return dir.normalized() if dir.length() > 0.01 else straight
+
+
+## Notice when the feet are not keeping up with the intent, and break out of it.
+## The grid cannot see other bodies or anything that is not a box collider, so
+## this is the backstop that covers everything it misses.
+func _watch_for_snag(want: Vector3, delta: float) -> void:
+	if _sidestep_left > 0.0:
+		return
+	var moving := Vector2(velocity.x, velocity.z).length()
+	if want.length() < 0.01 or moving > STUCK_SPEED:
+		_stuck_for = 0.0
+		return
+	_stuck_for += delta
+	if _stuck_for < STUCK_TIME:
+		return
+	_stuck_for = 0.0
+	# Peel off along the wall rather than reversing: a bot that backs up walks
+	# into the same corner again a second later.
+	_sidestep = want.cross(Vector3.UP).normalized() * _strafe_dir
+	_sidestep_left = SIDESTEP_TIME
+	_path.clear()   # whatever we were following did not work; plan again after
+	_repath_cd = 0.0
 
 
 ## Gadget habits, all deliberately simple: use what you bought at the obvious

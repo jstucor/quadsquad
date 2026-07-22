@@ -50,6 +50,9 @@ var _player: CharacterBody3D
 var _scope: MeshInstance3D
 var _holo: Node3D
 var _flash: MeshInstance3D
+var _saber: Node3D           # the saber's own pivot, when a blade is in hand
+var _swing := 0.0            # 1 at the start of a swing, decaying to 0
+var _swing_side := 1.0       # alternates, so consecutive strikes cross over
 
 var _kick := 0.0             # current recoil amount (0..KICK_CEILING), springs to 0
 var _kick_yaw := 0.0         # random left/right lean per shot
@@ -161,6 +164,26 @@ const SHAPES := {
 ## from a first-person camera and you cannot see what you are swinging at.
 const BLADE_LENGTH := 0.78
 const BLADE_RADIUS := 0.019
+## The ready stance: hilt held low and to the right, blade standing UP and
+## tilted slightly across the body. A blade pointing down the barrel line is
+## what every other weapon here does and it reads as a glowing rifle — worse,
+## from a first-person camera it lies along the view axis and you cannot see
+## past it. Upright puts the blade beside the crosshair instead of over it.
+## Pitch, yaw, roll in radians. The blade is modelled along -Z like every barrel
+## here, so a POSITIVE pitch is what stands it up: rotating -Z about +X by t
+## sends it to (0, sin t, -cos t), and it was pointing at the floor until that
+## sign was fixed.
+const SABER_REST := Vector3(1.28, 0.18, -0.28)
+const SABER_AT := Vector3(0.17, -0.26, -0.30)     # hilt low and to the right
+## One swing, in seconds, and how far it travels. The arc is deliberately big:
+## a sword that twitches like recoil does not read as a swing at all.
+const SWING_TIME := 0.32
+# NEGATIVE pitch, because rest already has the blade up: the swing brings it
+# DOWN through horizontal, which is the chop. Positive would throw it backwards
+# over the shoulder.
+const SWING_PITCH := -1.55
+const SWING_YAW := 1.05     # ...carried across the body
+const SWING_ROLL := 0.55
 const BLADE_CORE := Color(0.75, 0.92, 1.0)
 const BLADE_GLOW := Color(0.25, 0.65, 1.0)
 
@@ -175,6 +198,7 @@ func _build(class_id: int, scoped: bool, holo: bool) -> void:
 	_scope = null
 	_holo = null
 	_flash = null
+	_saber = null
 
 	var shape: Dictionary = SHAPES.get(class_id, SHAPES[Weapon.Class.SOLDIER])
 	if shape.get("saber", false):
@@ -309,6 +333,15 @@ func _build(class_id: int, scoped: bool, holo: bool) -> void:
 ##
 ## It leaves `_flash` null: a blade has no muzzle. kick() already null-checks it.
 func _build_saber() -> void:
+	# Everything hangs off one pivot so the whole weapon swings as a piece. The
+	# viewmodel root cannot be used for that: its transform is already driven by
+	# recoil, bob and the ADS slide every frame.
+	_saber = Node3D.new()
+	_saber.name = "Saber"
+	add_child(_saber)
+	_saber.position = SABER_AT
+	_saber.rotation = SABER_REST
+
 	var hilt_mat := StandardMaterial3D.new()
 	hilt_mat.albedo_color = Color(0.16, 0.17, 0.19)
 	hilt_mat.metallic = 0.15  # keep low: a near-black sky reflects into metal
@@ -319,10 +352,10 @@ func _build_saber() -> void:
 	ring_mat.roughness = 0.4
 
 	# The hilt sits in the hand, angled like the pistol grip every gun carries.
-	var hilt := _cyl(0.021, 0.24, Vector3(0, -0.015, 0.0), hilt_mat)
-	_cyl(0.025, 0.02, Vector3(0, -0.015, -0.10), ring_mat)   # emitter shroud
-	_cyl(0.024, 0.015, Vector3(0, -0.015, 0.06), ring_mat)   # pommel band
-	_box(Vector3(0.012, 0.014, 0.03), Vector3(0.02, -0.015, 0.02), ring_mat)
+	var hilt := _cyl(0.021, 0.24, Vector3(0, -0.015, 0.0), hilt_mat, _saber)
+	_cyl(0.025, 0.02, Vector3(0, -0.015, -0.10), ring_mat, _saber)   # emitter shroud
+	_cyl(0.024, 0.015, Vector3(0, -0.015, 0.06), ring_mat, _saber)   # pommel band
+	_box(Vector3(0.012, 0.014, 0.03), Vector3(0.02, -0.015, 0.02), ring_mat, _saber)
 
 	var core_mat := StandardMaterial3D.new()
 	core_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
@@ -342,8 +375,8 @@ func _build_saber() -> void:
 
 	# Blade runs down -Z out of the emitter, the same axis every barrel uses.
 	var blade_z := -0.11 - BLADE_LENGTH * 0.5
-	_cyl(BLADE_RADIUS, BLADE_LENGTH, Vector3(0, -0.015, blade_z), core_mat)
-	_cyl(BLADE_RADIUS * 1.9, BLADE_LENGTH * 0.99, Vector3(0, -0.015, blade_z), glow_mat)
+	_cyl(BLADE_RADIUS, BLADE_LENGTH, Vector3(0, -0.015, blade_z), core_mat, _saber)
+	_cyl(BLADE_RADIUS * 1.9, BLADE_LENGTH * 0.99, Vector3(0, -0.015, blade_z), glow_mat, _saber)
 	hilt.name = "SaberHilt"
 
 	# No sights on a sword. Aiming blocks instead, so the ADS slide is a small
@@ -376,7 +409,11 @@ func _build_flash(tip_z: float) -> void:
 	add_child(_flash)
 
 
-func _box(size: Vector3, pos: Vector3, mat: Material) -> MeshInstance3D:
+## `into` lets a caller build under its own pivot instead of straight onto the
+## viewmodel root — the saber needs that, because the whole weapon swings as one
+## piece and the root's transform is already spoken for by recoil and bob.
+func _box(size: Vector3, pos: Vector3, mat: Material,
+		into: Node3D = null) -> MeshInstance3D:
 	var mi := MeshInstance3D.new()
 	var m := BoxMesh.new()
 	m.size = size
@@ -384,11 +421,12 @@ func _box(size: Vector3, pos: Vector3, mat: Material) -> MeshInstance3D:
 	mi.position = pos
 	mi.material_override = mat
 	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	add_child(mi)
+	(into if into != null else self).add_child(mi)
 	return mi
 
 
-func _cyl(radius: float, height: float, pos: Vector3, mat: Material) -> MeshInstance3D:
+func _cyl(radius: float, height: float, pos: Vector3, mat: Material,
+		into: Node3D = null) -> MeshInstance3D:
 	var mi := MeshInstance3D.new()
 	var m := CylinderMesh.new()
 	m.top_radius = radius
@@ -399,7 +437,7 @@ func _cyl(radius: float, height: float, pos: Vector3, mat: Material) -> MeshInst
 	mi.rotation.x = PI / 2.0  # CylinderMesh is Y-up; lay it along -Z (barrel/scope)
 	mi.material_override = mat
 	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	add_child(mi)
+	(into if into != null else self).add_child(mi)
 	return mi
 
 
@@ -413,8 +451,53 @@ func configure(class_id: int, scoped := false, holo := false) -> void:
 	_build(class_id, (scoped or class_id == Weapon.Class.SNIPER) and not holo, holo)
 
 
+## The saber's own animation. Two states and one action:
+##
+## AT REST it sits in the ready stance, riding the same walk bob as every other
+## weapon so it does not float independently of the body.
+##
+## AIMING is the GUARD, so the blade comes up ACROSS the body — the pose has to
+## read as "I am blocking with this", because the exhaustion pool it spends is
+## invisible otherwise.
+##
+## SWINGING is a single arc traced by sin(): the blade accelerates through the
+## strike and settles back, and consecutive swings alternate sides so holding
+## the trigger looks like a sequence of cuts rather than one chop on repeat.
+func _animate_saber(delta: float, guarding: bool, bob: Vector3) -> void:
+	_swing = maxf(_swing - delta / SWING_TIME, 0.0)
+	_aim_t = move_toward(_aim_t, 1.0 if guarding else 0.0, delta / AIM_TIME)
+
+	# The viewmodel root only carries the bob and the guard's small draw-in; the
+	# swing belongs to the saber pivot.
+	position = HIP_POS.lerp(Vector3(-0.04, 0.02, 0.04), _aim_t) + bob
+	rotation = Vector3.ZERO
+
+	var pose := SABER_REST
+	# Guard: blade brought upright and square across the front.
+	pose = pose.lerp(Vector3(1.46, -0.50, 0.18), _aim_t)
+
+	# 0 at the start of the swing, 1 at the end; sin() gives the arc a fast
+	# middle and a soft finish at both ends.
+	var t := 1.0 - _swing
+	var arc := sin(t * PI)
+	pose += Vector3(
+		arc * SWING_PITCH,
+		arc * SWING_YAW * _swing_side,
+		arc * SWING_ROLL * -_swing_side)
+	_saber.rotation = pose
+	_saber.position = SABER_AT
+	visible = true
+
+
 ## Called on each shot; strength scales the kick per weapon class.
 func kick(strength: float) -> void:
+	# A blade swings; it does not recoil. Alternating the side means a held
+	# attack reads as a sequence of strikes crossing the body rather than the
+	# same chop played over and over.
+	if _saber != null:
+		_swing = 1.0
+		_swing_side = -_swing_side
+		return
 	_kick = minf(_kick + strength, KICK_CEILING)
 	_kick_yaw = randf_range(-1.0, 1.0)
 	_flash_t = FLASH_TIME
@@ -440,6 +523,12 @@ func _process(delta: float) -> void:
 	_bob_t += delta * (4.0 + speed * 1.6)
 	var bob_amp := 0.011 * clampf(speed / 5.0, 0.0, 1.0) * (1.0 - 0.75 * _aim_t)
 	var bob := Vector3(cos(_bob_t) * bob_amp, absf(sin(_bob_t)) * bob_amp, 0.0)
+
+	# A blade has its own motion: it swings on its pivot instead of kicking the
+	# whole viewmodel, and raising the guard is a pose rather than a sight slide.
+	if _saber != null:
+		_animate_saber(delta, aiming, bob)
+		return
 
 	var pos := HIP_POS.lerp(_ads_pos, _aim_t) + bob
 	# How much of the kick actually SHOWS. Raising the sights damps it, so the
