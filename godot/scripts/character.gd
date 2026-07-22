@@ -39,6 +39,9 @@ const SHOULDER_X := 0.2028   # upperarm x 0.229
 const HIP_X := 0.0832        # thigh x 0.094
 const UPPER_ARM := 0.2064    # upperarm -> forearm, x 0.462 - 0.229
 const LOWER_ARM := 0.2586    # forearm  -> hand,    x 0.754 - 0.462
+## Wrist -> the middle of the grip. The IK chain reaches to where the hand
+## actually closes, not to the wrist, or the gun sits in the fingertips.
+const HAND_REACH := 0.075
 
 # Held-gun position, spine-local (in front of the chest, barrel toward -Z).
 const GUN_POS := Vector3(0.0, 0.30, -0.26)
@@ -225,16 +228,58 @@ func _clip(length: float, loop: bool, samples: int, pose_fn: Callable, bob_fn: C
 
 
 # Both hands stay on the blaster in every clip, so the arms hold a fixed CARRY
-# pose (legs do the locomotion). Shoulders come forward + inward and the elbows
-# bend FORWARD (+X — a human elbow bends opposite a knee) to bring the hands
-# together onto the gun in front of the chest.
+# pose and the legs do the locomotion.
+#
+# The pose is SOLVED onto the gun, not dialled in by hand. Hand-tuned shoulder
+# and elbow angles only hold for one set of arm lengths, and the trooper's arms
+# are much shorter than the box rig's (0.21 / 0.26 against 0.34 / 0.32) — the old
+# angles left both hands hanging in the air well short of the weapon. Two-bone IK
+# puts them on the grips whatever the arms measure, so re-proportioning the rig
+# can never quietly break the hold again.
+static var _carry_pose: Dictionary = {}
+
+
+## Callers all mutate the dictionary they get back (that is how a pose is built
+## up), so this hands out a COPY. Returning the cache itself let _crouch_base
+## write its shoulder angles straight into it and permanently clobber the solved
+## hold for every clip built afterwards.
 func _carry() -> Dictionary:
-	return {
-		"sL": Vector3(deg_to_rad(46), deg_to_rad(-14), deg_to_rad(6)),
-		"sR": Vector3(deg_to_rad(46), deg_to_rad(14), deg_to_rad(-6)),
-		"eL": Vector3(deg_to_rad(64), 0, 0),
-		"eR": Vector3(deg_to_rad(74), 0, 0),
+	if not _carry_pose.is_empty():
+		return _carry_pose.duplicate()
+	# Where each hand has to end up, in spine space: the trigger grip under the
+	# receiver and the forward grip along the barrel. Both come off GUN_POS, so
+	# moving the gun moves the hands with it.
+	var rear := GUN_POS + Vector3(0.0, -0.055, 0.075)
+	var fore := GUN_POS + Vector3(0.0, -0.015, -0.13)
+	var reach := LOWER_ARM + HAND_REACH
+	var right := _arm_ik(rear - Vector3(SHOULDER_X, SHOULDER_Y, 0.0), UPPER_ARM, reach)
+	var left := _arm_ik(fore - Vector3(-SHOULDER_X, SHOULDER_Y, 0.0), UPPER_ARM, reach)
+	_carry_pose = {
+		"sR": right[0], "eR": Vector3(right[1], 0.0, 0.0),
+		"sL": left[0], "eL": Vector3(left[1], 0.0, 0.0),
 	}
+	return _carry_pose.duplicate()
+
+
+## Two-bone IK for one arm. `target` is where the hand must land, in SHOULDER
+## space; `a` and `b` are the upper and lower segment lengths. Returns
+## [shoulder euler, elbow flex].
+##
+## Solved in the order the rig applies it: pick the elbow flex first from the
+## law of cosines (that alone fixes how far the hand reaches), which puts the
+## hand at a known spot `h` with the arm still hanging in its rest plane, then
+## rotate the shoulder by the minimal rotation that carries `h` onto the target.
+## Nothing here assumes a particular arm length or gun position.
+func _arm_ik(target: Vector3, a: float, b: float) -> Array:
+	# A target further than the arm can stretch (or nearer than it can fold)
+	# has no solution; clamp so the arm reaches as far as it can instead.
+	var span := clampf(target.length(), absf(a - b) + 0.001, a + b - 0.001)
+	var cos_elbow := clampf((a * a + b * b - span * span) / (2.0 * a * b), -1.0, 1.0)
+	var flex := PI - acos(cos_elbow)   # 0 = straight; bends FORWARD, about +X
+	# Where the hand sits with only the elbow bent, arm still hanging down -Y.
+	var h := Vector3(0.0, -a - b * cos(flex), -b * sin(flex))
+	var swing := Quaternion(h.normalized(), target.normalized())
+	return [swing.get_euler(), flex]
 
 
 func _idle_pose(_time: float) -> Dictionary:
@@ -286,10 +331,10 @@ func _crouch_base() -> Dictionary:
 	var p := _carry()
 	p["spine"] = Vector3(-deg_to_rad(CROUCH_LEAN_DEG), 0, 0)
 	p["head"] = Vector3(deg_to_rad(CROUCH_HEAD_DEG), 0, 0)
-	# Leaning the torso forward would swing the arms down with it; bring the
-	# shoulders back up by the same angle so the gun stays level.
-	p["sL"] = Vector3(deg_to_rad(46 + CROUCH_LEAN_DEG), deg_to_rad(-18), deg_to_rad(6))
-	p["sR"] = Vector3(deg_to_rad(46 + CROUCH_LEAN_DEG), deg_to_rad(18), deg_to_rad(-6))
+	# The arms are left exactly as _carry() solved them. The gun hangs off the
+	# SPINE, so leaning the torso carries the weapon and both hands with it as
+	# one piece — the old pose had to pitch the shoulders back by the lean angle
+	# to keep the gun level, and doing that now would drag the hands off it.
 	p["hL"] = Vector3(hip, 0, 0)
 	p["hR"] = Vector3(hip, 0, 0)
 	p["kL"] = Vector3(-knee, 0, 0)
