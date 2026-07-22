@@ -28,6 +28,8 @@ const BUDGET := 200
 ##   default_armor  what it starts on, which is how "lighter by default" is said
 ##   grenades       false removes the grenade rows entirely
 ##   primaries      if present, the ONLY primary classes it may hold
+##   speed          multiplier on foot speed, on TOP of the armour frame's
+##   dash           true if the class can dash (see Player._dash)
 ##
 ## A gun marked with a "kit" key in WEAPONS is that kit's alone, so a class
 ## without an explicit `primaries` list still cannot pick up a lightsaber.
@@ -135,11 +137,13 @@ const GADGETS: Array[Dictionary] = [
 	# Force powers. They move people rather than damaging them, which is what
 	# makes a melee class playable: the saber does the killing, these decide who
 	# is standing close enough for it.
-	{"name": "FORCE PUSH", "cost": 45,
+	# Marked with "kit" for the same reason the lightsaber is: these belong to a
+	# class, so a mode with no classes must never hand one out. See royale_items.
+	{"name": "FORCE PUSH", "cost": 45, "kit": Kit.FORCE,
 		"blurb": "Throw everyone in front of you back off their feet. 6s"},
-	{"name": "FORCE PULL", "cost": 40,
+	{"name": "FORCE PULL", "cost": 40, "kit": Kit.FORCE,
 		"blurb": "Drag the one you are looking at to you, from 34 m. 7s"},
-	{"name": "FORCE LEAP", "cost": 35,
+	{"name": "FORCE LEAP", "cost": 35, "kit": Kit.FORCE,
 		"blurb": "A Force-assisted bound: high, long, and it closes ground fast. 4s"},
 ]
 
@@ -178,7 +182,7 @@ const KITS: Array[Dictionary] = [
 	},
 	{
 		"name": "FORCE ADEPT",
-		"blurb": "Lightsaber only. Double jump, aim to block until you tire, and bend the fight with the Force",
+		"blurb": "Lightsaber only. Fast, dashes, double jumps; aim to block until you tire",
 		"gadgets": [Gadget.NONE, Gadget.FORCE_PUSH, Gadget.FORCE_PULL, Gadget.FORCE_LEAP],
 		"gadget_slots": 1,
 		"secondary_mods": [SecondaryMod.NONE, SecondaryMod.SCOPE, SecondaryMod.COOLING],
@@ -186,6 +190,10 @@ const KITS: Array[Dictionary] = [
 		"default_armor": 0,
 		"grenades": false,
 		"primaries": [Weapon.Class.SABER],
+		# A melee class has to be able to reach the fight, so it is quick on foot
+		# and can dash. Light frame on top of this puts it at 1.12 * 1.2.
+		"speed": 1.2,
+		"dash": true,
 	},
 ]
 
@@ -310,8 +318,23 @@ static func bot_build(index: int) -> Loadout:
 
 ## What you drop in with in battle royale: the free sidearm and nothing else.
 ## Everything better is on the ground, which is the entire mode.
+## Which entries of a catalogue battle royale may generate. ROYALE HAS NO
+## CLASSES: everyone drops in as a plain trooper, so anything carrying a "kit"
+## key is a class's signature — a lightsaber, a Force power — and there is no
+## class for it to belong to. Handing one out would give a scavenger a weapon
+## with no guard to go with it, or a power on a button that class-free builds do
+## not have. `from` skips the leading "none" row where a table has one.
+static func royale_items(table: Array[Dictionary], from := 0) -> Array[int]:
+	var out: Array[int] = []
+	for i in range(from, table.size()):
+		if not table[i].has("kit"):
+			out.append(i)
+	return out
+
+
 static func royale_start() -> Loadout:
 	var l := Loadout.new()
+	l.kit = Kit.CLONE   # the class-free baseline: no saber, no powers, no guard
 	l.weapon = NO_PRIMARY
 	l.secondary = 0
 	l.gadget = Gadget.NONE
@@ -360,6 +383,16 @@ func kit_name() -> String:
 
 func gadget_slots() -> int:
 	return int(KITS[kit]["gadget_slots"])
+
+
+## Foot-speed multiplier for the class, on top of the armour frame's. Defaults
+## to 1.0, so a kit only has to say anything when it is not ordinary.
+func kit_speed() -> float:
+	return float(KITS[kit].get("speed", 1.0))
+
+
+func can_dash() -> bool:
+	return bool(KITS[kit].get("dash", false))
 
 
 func has_grenades() -> bool:

@@ -180,7 +180,10 @@ func setup(owner: Node3D, bot_team: int, skill_index: int, build := -1) -> void:
 	loadout = Loadout.bot_build(build if build >= 0 else randi())
 	var armor := loadout.armor_stats()
 	health = float(armor["health"]) * float(_skill["health"])
-	_speed = BASE_SPEED * float(armor["speed"]) * float(_skill["speed"])
+	# The class multiplies the frame here exactly as it does on a Player, so an
+	# AI Force adept closes ground as fast as a human one.
+	_speed = BASE_SPEED * float(armor["speed"]) * float(_skill["speed"]) \
+		* loadout.kit_speed()
 	_grenades = loadout.grenades
 	_medkits = loadout.medkits
 	model.set_team_color(GameState.TEAM_COLORS[team])

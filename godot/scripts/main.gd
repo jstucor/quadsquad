@@ -172,15 +172,21 @@ func _royale_spot(rng: RandomNumberGenerator, extents: Vector2) -> Vector3:
 ## What a given crate turns out to be. Guns dominate because a royale where you
 ## cannot find a rifle is just a pistol duel; gadgets are rare because they are
 ## the strongest single thing you can pick up.
+## ROYALE HAS NO CLASSES, so a crate can only hold class-free kit. Rolling an
+## index across the whole table would scatter lightsabers and Force powers over
+## a map full of plain troopers — a saber with no guard behind it, and powers on
+## a button a class-free build does not use. royale_items filters them out.
 func _roll_pickup(item: Pickup, rng: RandomNumberGenerator) -> void:
 	var roll := rng.randf()
 	if roll < 0.34:
-		# Never the "no primary" row: a crate has to contain an actual gun.
-		item.setup(Pickup.Kind.PRIMARY, rng.randi_range(1, Loadout.WEAPONS.size() - 1))
+		# `from` 1 skips the "no primary" row: a crate has to hold an actual gun.
+		var guns := Loadout.royale_items(Loadout.WEAPONS, 1)
+		item.setup(Pickup.Kind.PRIMARY, guns[rng.randi_range(0, guns.size() - 1)])
 	elif roll < 0.48:
 		item.setup(Pickup.Kind.SIDEARM, rng.randi_range(0, Loadout.SECONDARIES.size() - 1))
 	elif roll < 0.60:
-		item.setup(Pickup.Kind.GADGET, rng.randi_range(1, Loadout.GADGETS.size() - 1))
+		var gear := Loadout.royale_items(Loadout.GADGETS, 1)
+		item.setup(Pickup.Kind.GADGET, gear[rng.randi_range(0, gear.size() - 1)])
 	elif roll < 0.80:
 		item.setup(Pickup.Kind.GRENADES,
 			rng.randi_range(0, Loadout.GRENADE_TYPES.size() - 1), 1)
@@ -605,6 +611,9 @@ func _add_gear_readout(hud: Control, player: Player, color: Color) -> void:
 		# The saber guard, whenever a blade is in hand. Exhaustion you cannot see
 		# is exhaustion you cannot play around, and this is the only thing that
 		# tells you how much block you have left.
+		if player.loadout.can_dash():
+			var dcd := player.dash_cooldown()
+			parts.append("DASH READY" if dcd <= 0.0 else "DASH %ds" % ceili(dcd))
 		if player.weapon.is_melee():
 			parts.append("GUARD SPENT" if player.guard_broken()
 				else "GUARD %d%%" % roundi(player.guard_level() * 100.0))

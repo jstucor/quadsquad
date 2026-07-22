@@ -72,6 +72,13 @@ const BLOCK_ARC := deg_to_rad(105.0)  # half-angle in front that the blade cover
 # second one reads as a Force-assisted correction rather than a free ladder, and
 # it still scales with the armour frame like every other jump.
 const AIR_JUMP_MULT := 0.9
+# The Force dash: a burst of speed on the ground or in the air. Delivered as an
+# impulse rather than a held speed, so it is a committed lunge you cannot steer
+# out of. It rides _kick_vel, which bleeds off at KICK_DECAY — 19 m/s therefore
+# carries about 19^2 / (2 * KICK_DECAY), a little over 8 m.
+const DASH_SPEED := 19.0
+const DASH_COOLDOWN := 2.5
+const DASH_LIFT := 1.4     # just enough to unstick you from a slope, not a hop
 # You deploy on a button press, not a timer. These are only the floor before the
 # button goes live: long enough at match start for everyone to spec a build, and
 # short enough after a death that you're never sat waiting on a decision made.
@@ -212,6 +219,8 @@ var _block_broken := false
 ## is refilled on the floor rather than decremented toward a total, so a jump
 ## spent falling off a ledge cannot be carried into the next hop.
 var _air_jumps := 0
+var _dash_cd := 0.0
+var _dash_shown := 0   # last whole second pushed to the HUD
 var _jet_thrusting := false
 var _jet_pct := 20  # last fuel level pushed to the HUD, in 5% steps
 var _look_pitch := 0.0     # head pitch from look input (recoil is added on top)
@@ -314,6 +323,34 @@ func take_damage(amount: float, attacker: Node = null, headshot := false) -> voi
 		attacker.on_hit_confirmed(headshot, health <= 0.0)
 	if health <= 0.0:
 		_die(attacker)
+
+
+## A committed lunge along the way you are MOVING, or the way you are facing if
+## you are standing still — dashing on the spot should carry you forward, not
+## refuse. Works in the air too: half the value of a dash to a melee class is
+## crossing the last few metres of a gap.
+func _dash() -> void:
+	if _dash_cd > 0.0:
+		return
+	var move := _move_input()
+	var dir := global_transform.basis * Vector3(move.x, 0.0, move.y)
+	if dir.length() < 0.05:
+		dir = -global_transform.basis.z
+	dir.y = 0.0
+	if dir.length() < 0.01:
+		return
+	# Rides the decaying shove for the same reason every other impulse does:
+	# movement rewrites velocity.x/z from the stick every frame.
+	_kick_vel += dir.normalized() * DASH_SPEED
+	if is_on_floor():
+		velocity.y = maxf(velocity.y, DASH_LIFT)
+	_dash_cd = DASH_COOLDOWN
+	gear_changed.emit(grenades_left, medkits_left)
+
+
+## Seconds until the dash is available again, 0 when it is ready.
+func dash_cooldown() -> float:
+	return _dash_cd
 
 
 ## How many mid-air jumps this build gets. A property of the CLASS rather than
@@ -465,7 +502,10 @@ func _apply_loadout() -> void:
 	loadout = pending.duplicate_loadout()
 	var armor := loadout.armor_stats()
 	max_health = armor["health"]
-	_speed_mult = armor["speed"]
+	# The class multiplies the frame, rather than replacing it: a Force adept in
+	# a light frame is quick for both reasons, which is the point of letting them
+	# wear one.
+	_speed_mult = float(armor["speed"]) * loadout.kit_speed()
 	_jump_mult = armor["jump"]
 	health = max_health
 	grenades_left = loadout.grenades
@@ -478,6 +518,7 @@ func _apply_loadout() -> void:
 	gadget = loadout.gadget_id()
 	gadget2 = loadout.gadget2_id()
 	_force_cd = [0.0, 0.0]
+	_dash_cd = 0.0
 	_air_jumps = air_jump_allowance()
 	_block = 1.0
 	_block_broken = false
@@ -1153,6 +1194,12 @@ func gadget_cooldown(slot: int) -> float:
 ## jetpack overrides gravity while thrusting, the cable overrides steering while
 ## reeling you in.
 func _apply_gadget_motion(delta: float) -> void:
+	if _dash_cd > 0.0:
+		_dash_cd = maxf(_dash_cd - delta, 0.0)
+		var dleft := ceili(_dash_cd)
+		if dleft != _dash_shown:
+			_dash_shown = dleft
+			gear_changed.emit(grenades_left, medkits_left)
 	# Tick the force powers' cooldowns, whichever slot they sit in.
 	for slot in 2:
 		if _force_cd[slot] <= 0.0:
@@ -1375,6 +1422,10 @@ func _update_gear() -> void:
 	if _grenade_pressed():
 		if gadget2 != Loadout.Gadget.NONE:
 			_use_gadget(1)
+		elif loadout.can_dash():
+			# Same trick as the Mandalorian's second gadget: a class with no
+			# grenades has this button free, so the dash costs no new binding.
+			_dash()
 		elif grenades_left > 0:
 			grenades_left -= 1
 			_throw_grenade()

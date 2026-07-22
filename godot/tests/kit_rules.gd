@@ -125,6 +125,27 @@ func _init() -> void:
 		if not why.is_empty():
 			fails.append("preset %s: %s" % [preset["name"], str(why)])
 
+	# --- royale is CLASS-FREE: no crate may hold a class's signature gear ----
+	print("\n== battle royale crate contents ==")
+	var guns: Array = L.royale_items(L.WEAPONS, 1)
+	var gear: Array = L.royale_items(L.GADGETS, 1)
+	var gun_names := []
+	for i in guns:
+		gun_names.append(Weapon.PROFILES[L.WEAPONS[i]["class"]]["name"])
+	var gear_names := []
+	for i in gear:
+		gear_names.append(L.GADGETS[i]["name"])
+	print("  guns   : %s" % str(gun_names))
+	print("  gadgets: %s" % str(gear_names))
+	if "Lightsaber" in gun_names:
+		fails.append("royale crates can contain a lightsaber")
+	for banned in ["FORCE PUSH", "FORCE PULL", "FORCE LEAP"]:
+		if banned in gear_names:
+			fails.append("royale crates can contain %s" % banned)
+	var start = L.royale_start()
+	if start.kit != L.Kit.CLONE or start.can_dash():
+		fails.append("royale should drop you in as a plain trooper")
+
 	print("\n==== %s ====" % ("ALL RULES HOLD" if fails.is_empty()
 		else "%d FAILURE(S):\n  %s" % [fails.size(), "\n  ".join(fails)]))
 	quit()
