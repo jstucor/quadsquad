@@ -56,13 +56,23 @@ const MAPS: Array[Dictionary] = [
 	{"name": "CATWALK", "blurb": "Cramped corridors, every fight is a corner",
 		"scene": preload("res://scenes/levels/catwalk.tscn")},
 ]
-const TEAM_NAMES := {Team.REPUBLIC: "REPUBLIC", Team.CIS: "SEPARATIST"}
-const TEAM_COLORS := {
-	Team.REPUBLIC: Color(0.35, 0.55, 1.0),
-	Team.CIS: Color(1.0, 0.4, 0.32),
-}
+## A team is just an index now, 0 .. active_teams()-1. Two is the classic
+## Republic/Separatist match; three or four makes it a free-for-all between
+## squads; FREE FOR ALL gives every player a team of one. Team.REPUBLIC and
+## Team.CIS are still 0 and 1, so maps that name them keep working.
+##
+## Arrays, not dictionaries keyed by the enum: every `TEAM_COLORS[team]` lookup
+## in the game indexes by int and carries on working unchanged.
+const MAX_TEAMS := 4
+const TEAM_NAMES: Array[String] = ["REPUBLIC", "SEPARATIST", "MANDALORE", "HUTT CARTEL"]
+const TEAM_COLORS: Array[Color] = [
+	Color(0.35, 0.55, 1.0),   # blue
+	Color(1.0, 0.40, 0.32),   # red
+	Color(0.45, 0.85, 0.45),  # green
+	Color(0.95, 0.78, 0.30),  # gold
+]
 
-var scores := {Team.REPUBLIC: 0, Team.CIS: 0}
+var scores := {}
 var match_over := false
 var map_index := 0  # index into MAPS; the menu sets it
 ## Menu choice: true = play the whole roster in order (rotating on each win),
@@ -97,9 +107,22 @@ var map_bounds_known := false
 const MAP_FLOOR_TOP := 0.05
 const MAP_MAX_SHAPES := 500  # the map is a sketch, not a second render of the level
 
+## Aim assist. PADS by default, because that is the fairness problem it exists
+## to fix: a thumbstick is at a real disadvantage against the mouse player
+## sitting on the same couch. It only ever slows your look down and nudges it —
+## it never bends a shot, so where a round goes is still entirely yours.
+enum AimAssist { OFF, PADS, EVERYONE }
+const AIM_ASSIST_NAMES := {
+	AimAssist.OFF: "OFF", AimAssist.PADS: "PADS", AimAssist.EVERYONE: "EVERYONE",
+}
+var aim_assist := AimAssist.PADS
+
 var human_players := 4
 var team_size := 2
 var ai_skill := 1
+## How many sides when it is not a free-for-all, and whether it is one.
+var team_count := 2
+var free_for_all := false
 
 const MIN_HUMANS := 1
 const MAX_HUMANS := 4
@@ -107,10 +130,16 @@ const MIN_TEAM_SIZE := 1
 const MAX_TEAM_SIZE := 6
 
 
-## Which team a given human player lands on: the first half of them hold the
-## Republic side, the rest are Separatists, so 4 humans is 2v2 and 2 is 1v1.
+## How many sides are actually in this match. Free-for-all is one team per
+## human, so it needs no separate branch anywhere else in the game.
+func active_teams() -> int:
+	return human_players if free_for_all else mini(team_count, MAX_TEAMS)
+
+
+## Which team a given human player lands on. Dealt round-robin, so 4 humans
+## across 2 teams is 2v2, across 3 is 2/1/1, and free-for-all is one each.
 func team_for_player(index: int) -> int:
-	return Team.REPUBLIC if index < ceili(human_players / 2.0) else Team.CIS
+	return index % active_teams()
 
 
 func humans_on_team(team: int) -> int:
@@ -121,8 +150,11 @@ func humans_on_team(team: int) -> int:
 	return count
 
 
-## How many AI are needed to bring a team up to the chosen size.
+## How many AI are needed to bring a team up to the chosen size. Free-for-all
+## fills nothing: it is a fight between the people at the couch.
 func ai_needed(team: int) -> int:
+	if free_for_all:
+		return 0
 	return maxi(team_size - humans_on_team(team), 0)
 ## Every body that can be shot, shove or be shoved, and block a spawn marker:
 ## players and their bought AI squads alike. They register in _ready and drop
@@ -147,7 +179,9 @@ func score_limit() -> int:
 
 
 func reset_match() -> void:
-	scores = {Team.REPUBLIC: 0, Team.CIS: 0}
+	scores = {}
+	for t in active_teams():
+		scores[t] = 0
 	match_over = false
 	match_live = false
 	zone_active = false
@@ -259,7 +293,7 @@ func register_spawn_point(team: int, marker: Node3D) -> void:
 ## the markers no living player is standing on (respawns), so players never
 ## stack on one marker.
 func get_spawn_point(team: int, index: int = -1) -> Node3D:
-	var list: Array = _spawns.get(team, [])
+	var list: Array = _spawn_list(team)
 	if list.is_empty():
 		return null
 	if index >= 0:
@@ -276,6 +310,20 @@ func get_spawn_point(team: int, index: int = -1) -> Node3D:
 			roomiest = m
 	# Every marker crowded (small map, everyone bunched): take the roomiest one.
 	return free.pick_random() if not free.is_empty() else roomiest
+
+
+## Markers a team may start on. Maps only ever author two sides, so a three- or
+## four-way match pools EVERY marker for the teams beyond those — better a
+## shared start than no start at all, and the anti-stacking clearance below
+## keeps them from landing on each other.
+func _spawn_list(team: int) -> Array:
+	var own: Array = _spawns.get(team, [])
+	if not own.is_empty():
+		return own
+	var pooled: Array = []
+	for t in _spawns:
+		pooled.append_array(_spawns[t])
+	return pooled
 
 
 ## Last line of defence for the crowded case: shove a spawn transform sideways
@@ -330,7 +378,9 @@ func add_zone_tick(team: int) -> void:
 func _award(team: int) -> void:
 	if match_over:
 		return
-	scores[team] += 1
+	# A team can score before reset_match has seen it (a bot spawned early, a
+	# team added by the menu), so never assume the key is there.
+	scores[team] = int(scores.get(team, 0)) + 1
 	score_changed.emit(team, scores[team])
 	if scores[team] >= score_limit():
 		match_over = true

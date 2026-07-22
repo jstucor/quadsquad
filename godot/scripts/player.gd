@@ -73,6 +73,16 @@ const JUMP_VELOCITY := 4.5
 const MOUSE_SENS := 0.0022
 const STICK_LOOK_SPEED := 2.6
 const STICK_DEADZONE := 0.15
+# Aim assist. The cone is deliberately narrow — this helps you finish a motion
+# onto someone you are already nearly pointing at, it does not hunt across the
+# screen for targets. See the block above _assist_enabled.
+const ASSIST_CONE := deg_to_rad(9.0)   # half-angle it will help inside
+const ASSIST_RANGE := 70.0
+const ASSIST_AIM_HEIGHT := 1.0         # aim at the chest, as the AI does
+const ASSIST_SLOW := 0.55              # look speed dead on target
+const ASSIST_PULL := 1.5               # radians/sec of nudge, dead on target
+const ASSIST_ADS_MULT := 1.4           # firmer once the sights are up
+const ASSIST_STICK_DEADZONE := 0.12    # below this you are not aiming, so no pull
 const BUY_DEADZONE := 0.6  # stick push that counts as one buy-screen step
 const AIM_FOV_LERP := 14.0  # per-second rate the camera eases toward zoom FOV
 # Recoil. The camera kick always settles all the way back to where you were
@@ -568,7 +578,10 @@ func _physics_process(delta: float) -> void:
 
 	if input_device >= 0:
 		var look := _stick(JOY_AXIS_RIGHT_X, JOY_AXIS_RIGHT_Y)
-		_apply_look(-look * STICK_LOOK_SPEED * delta)
+		var mark := _assist_target()
+		# Slowdown first, so the stick eases off as the crosshair crosses a body.
+		_apply_look(-look * STICK_LOOK_SPEED * _assist_slowdown(mark) * delta)
+		_assist_pull(mark, look, delta)
 
 	var move := _move_input()
 	var crouching := _crouch_held()
@@ -672,6 +685,104 @@ func _call_mortar_strike() -> void:
 	if m == null or not m.ready_to_fire():
 		return
 	m.fire_at(Vector3(map_cursor.x, 0.0, map_cursor.y))
+
+
+## --- aim assist --------------------------------------------------------------
+##
+## Two effects, both of which only ever change where your VIEW is pointing:
+## the stick slows down as the crosshair crosses a body, and the view is nudged
+## toward that body while you are actively moving the stick. Nothing here bends
+## a bullet or widens a hitbox — a shot still goes exactly where the barrel is
+## pointing, so a miss is always a real miss.
+##
+## The pull is gated on stick input on purpose. Assist that keeps working while
+## you hold still is an aimbot; assist that only helps while YOU are moving the
+## stick is helping you finish a motion you started, which is what a thumbstick
+## actually needs against a mouse.
+
+## Is this player assisted at all? Keyboard players are excluded under the PADS
+## setting because the mouse is the thing pads are being brought level with.
+func _assist_enabled() -> bool:
+	match GameState.aim_assist:
+		GameState.AimAssist.EVERYONE:
+			return true
+		GameState.AimAssist.PADS:
+			return input_device >= 0
+	return false
+
+
+## The enemy the assist should help you onto: whichever living enemy sits
+## closest to the crosshair inside ASSIST_CONE, in range, and actually visible.
+## Line of sight matters — being dragged toward someone through a wall would be
+## worse than no assist at all.
+func _assist_target() -> Node3D:
+	if not _assist_enabled():
+		return null
+	var eye := head.global_position
+	var forward := -head.global_transform.basis.z
+	var best: Node3D = null
+	var best_angle := ASSIST_CONE
+	for c in GameState.combatants:
+		if c == self or c.team == team or not c.is_alive():
+			continue
+		var to: Vector3 = c.global_position + Vector3.UP * ASSIST_AIM_HEIGHT - eye
+		var gap := to.length()
+		if gap > ASSIST_RANGE or gap < 0.01:
+			continue
+		var angle := forward.angle_to(to / gap)
+		if angle >= best_angle:
+			continue
+		if not _assist_can_see(eye, c):
+			continue
+		best_angle = angle
+		best = c
+	return best
+
+
+func _assist_can_see(eye: Vector3, other: Node3D) -> bool:
+	var query := PhysicsRayQueryParameters3D.create(
+		eye, other.global_position + Vector3.UP * ASSIST_AIM_HEIGHT)
+	query.exclude = hitscan_exclusions()
+	query.collision_mask = 0b11  # world + bodies
+	var hit := get_world_3d().direct_space_state.intersect_ray(query)
+	return hit.is_empty() or hit.get("collider") == other
+
+
+## 0..1, how centred a target is: 1 right on the crosshair, 0 at the cone edge.
+func _assist_closeness(target: Node3D) -> float:
+	if target == null:
+		return 0.0
+	var to: Vector3 = target.global_position + Vector3.UP * ASSIST_AIM_HEIGHT \
+		- head.global_position
+	var angle := (-head.global_transform.basis.z).angle_to(to.normalized())
+	return 1.0 - clampf(angle / ASSIST_CONE, 0.0, 1.0)
+
+
+## Look-speed multiplier. Sweeping across someone drags, which is what stops the
+## crosshair skating past a body at full stick speed.
+func _assist_slowdown(target: Node3D) -> float:
+	return lerpf(1.0, ASSIST_SLOW, _assist_closeness(target))
+
+
+## Nudge the view toward the target, in proportion to how centred it already is
+## and only while the stick is actually being moved. Applied straight to the
+## body yaw and head pitch rather than through _apply_look, so zooming does not
+## quietly scale the assist down at exactly the moment you want it most.
+func _assist_pull(target: Node3D, stick: Vector2, delta: float) -> void:
+	if target == null or stick.length() < ASSIST_STICK_DEADZONE:
+		return
+	var eye := head.global_position
+	var to: Vector3 = target.global_position + Vector3.UP * ASSIST_AIM_HEIGHT - eye
+	var step := ASSIST_PULL * _assist_closeness(target) * delta
+	if weapon.aiming:
+		step *= ASSIST_ADS_MULT
+	var want_yaw := atan2(-to.x, -to.z)
+	rotation.y += clampf(wrapf(want_yaw - rotation.y, -PI, PI), -step, step)
+	var flat := Vector2(to.x, to.z).length()
+	var want_pitch := atan2(to.y, maxf(flat, 0.01))
+	_look_pitch = clampf(_look_pitch + clampf(want_pitch - _look_pitch, -step, step),
+		-PI / 2 + 0.05, PI / 2 - 0.05)
+	_refresh_head()
 
 
 ## Horizontal shove away from any living player we're standing inside, so the

@@ -149,7 +149,7 @@ func _team_slot(index: int) -> int:
 ## bots, not a player's bought squad: they have no owner and they respawn, so a
 ## 1v1 with a team size of 4 stays a 4v4 all match.
 func _fill_teams_with_ai() -> void:
-	for team in [GameState.Team.REPUBLIC, GameState.Team.CIS]:
+	for team in GameState.active_teams():
 		for n in GameState.ai_needed(team):
 			_spawn_team_bot(team)
 
@@ -285,20 +285,27 @@ func _add_reticle(hud: Control, player: Player) -> void:
 	refresh.call()
 
 
-## Team-deathmatch score, top-centre. Filled in by _refresh_scores.
+## The score line, top-centre. Filled in by _refresh_scores.
+##
+## The font shrinks with the number of sides: four team names across a quarter
+## of the screen at 20 px runs off both ends of the viewport.
 func _add_scoreboard(hud: Control) -> void:
-	var score := _full_rect_label("", 20, Color(1, 1, 1, 0.95))
+	var sizes := {2: 20, 3: 16, 4: 13}
+	var score := _full_rect_label("", sizes.get(GameState.active_teams(), 13),
+		Color(1, 1, 1, 0.95))
 	score.offset_top = 8.0
 	hud.add_child(score)
 	_score_labels.append(score)
 
 
+## Every side's score on one line. Written as a list rather than "A n : m B"
+## because there can be up to four of them now.
 func _refresh_scores(_team := 0, _score := 0) -> void:
-	var text := "%s  %d   :   %d  %s" % [
-		GameState.TEAM_NAMES[GameState.Team.REPUBLIC],
-		GameState.scores[GameState.Team.REPUBLIC],
-		GameState.scores[GameState.Team.CIS],
-		GameState.TEAM_NAMES[GameState.Team.CIS]]
+	var parts := PackedStringArray()
+	for team in GameState.active_teams():
+		parts.append("%s  %d" % [
+			GameState.TEAM_NAMES[team], int(GameState.scores.get(team, 0))])
+	var text := ("     " if GameState.active_teams() <= 2 else "   ").join(parts)
 	for label in _score_labels:
 		label.text = text
 

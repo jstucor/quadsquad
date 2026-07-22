@@ -60,21 +60,30 @@ func _physics_process(delta: float) -> void:
 ## Count who's inside and award the second. A tie (including nobody there) pays
 ## nobody, so an area only earns while a team actually holds it.
 func _score_tick() -> void:
-	var inside := {GameState.Team.REPUBLIC: 0, GameState.Team.CIS: 0}
+	# Head count per team. Written for any number of sides: whoever has the most
+	# bodies in the circle holds it, and a tie between the leaders contests it —
+	# which with three or four teams is a far more common outcome than with two.
+	var inside := {}
 	for c in GameState.combatants:
 		if not is_instance_valid(c) or not c.is_alive():
 			continue
 		if _contains(c.global_position):
-			inside[c.team] += 1
-	var republic: int = inside[GameState.Team.REPUBLIC]
-	var cis: int = inside[GameState.Team.CIS]
-	_contested = republic > 0 and cis > 0
-	if republic > cis:
-		_holder = GameState.Team.REPUBLIC
-		GameState.add_zone_tick(GameState.Team.REPUBLIC)
-	elif cis > republic:
-		_holder = GameState.Team.CIS
-		GameState.add_zone_tick(GameState.Team.CIS)
+			inside[c.team] = int(inside.get(c.team, 0)) + 1
+	var best := 0
+	var leader := -1
+	var tied := false
+	for team in inside:
+		var n: int = inside[team]
+		if n > best:
+			best = n
+			leader = team
+			tied = false
+		elif n == best and n > 0:
+			tied = true
+	_contested = tied and best > 0
+	if leader != -1 and not tied:
+		_holder = leader
+		GameState.add_zone_tick(leader)
 	else:
 		_holder = -1
 	_paint()
@@ -137,7 +146,7 @@ func _bounds() -> Vector2:
 		var half := Vector2(_level.size, _level.depth) * 0.5
 		return (half - Vector2.ONE * EDGE_INSET).maxf(6.0)
 	var spread := Vector2(12.0, 12.0)
-	for team in [GameState.Team.REPUBLIC, GameState.Team.CIS]:
+	for team in GameState.active_teams():
 		var index := 0
 		while true:
 			var marker := GameState.get_spawn_point(team, index)

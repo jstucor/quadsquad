@@ -80,6 +80,12 @@ const ROAM_SPREAD := 16.0    # how far around the middle they'll pick a spot
 const ROAM_REPICK := 7.0     # seconds before choosing somewhere new
 const ROAM_ARRIVE := 3.5
 const FOLLOW_DISTANCE := 5.0 # how close a squadmate tucks in behind its owner
+# How far a BOUGHT squadmate will stray from the player who paid for it. Without
+# a leash a squad fights its way across the map the moment anything walks into
+# view and never comes back, which is the opposite of what you bought: they are
+# meant to go where you go. Team AI (no owner) are unaffected and still push the
+# map on their own.
+const LEASH := 14.0
 # Sight lines flicker constantly in a firefight — a teammate crosses, the bot
 # strafes behind a trunk. Without memory the bot would drop its target, spin
 # back toward its owner, then re-acquire and restart its reaction timer, and so
@@ -266,6 +272,10 @@ func _acquire_target() -> void:
 	for c in GameState.combatants:
 		if c == self or not c.is_alive() or c.team == team:
 			continue
+		# A squadmate only takes on what is threatening its owner. Picking
+		# targets by ITS own sight range is what sent squads wandering off.
+		if _leashed() and owner_player.global_position.distance_to(c.global_position) > LEASH:
+			continue
 		var gap := global_position.distance_to(c.global_position)
 		if gap < best_gap and _can_see(c):
 			best_gap = gap
@@ -310,7 +320,16 @@ func _fight(delta: float) -> void:
 	_state = State.ENGAGE if gap <= hold else State.ADVANCE
 	var speed := _speed
 	if _state == State.ADVANCE:
+		# Close on the target, but never off the leash: past it, the pull back to
+		# the owner wins and the bot gives ground rather than chasing. It keeps
+		# facing and shooting the whole time — this limits where it WALKS, not
+		# what it fights.
 		var step := flat.normalized() * speed
+		if _leashed():
+			var home: Vector3 = owner_player.global_position - global_position
+			home.y = 0.0
+			if home.length() > LEASH:
+				step = home.normalized() * speed
 		velocity.x = step.x
 		velocity.z = step.z
 	else:
@@ -519,6 +538,13 @@ func hitscan_exclusions() -> Array[RID]:
 func _has_owner() -> bool:
 	return owner_player != null and is_instance_valid(owner_player) \
 		and owner_player.is_alive()
+
+
+## True for a bought squadmate whose owner is alive and on the field. An orphan
+## (owner dead, or a team-fill bot with no owner at all) is not leashed — it has
+## nobody to follow, so it falls back to pushing the map.
+func _leashed() -> bool:
+	return _has_owner()
 
 
 func _patrol_goal(delta: float) -> Vector3:
