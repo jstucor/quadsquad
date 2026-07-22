@@ -39,6 +39,7 @@ const ACTIONS: Array[Dictionary] = [
 	{"id": "grenade", "name": "GRENADE", "pad": true},
 	{"id": "medkit", "name": "MEDKIT", "pad": true},
 	{"id": "map", "name": "MAP / STRIKE", "pad": true},
+	{"id": "interact", "name": "PICK UP", "pad": true},
 	{"id": "forward", "name": "MOVE FORWARD", "pad": false},
 	{"id": "back", "name": "MOVE BACK", "pad": false},
 	{"id": "left", "name": "MOVE LEFT", "pad": false},
@@ -57,6 +58,7 @@ const DEFAULT_KEYS := {
 	"grenade": {"key": KEY_G},
 	"medkit": {"key": KEY_H},
 	"map": {"key": KEY_M},
+	"interact": {"key": KEY_E},
 	"forward": {"key": KEY_W},
 	"back": {"key": KEY_S},
 	"left": {"key": KEY_A},
@@ -79,6 +81,9 @@ const DEFAULT_PAD := {
 	"grenade": [{"kind": Kind.BUTTON, "index": JOY_BUTTON_DPAD_UP}],
 	"medkit": [{"kind": Kind.BUTTON, "index": JOY_BUTTON_DPAD_DOWN}],
 	"map": [{"kind": Kind.BUTTON, "index": JOY_BUTTON_BACK}],
+	# D-pad left is the only face/pad control still free: A/B/X/Y, both
+	# shoulders, both triggers, both sticks and d-pad up/down are all spoken for.
+	"interact": [{"kind": Kind.BUTTON, "index": JOY_BUTTON_DPAD_LEFT}],
 }
 
 # Pads report a normalised layout, so naming the buttons is a fixed table rather

@@ -1,7 +1,10 @@
 class_name Pickup
 extends Area3D
 ## A piece of gear lying on the ground in battle royale: a gun, a gadget, a
-## bundle of grenades or a health kit. Walk over it and it is yours.
+## bundle of grenades or a health kit. Stand on it and press the pick-up control
+## to take it — deliberately NOT automatic, because walking over a pistol and
+## losing the rifle you were carrying is exactly the frustration auto-pickup
+## causes.
 ##
 ## Everything it can give is expressed as a change to the player's LOADOUT and
 ## then re-applied, rather than as a special case per item — that way a picked-up
@@ -23,6 +26,7 @@ var amount := 1         # for the counted kinds
 
 var _bob_t := 0.0
 var _body: Node3D
+var _nearby := {}   # players standing in reach right now
 
 
 ## What each kind looks like and is called. The colour is the whole readout at
@@ -95,6 +99,7 @@ func _build() -> void:
 	add_child(beam)
 
 	body_entered.connect(_on_body_entered)
+	body_exited.connect(_on_body_exited)
 
 
 func _process(delta: float) -> void:
@@ -110,11 +115,37 @@ func label() -> String:
 ## Only living players collect. Bots are skipped deliberately: they deploy with
 ## a full preset already, so letting them hoover up the ground would strip the
 ## map of gear the humans are relying on finding.
+##
+## Standing on a crate does NOT take it. Walking over a rifle and losing the one
+## you were carrying is the whole reason auto-pickup is a bad idea, so a crate
+## only advertises itself and waits for the pick-up control.
 func _on_body_entered(body: Node) -> void:
 	if not (body is Player) or not body.is_alive():
 		return
-	if _grant(body):
-		queue_free()
+	_nearby[body] = true
+	body.pickup_in_reach = self
+
+
+func _on_body_exited(body: Node) -> void:
+	if not _nearby.erase(body):
+		return
+	# Only release the prompt if it is still ours: walking straight from one
+	# crate into another hands it over, and we must not clear the new one.
+	if body is Player and body.pickup_in_reach == self:
+		body.pickup_in_reach = null
+
+
+func _physics_process(_delta: float) -> void:
+	for body in _nearby:
+		if not is_instance_valid(body) or not body.is_alive():
+			continue
+		if not body.pickup_pressed:
+			continue
+		if _grant(body):
+			body.pickup_pressed = false   # one press, one crate
+			body.pickup_in_reach = null
+			queue_free()
+			return
 
 
 ## Fold the item into the player's build and re-apply it. Returns false when

@@ -39,6 +39,9 @@ const SCORE_LIMITS := {Mode.DEATHMATCH: 25, Mode.ZONES: 60, Mode.ROYALE: 1}
 # other apart every physics frame and ride that ejection out of the map, which
 # drags the innocent player along with the one who died.
 const SPAWN_CLEARANCE := 2.5  # a marker this close (m) to a live player is taken
+## Metres above the computed ground to place anything, so it falls the last step
+## rather than starting buried. See place_corner_spawns.
+const SPAWN_LIFT := 1.2
 const MIN_BODY_GAP := 1.0     # capsules are 0.7 wide, so this always separates them
 
 # The map roster: the menu lists it, Main loads MAPS[map_index].scene, and the
@@ -341,6 +344,12 @@ func _spawn_list(team: int) -> Array:
 ## Ground height comes from the level's own `height_at` when it has one (the
 ## terrain maps), because colliders are not in the physics world yet when this
 ## runs and a downward raycast would find nothing.
+##
+## And it is lifted by SPAWN_LIFT. `height_at` is the ANALYTIC surface, but what
+## you collide with is a heightfield MESH sampled on a coarse grid, and across a
+## hollow the mesh's flat triangles sit ABOVE the curve they approximate — so a
+## body placed at the analytic height starts inside the ground and is stuck
+## there. Dropping the last metre costs nothing and is always safe.
 func place_corner_spawns(level: Node) -> void:
 	if active_teams() <= 2:
 		return
@@ -361,7 +370,8 @@ func place_corner_spawns(level: Node) -> void:
 			if level.has_method("height_at"):
 				y = level.height_at(spot.x, spot.y)
 			var m := Marker3D.new()
-			m.position = Vector3(map_center.x + spot.x, y, map_center.z + spot.y)
+			m.position = Vector3(map_center.x + spot.x, y + SPAWN_LIFT,
+				map_center.z + spot.y)
 			level.add_child(m)
 			# Face the middle, so a side spawns looking into the map.
 			if Vector2(spot.x, spot.y).length() > 0.1:

@@ -164,7 +164,9 @@ func _royale_spot(rng: RandomNumberGenerator, extents: Vector2) -> Vector3:
 	var y := 0.0
 	if level.has_method("height_at"):
 		y = level.height_at(x, z)
-	return Vector3(x, y, z)
+	# Same reason spawns are lifted: the collision mesh sits above the analytic
+	# curve across a hollow, and a crate at the exact height sinks into it.
+	return Vector3(x, y + 0.6, z)
 
 
 ## What a given crate turns out to be. Guns dominate because a royale where you
@@ -246,6 +248,11 @@ func _on_team_bot_lost(team: int) -> void:
 	# schedule against and nothing left to reinforce.
 	if not is_inside_tree() or GameState.match_over:
 		return
+	# Royale has no reinforcements of any kind. Without this the team-fill AI
+	# keep coming back while the humans stay dead, and the last side standing
+	# can never be decided.
+	if GameState.mode == GameState.Mode.ROYALE:
+		return
 	get_tree().create_timer(AI_RESPAWN_DELAY).timeout.connect(_spawn_team_bot.bind(team))
 
 
@@ -281,6 +288,7 @@ func _build_hud(player: Player) -> Control:
 	_add_damage_flash(hud, player)
 	if GameState.mode == GameState.Mode.ROYALE:
 		_add_storm_readout(hud, player)
+		_add_pickup_prompt(hud, player)
 	_add_map(hud, player)
 	hud.add_child(_build_buy_screen(player, color))
 	_add_victory_banner(hud)
@@ -321,6 +329,23 @@ func _add_storm_readout(hud: Control, player: Player) -> void:
 		else:
 			label.text = "STORM MOVES IN  %ds" % storm.seconds_left()
 			label.add_theme_color_override("font_color", Color(0.7, 0.8, 1.0)))
+	get_tree().process_frame.connect(label.queue_redraw)
+
+
+## "PRESS E TO TAKE WEAPON", shown only while a crate is actually in reach. The
+## control is named through Controls, so it follows a rebind and reads correctly
+## for a pad player and a keyboard player sitting side by side.
+func _add_pickup_prompt(hud: Control, player: Player) -> void:
+	var label := _full_rect_label("", 19, Color(1.0, 0.92, 0.6))
+	label.offset_top = 120.0
+	hud.add_child(label)
+	label.draw.connect(func() -> void:
+		var crate = player.pickup_in_reach
+		if crate == null or not is_instance_valid(crate) or not player.is_alive():
+			label.text = ""
+			return
+		label.text = "%s  to take  %s" % [
+			Controls.label(player.input_device, "interact"), crate.label()])
 	get_tree().process_frame.connect(label.queue_redraw)
 
 

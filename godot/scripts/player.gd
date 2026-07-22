@@ -172,6 +172,12 @@ var _mortar: Mortar          # placed mortar tube, if any
 ## not something you do mid-firefight.
 var map_open := false
 var map_cursor := Vector2.ZERO  # world XZ the cursor is over
+## Set once per physics frame from the interact control, and cleared by the
+## Pickup that acts on it, so one press collects exactly one crate.
+var pickup_pressed := false
+## Whatever crate is currently in reach, for the HUD prompt. Pickups claim and
+## release this as the player walks in and out of them.
+var pickup_in_reach: Node3D
 var _rotary_out := false
 var _jet_thrusting := false
 var _jet_pct := 20  # last fuel level pushed to the HUD, in 5% steps
@@ -604,6 +610,7 @@ func _physics_process(delta: float) -> void:
 	if map_open:
 		_process_map(delta)
 		return
+	pickup_pressed = _interact_pressed()
 	_update_gear()
 	_update_aim(delta)
 	_update_crouch(delta)
@@ -1228,6 +1235,14 @@ func _switch_pressed() -> bool:
 
 func _map_pressed() -> bool:
 	return _edge("map")
+
+
+## True on the frame the pick-up control went down. Published rather than polled
+## by Pickup calling _edge itself, because an edge is consumed by whoever reads
+## it — with several crates overlapping, the first to look would eat the press
+## and the rest would silently see nothing.
+func _interact_pressed() -> bool:
+	return _edge("interact")
 
 
 ## Press edge for a control. The keyboard gets it from the InputMap action for
