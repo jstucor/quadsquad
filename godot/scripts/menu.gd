@@ -141,15 +141,19 @@ func _build() -> void:
 	map_box.grab_focus()
 
 
-## TEAMS walks 2, 3, 4 and then FREE FOR ALL. The count is capped by how many
-## humans are at the couch — three sides with two people would leave one empty —
-## and free-for-all needs at least two of you to fight over.
+## TEAMS walks 2, 3, 4 and then FREE FOR ALL.
+##
+## The count is NOT limited by how many people are at the couch: AI fill every
+## side up to TEAM SIZE, so one player against three AI teams is a perfectly good
+## match and is probably the main way somebody plays alone. FREE FOR ALL is the
+## only option that needs a second human, because it is defined as every player
+## being their own side with no AI at all — on your own it would be a match
+## against nobody.
 func _cycle_teams() -> void:
-	var ceiling := mini(GameState.MAX_TEAMS, maxi(GameState.human_players, 2))
 	if GameState.free_for_all:
 		GameState.free_for_all = false
 		GameState.team_count = 2
-	elif GameState.team_count >= ceiling:
+	elif GameState.team_count >= GameState.MAX_TEAMS:
 		if GameState.human_players >= 2:
 			GameState.free_for_all = true
 		else:
@@ -171,10 +175,10 @@ func _smallest_team_size() -> int:
 
 ## Keep the setup self-consistent after any change.
 func _fix_setup() -> void:
+	# Free-for-all is the one setting that genuinely needs a second human.
 	if GameState.human_players < 2:
 		GameState.free_for_all = false
-	GameState.team_count = clampi(GameState.team_count, 2,
-		mini(GameState.MAX_TEAMS, maxi(GameState.human_players, 2)))
+	GameState.team_count = clampi(GameState.team_count, 2, GameState.MAX_TEAMS)
 	if not GameState.free_for_all:
 		GameState.team_size = maxi(GameState.team_size, _smallest_team_size())
 
