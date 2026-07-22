@@ -511,6 +511,37 @@ func _show_victory(team: int) -> void:
 ## cursor is on, and the deploy prompt. Shown at match start (DEPLOY) and after
 ## every death (ELIMINATED). Each player drives their own quadrant, so all four
 ## shop at once; nobody spawns until they press deploy.
+## How the buy screen is grouped into boxes: a heading, and the Loadout rows
+## that live inside it. Every row still belongs to exactly one box, so the
+## cursor walks the same flat row list it always did — the boxes are how it is
+## LAID OUT, not a change to how it is driven. That matters because four players
+## shop at once on one screen: only P1 has a mouse, so navigation has to stay on
+## each player's own stick or keys.
+const BUY_BOXES: Array[Dictionary] = [
+	{"name": "PRIMARY", "rows": [Loadout.Row.WEAPON, Loadout.Row.SIGHT,
+		Loadout.Row.COOLING, Loadout.Row.GRIP]},
+	{"name": "SIDEARM", "rows": [Loadout.Row.SECONDARY, Loadout.Row.SECONDARY_MOD]},
+	{"name": "GRENADES", "rows": [Loadout.Row.GRENADE_TYPE, Loadout.Row.GRENADES]},
+	{"name": "GADGET", "rows": [Loadout.Row.GADGET]},
+	{"name": "ARMOUR", "rows": [Loadout.Row.ARMOR]},
+	{"name": "HEALTH", "rows": [Loadout.Row.MEDKITS]},
+	{"name": "AI SQUAD", "rows": [Loadout.Row.SQUAD, Loadout.Row.SQUAD_SKILL]},
+]
+const BUY_COLUMNS := 2
+## The boxes have to fit whatever slice of the screen this player owns. At four
+## players a viewport is a quarter of the window, and the full-size layout runs
+## off both edges of it, so the whole screen is measured off the player count.
+const BUY_WIDE := {"name": 150, "value": 150, "text": 14, "head": 12, "title": 22}
+const BUY_TIGHT := {"name": 104, "value": 96, "text": 11, "head": 9, "title": 16}
+const BUY_BOX_EDGE := Color(0.26, 0.30, 0.36)
+const BUY_BOX_BG := Color(0.07, 0.08, 0.11, 0.92)
+
+
+## The buy screen for one viewport: a grid of category boxes, the budget above
+## them, a blurb for whatever the cursor is on, and the deploy prompt. Shown at
+## match start (DEPLOY) and after every death (ELIMINATED). Each player drives
+## their own quadrant, so all four shop at once; nobody spawns until they press
+## deploy.
 func _build_buy_screen(player: Player, color: Color) -> Control:
 	var panel := Control.new()
 	panel.set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -528,45 +559,66 @@ func _build_buy_screen(player: Player, color: Color) -> Control:
 	column.grow_horizontal = Control.GROW_DIRECTION_BOTH
 	column.grow_vertical = Control.GROW_DIRECTION_BOTH
 	column.alignment = BoxContainer.ALIGNMENT_CENTER
-	column.add_theme_constant_override("separation", 2)
+	column.add_theme_constant_override("separation", 4)
 	panel.add_child(column)
 
-	var title := _centred_label("ELIMINATED", 26, ELIMINATED_COLOR)
+	var m: Dictionary = BUY_WIDE if GameState.human_players == 1 else BUY_TIGHT
+	var title := _centred_label("ELIMINATED", m["title"], ELIMINATED_COLOR)
 	column.add_child(title)
-	var budget := _centred_label("", 17, Color(1, 1, 1, 0.9))
+	var budget := _centred_label("", m["head"] + 2, Color(1, 1, 1, 0.9))
 	column.add_child(budget)
-	column.add_child(_spacer(8))
+	column.add_child(_spacer(4))
 
-	# Two labels per row — name left, selection right, both fixed width — so the
-	# list reads as aligned columns instead of ragged centred lines.
-	# _refresh_buy_screen rewrites the text in place, so scrolling churns no nodes.
-	var rows: Array[Label] = []
+	# One panel per category, laid out in a grid. Row labels are kept in a flat
+	# array indexed by Loadout.Row, so _refresh_buy_screen can address any row
+	# without knowing which box it ended up in.
+	var grid := GridContainer.new()
+	grid.columns = BUY_COLUMNS
+	grid.add_theme_constant_override("h_separation", 8)
+	grid.add_theme_constant_override("v_separation", 6)
+	column.add_child(grid)
+
+	var names: Array[Label] = []
 	var values: Array[Label] = []
-	for i in Loadout.Row.size():
-		var line := HBoxContainer.new()
-		line.add_theme_constant_override("separation", 12)
-		var name_label := _centred_label("", 16, Color(1, 1, 1, 0.85))
-		name_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
-		name_label.custom_minimum_size = Vector2(190, 0)
-		line.add_child(name_label)
-		var value_label := _centred_label("", 16, Color(1, 1, 1, 0.85))
-		value_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-		value_label.custom_minimum_size = Vector2(170, 0)
-		line.add_child(value_label)
-		column.add_child(line)
-		rows.append(name_label)
-		values.append(value_label)
+	var frames: Array[PanelContainer] = []
+	names.resize(Loadout.Row.size())
+	values.resize(Loadout.Row.size())
+	frames.resize(Loadout.Row.size())
+	for box in BUY_BOXES:
+		var frame := PanelContainer.new()
+		frame.add_theme_stylebox_override("panel", _buy_panel(BUY_BOX_EDGE))
+		grid.add_child(frame)
+		var inner := VBoxContainer.new()
+		inner.add_theme_constant_override("separation", 1)
+		frame.add_child(inner)
+		inner.add_child(_centred_label(box["name"], m["head"], Color(0.55, 0.60, 0.68)))
+		for row in box["rows"]:
+			var line := HBoxContainer.new()
+			line.add_theme_constant_override("separation", 10)
+			var name_label := _centred_label("", m["text"], Color(1, 1, 1, 0.85))
+			name_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+			name_label.custom_minimum_size = Vector2(m["name"], 0)
+			line.add_child(name_label)
+			var value_label := _centred_label("", m["text"], Color(1, 1, 1, 0.85))
+			value_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+			value_label.custom_minimum_size = Vector2(m["value"], 0)
+			line.add_child(value_label)
+			inner.add_child(line)
+			names[row] = name_label
+			values[row] = value_label
+			frames[row] = frame
 
-	column.add_child(_spacer(8))
-	var blurb := _centred_label("", 14, Color(0.7, 0.74, 0.8))
+	column.add_child(_spacer(4))
+	var blurb := _centred_label("", m["head"] + 1, Color(0.7, 0.74, 0.8))
 	column.add_child(blurb)
-	var prompt := _centred_label("", 16, Color(0.62, 0.66, 0.72))
+	var prompt := _centred_label("", m["head"] + 3, Color(0.62, 0.66, 0.72))
 	column.add_child(prompt)
 	column.add_child(_centred_label(
-		"up / down pick a line     left / right change it", 13, Color(0.5, 0.54, 0.6)))
+		"up / down pick a line     left / right change it",
+		m["head"], Color(0.5, 0.54, 0.6)))
 
 	var refresh := func() -> void:
-		_refresh_buy_screen(player, color, rows, values, budget, blurb, prompt)
+		_refresh_buy_screen(player, color, names, values, frames, budget, blurb, prompt)
 	player.buy_changed.connect(func(_row: int) -> void: refresh.call())
 	player.deploy_ready.connect(func() -> void: refresh.call())
 	player.died.connect(func(eliminated: bool) -> void:
@@ -581,24 +633,41 @@ func _build_buy_screen(player: Player, color: Color) -> Control:
 	return panel
 
 
+func _buy_panel(edge: Color) -> StyleBoxFlat:
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = BUY_BOX_BG
+	sb.border_color = edge
+	sb.set_border_width_all(1)
+	sb.set_corner_radius_all(4)
+	sb.set_content_margin_all(6)
+	return sb
+
+
 ## Rewrite the buy screen's text for the player's current pending build. The
-## cursor row is bracketed and tinted; rows you can't currently afford to step
-## up are still shown, they just refuse to change.
-func _refresh_buy_screen(player: Player, color: Color, rows: Array[Label],
-		values: Array[Label], budget: Label, blurb: Label, prompt: Label) -> void:
+## cursor row is bracketed and tinted, and the BOX holding it takes the player's
+## colour on its border — so which category you are in reads at a glance even
+## from the far side of a four-way split.
+func _refresh_buy_screen(player: Player, color: Color, names: Array[Label],
+		values: Array[Label], frames: Array[PanelContainer],
+		budget: Label, blurb: Label, prompt: Label) -> void:
 	var build := player.pending
 	budget.text = "TOKENS  %d spent   %d left of %d" % [
 		build.cost(), build.remaining(), Loadout.BUDGET]
-	for i in rows.size():
+	var active: PanelContainer = frames[player.buy_row]
+	for i in names.size():
 		var selected := i == player.buy_row
 		var tint := color if selected else Color(1, 1, 1, 0.72)
-		rows[i].text = "%s %s" % ["\u25b8" if selected else " ", build.row_label(i)]
+		names[i].text = "%s %s" % ["\u25b8" if selected else " ", build.row_label(i)]
 		var cost := build.row_cost(i)
 		values[i].text = build.row_value(i)
 		if cost > 0:
 			values[i].text += "   %d" % cost
-		rows[i].add_theme_color_override("font_color", tint)
+		names[i].add_theme_color_override("font_color", tint)
 		values[i].add_theme_color_override("font_color", tint)
+	for frame in frames:
+		if frame != null:
+			frame.add_theme_stylebox_override("panel",
+				_buy_panel(color if frame == active else BUY_BOX_EDGE))
 	blurb.text = build.row_blurb(player.buy_row, player.input_device)
 	# Count the lock down out loud: a silent "standby" for five seconds reads
 	# exactly like a match that has failed to start.
