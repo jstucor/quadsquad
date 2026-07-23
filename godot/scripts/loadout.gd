@@ -31,7 +31,9 @@ const BUDGET := 200
 ##                  but SMOKE — smoke is the Trandoshan's alone)
 ##   sights         if present, the ONLY Sight ids it may fit (else all but the
 ##                  Trandoshan's thermal)
-##   primaries      if present, the ONLY primary classes it may hold
+##   primaries      if present, the ONLY non-kit primary classes it may hold;
+##                  a kit's own "kit"-marked weapon is always reachable on top
+##   default_primary the class it opens holding (else `primaries[0]`, else none)
 ##   speed          multiplier on foot speed, on TOP of the armour frame's
 ##   health         multiplier on the armour frame's health, same idea as speed
 ##   dash           true if the class can dash (see Player._dash)
@@ -237,7 +239,7 @@ const KITS: Array[Dictionary] = [
 	},
 	{
 		"name": "FORCE ADEPT",
-		"blurb": "Lightsaber only. Tough, fast, dashes and double jumps; hold aim to block until the guard breaks",
+		"blurb": "Lightsaber or any gun, plus a Force power. Tough, fast, dashes and double jumps",
 		"gadgets": [Gadget.NONE, Gadget.FORCE_PUSH, Gadget.FORCE_PULL, Gadget.FORCE_LEAP,
 			Gadget.FORCE_LIGHTNING],
 		"gadget_slots": 1,
@@ -245,7 +247,13 @@ const KITS: Array[Dictionary] = [
 		"armor": [0, 1],
 		"default_armor": 0,
 		"grenades": false,
-		"primaries": [Weapon.Class.SABER],
+		# No `primaries` list, so the adept may carry ANY ordinary gun — the saber
+		# is reached through its own "kit" key (see allows). The Force gadget on
+		# the gadget button and the dash/double-jump are the class, not the blade,
+		# so a gun-toting Jedi keeps all of them; only the GUARD needs the saber
+		# in hand (guard_up checks is_melee). It still opens on the saber, which is
+		# the class fantasy.
+		"default_primary": Weapon.Class.SABER,
 		# A melee class has to be able to reach the fight, so it is quick on foot
 		# and can dash. Light frame on top of this puts it at 1.12 * 1.2.
 		"speed": 1.2,
@@ -458,6 +466,11 @@ const BOT_BUILDS: Array[Dictionary] = [
 	{"name": "ACOLYTE", "kit": Kit.FORCE, "weapon": 12, "secondary": 0,
 		"sight": Sight.NONE, "armor": 0, "gadget": Gadget.FORCE_LIGHTNING,
 		"medkits": 1},                                                 # 55+20+50+30
+	# A Force adept who shoots: a rifle instead of the saber, keeping the pull to
+	# drag someone into the open. Fields the new "guns AND powers" build.
+	{"name": "WARDEN", "kit": Kit.FORCE, "weapon": 2, "secondary": 0,
+		"sight": Sight.HOLO, "armor": 0, "gadget": Gadget.FORCE_PULL,
+		"medkits": 1},                                                 # 45+20+20+40+30
 	# The Trandoshan fields both of its ideas: a cloaking sniper and a
 	# smoke-and-dash rusher. Both legal for the kit; the kit_rules test checks it.
 	{"name": "STALKER", "kit": Kit.TRANDOSHAN, "weapon": 10, "secondary": 0,
@@ -598,11 +611,19 @@ func allows(row: int, index: int) -> bool:
 	match row:
 		Row.WEAPON:
 			var entry: Dictionary = WEAPONS[index]
+			# A weapon carrying a "kit" key belongs to that kit ALONE, and its
+			# owner may always reach it — this is what lets the Force adept keep
+			# its lightsaber while ALSO shopping the ordinary guns below. Another
+			# kit's signature weapon is never allowed.
+			if entry.has("kit"):
+				return entry["kit"] == kit
+			# A `primaries` list means ONLY those non-kit classes (the Wookiee's
+			# heavies, the Trandoshan's four). Without one, any ordinary gun goes
+			# — so a Force adept with no list gets the whole rack plus its saber.
 			var only: Array = k.get("primaries", [])
 			if not only.is_empty():
 				return entry["class"] in only
-			# No explicit list: everything except another kit's signature weapon.
-			return not entry.has("kit")
+			return true
 		Row.SECONDARY:
 			# Same rule as the primary row, one table down. The Wookiee is the
 			# reason it exists: its bowcaster is its own, and it carries nothing
@@ -723,9 +744,17 @@ func adopt_kit(new_kit: int) -> void:
 	fresh.kit = clampi(new_kit, 0, KITS.size() - 1)
 	var k: Dictionary = KITS[fresh.kit]
 	fresh.armor = int(k["default_armor"])
-	# A kit with exactly one legal primary is holding it, not choosing it.
+	# What the kit opens holding: an explicit `default_primary` (the Force adept's
+	# saber, which it may swap OFF), else the sole entry of a restrictive
+	# `primaries` list (the Wookiee is holding a heavy, not choosing one), else no
+	# primary at all — the sidearm is free, so a build can deploy on it alone.
 	var only: Array = k.get("primaries", [])
-	fresh.weapon = weapon_index(only[0]) if not only.is_empty() else NO_PRIMARY
+	if k.has("default_primary"):
+		fresh.weapon = weapon_index(k["default_primary"])
+	elif not only.is_empty():
+		fresh.weapon = weapon_index(only[0])
+	else:
+		fresh.weapon = NO_PRIMARY
 	# ...and the same for the sidearm, or a Wookiee would adopt its kit still
 	# holding the pistol on row 0 — an illegal build that the buy screen would
 	# then refuse to step off, because every direction from it is disallowed.

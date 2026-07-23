@@ -60,10 +60,18 @@ func _init() -> void:
 			b.row_available(L.Row.GRENADES), b.row_available(L.Row.GADGET2)])
 
 		# --- the rules the user asked for --------------------------------
+		# The Force adept wields the saber AND ordinary guns, while keeping every
+		# Force power; only IT may reach the saber. It still may not take another
+		# kit's signature heavies.
 		var saber_ok: bool = "Lightsaber" in guns
 		if k == 2:
-			if guns != ["Lightsaber"]:
-				fails.append("%s: primary should be the saber ALONE, got %s" % [name, guns])
+			if not saber_ok:
+				fails.append("FORCE ADEPT cannot reach its own lightsaber: %s" % guns)
+			if not ("DC-15 Rifle" in guns):
+				fails.append("FORCE ADEPT can no longer wield ordinary guns: %s" % guns)
+			for heavy in ["T-21 HMG", "PLX-1 RPG"]:
+				if heavy in guns:
+					fails.append("FORCE ADEPT reached %s; that is the Wookiee's" % heavy)
 			for power in ["FORCE PUSH", "FORCE PULL", "FORCE LEAP", "FORCE LIGHTNING"]:
 				if not (power in gads):
 					fails.append("%s: missing %s: %s" % [name, power, gads])
