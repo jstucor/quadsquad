@@ -1,7 +1,7 @@
 class_name Pickup
 extends Area3D
-## A piece of gear lying on the ground in battle royale: a gun, a gadget, a
-## bundle of grenades or a health kit. Stand on it and press the pick-up control
+## A piece of gear lying on the ground in battle royale: a gun, a sidearm or a
+## gadget (grenades are gadgets now). Stand on it and press the pick-up control
 ## to take it — deliberately NOT automatic, because walking over a pistol and
 ## losing the rifle you were carrying is exactly the frustration auto-pickup
 ## causes.
@@ -9,9 +9,9 @@ extends Area3D
 ## Everything it can give is expressed as a change to the player's LOADOUT and
 ## then re-applied, rather than as a special case per item — that way a picked-up
 ## rifle behaves exactly like a bought one, keeps working across the weapon swap
-## and the rotary toggle, and needs no second code path anywhere. The one thing
-## it deliberately does NOT do is refill health for free: a medkit pickup gives
-## you the kit, and you still choose when to spend it.
+## and the rotary toggle, and needs no second code path anywhere. It does NOT
+## refill health: you keep the damage you were carrying (health regenerates on
+## its own once you break contact).
 
 enum Kind { PRIMARY, SIDEARM, GADGET }
 
@@ -22,7 +22,6 @@ const RADIUS := 1.3
 
 var kind: int = Kind.PRIMARY
 var value := 0          # index into the relevant Loadout table
-var amount := 1         # for the counted kinds
 
 var _bob_t := 0.0
 var _body: Node3D
@@ -30,7 +29,7 @@ var _nearby := {}   # players standing in reach right now
 
 
 ## What each kind looks like and is called. The colour is the whole readout at
-## range — you should be able to tell a gun from a medkit across a dune.
+## range — you should be able to tell a gun from a gadget across a dune.
 const LOOKS := {
 	Kind.PRIMARY: {"tint": Color(1.0, 0.72, 0.25), "label": "WEAPON"},
 	Kind.SIDEARM: {"tint": Color(0.95, 0.85, 0.45), "label": "SIDEARM"},
@@ -38,10 +37,9 @@ const LOOKS := {
 }
 
 
-func setup(item_kind: int, item_value: int, item_amount := 1) -> void:
+func setup(item_kind: int, item_value: int) -> void:
 	kind = item_kind
 	value = item_value
-	amount = item_amount
 	# Layer 4 is the one nothing moves against (the front shield already uses
 	# it), so a pickup never blocks a body or stops a bullet.
 	collision_layer = 8

@@ -733,7 +733,7 @@ func _update_buy_open(move: Vector2i, back_edge: bool) -> void:
 		buy_changed.emit(buy_row)
 	if move.x != 0 and pending.step(buy_row, move.x):
 		# Changing class rewrites the whole build, which can take the row the
-		# cursor is sitting on out of existence (the grenade rows, most often) —
+		# cursor is sitting on out of existence (a melee kit hides SIGHT/GRIP) —
 		# or the whole box, if you were in one the new kit does not have.
 		if not pending.box_available(buy_box):
 			buy_inside = false
