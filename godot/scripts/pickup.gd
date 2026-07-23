@@ -13,7 +13,7 @@ extends Area3D
 ## it deliberately does NOT do is refill health for free: a medkit pickup gives
 ## you the kit, and you still choose when to spend it.
 
-enum Kind { PRIMARY, SIDEARM, GADGET, GRENADES, MEDKIT }
+enum Kind { PRIMARY, SIDEARM, GADGET }
 
 const FLOAT_HEIGHT := 0.9
 const SPIN_RATE := 1.4
@@ -35,8 +35,6 @@ const LOOKS := {
 	Kind.PRIMARY: {"tint": Color(1.0, 0.72, 0.25), "label": "WEAPON"},
 	Kind.SIDEARM: {"tint": Color(0.95, 0.85, 0.45), "label": "SIDEARM"},
 	Kind.GADGET: {"tint": Color(0.55, 0.75, 1.0), "label": "GADGET"},
-	Kind.GRENADES: {"tint": Color(1.0, 0.45, 0.30), "label": "GRENADES"},
-	Kind.MEDKIT: {"tint": Color(0.45, 1.0, 0.55), "label": "MEDKIT"},
 }
 
 
@@ -165,12 +163,5 @@ func _grant(player: Player) -> bool:
 			if build.gadget == value:
 				return false
 			build.gadget = value
-		Kind.GRENADES:
-			if player.grenades_left >= Loadout.GRENADE_MAX:
-				return false
-			build.grenade_type = value
-		Kind.MEDKIT:
-			if player.medkits_left >= Loadout.MEDKIT_MAX:
-				return false
 	player.collect(self)
 	return true

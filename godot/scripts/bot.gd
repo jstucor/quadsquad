@@ -49,7 +49,6 @@ const BASE_SPEED := 4.0        # walking pace before armour and skill scale it
 # obvious moment arrives, rather than planning.
 const GRENADE_RANGE := Vector2(9.0, 26.0)   # too close and it kills itself
 const GRENADE_COOLDOWN := 6.0
-const MEDKIT_AT := 0.45        # heal below this share of health
 const TURRET_PLACE_GAP := 12.0  # drop it once we're near where we're heading
 # Mortar habits. A bot cannot read a map, so its knowledge gate is its own
 # target: it only ever shells somewhere it has actually seen an enemy. The
@@ -149,8 +148,7 @@ var _aim_reroll_in := 0.0
 var _roam_target := Vector3.ZERO
 var _roam_left := 0.0
 var _speed := 4.0
-var _grenades := 0
-var _medkits := 0
+var _since_damage := 0.0  # for passive regen, like the player
 var _grenade_cd := 0.0
 var _cable_cd := 0.0
 var _cable_left := 0.0
@@ -212,8 +210,7 @@ func setup(owner: Node3D, bot_team: int, skill_index: int, build := -1) -> void:
 	# AI Force adept closes ground as fast as a human one.
 	_speed = BASE_SPEED * float(armor["speed"]) * float(_skill["speed"]) \
 		* loadout.kit_speed()
-	_grenades = loadout.grenades
-	_medkits = loadout.medkits
+	_since_damage = 0.0
 	model.set_team_color(GameState.TEAM_COLORS[team])
 	weapon.set_class(loadout.deploy_class(), loadout.primary_mods())
 	# Show the blade on the body, not just in the hitscan: a saber bot that walks
@@ -241,6 +238,7 @@ func take_damage(amount: float, attacker: Node = null, headshot := false) -> voi
 	if attacker != null and "team" in attacker and attacker.team == team:
 		return  # friendly fire is off for bots too
 	health -= amount
+	_since_damage = 0.0  # a hit restarts the regen delay
 	# Same contract as Player: confirm the hit back to whoever landed it, only
 	# once the damage is real.
 	if attacker != null and attacker.has_method("on_hit_confirmed"):
@@ -277,12 +275,12 @@ func _physics_process(delta: float) -> void:
 		weapon.update_fire(false, false)  # hold until the match is called on
 		return
 	_grenade_cd = maxf(_grenade_cd - delta, 0.0)
+	_regen_if_calm(delta)
 	_cable_cd = maxf(_cable_cd - delta, 0.0)
 	_force_cd = maxf(_force_cd - delta, 0.0)
 	# The channel is ticked from _throw_lightning_if_in_reach, which runs inside
 	# the engage branch and so has no delta of its own to hand it.
 	_tick_delta = delta
-	_use_medkit_if_hurt()
 	_retarget_in -= delta
 	_memory_left = maxf(_memory_left - delta, 0.0)
 	if _retarget_in <= 0.0:
@@ -537,25 +535,29 @@ func _watch_for_snag(want: Vector3, delta: float) -> void:
 ## Gadget habits, all deliberately simple: use what you bought at the obvious
 ## moment. Together these are what make an AI firefight look like a firefight
 ## rather than two lines of riflemen.
-func _use_medkit_if_hurt() -> void:
-	if _medkits <= 0:
+## Passive regen, the same rule the player has: heal back to full once enough
+## time has passed since the last hit. Replaces the medkit.
+func _regen_if_calm(delta: float) -> void:
+	_since_damage += delta
+	if _since_damage < Player.REGEN_DELAY:
 		return
-	# Same arithmetic as setup(), class multiplier included, or a Force adept would
-	# top up to a ceiling below the health it actually deployed with.
 	var full := loadout.max_health() * float(_skill["health"])
-	if health > full * MEDKIT_AT:
-		return
-	_medkits -= 1
-	health = minf(health + Loadout.MEDKIT_HEAL, full)
+	if health < full:
+		health = minf(health + Player.REGEN_RATE * delta, full)
 
 
 ## Lob one at a target that's far enough away not to catch us in the blast.
 func _throw_grenade_if_useful(gap: float) -> void:
-	if _grenades <= 0 or _grenade_cd > 0.0 or not is_instance_valid(_target):
+	if _grenade_cd > 0.0 or not is_instance_valid(_target):
+		return
+	# Grenades are gadgets now, so a bot throws only if it BOUGHT one; the type
+	# comes from whichever slot holds it.
+	var g := loadout.gadget if loadout.gadget in Loadout.GRENADE_GADGETS \
+		else loadout.gadget2
+	if not (g in Loadout.GRENADE_GADGETS):
 		return
 	if gap < GRENADE_RANGE.x or gap > GRENADE_RANGE.y:
 		return
-	_grenades -= 1
 	_grenade_cd = GRENADE_COOLDOWN
 	var nade := GRENADE_SCENE.instantiate()
 	get_tree().current_scene.add_child(nade)
@@ -563,7 +565,8 @@ func _throw_grenade_if_useful(gap: float) -> void:
 	# Lob it: the further away, the more arc, so it lands rather than skids.
 	var toss := (aim.normalized() + Vector3.UP * (0.25 + gap * 0.012)).normalized() \
 		* (9.0 + gap * 0.45)
-	nade.launch(head.global_position + aim.normalized() * 0.6, toss, self)
+	nade.launch(head.global_position + aim.normalized() * 0.6, toss, self,
+		Loadout.GRENADE_GADGETS[g])
 
 
 ## Engineers drop their turret once they've reached the ground they're holding,

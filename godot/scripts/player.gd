@@ -18,7 +18,7 @@ signal died(eliminated: bool)
 signal respawned()
 signal buy_changed(row: int)     # cursor moved or the build changed; redraw
 signal deploy_ready()            # the minimum wait elapsed; the button is live
-signal gear_changed(grenades: int, medkits: int)
+signal gear_changed()  # a HUD redraw ping (gadget cooldowns, etc.)
 signal killed_someone(streak: int)  # a kill this life; streak resets on death
 signal damaged(amount: float)       # took a hit: drives the red screen flash
 ## One of OUR shots landed on an enemy: drives the hit marker and its click.
@@ -110,6 +110,11 @@ const DEPLOY_FLOOR := 5.0
 const RESPAWN_FLOOR := 2.0
 const GRENADE_THROW_SPEED := 13.0
 const GRENADE_LOB := 0.28  # upward share of the throw, so it arcs
+# Passive regen, in place of health kits: after REGEN_DELAY seconds without
+# taking a hit, heal REGEN_RATE per second back to full. The delay is what keeps
+# it from healing mid-firefight — you have to break contact to recover.
+const REGEN_DELAY := 5.0
+const REGEN_RATE := 18.0
 # Map screen. The cursor crosses the level in about this many seconds at full
 # stick, so it feels the same on a small arena and on the big terrain map.
 const MAP_CURSOR_CROSS_TIME := 2.2
@@ -207,8 +212,6 @@ var buy_row := 0
 ## Kills on the CURRENT life. Reset on every deploy, so it reads as a streak
 ## rather than a running total.
 var kills_this_life := 0
-var grenades_left := 0
-var medkits_left := 0
 var squad: Array[Bot] = []  # the AI squadmates currently alive under this player
 var gadget := Loadout.Gadget.NONE
 ## The Mandalorian's second gadget, driven by the GRENADE control. See
@@ -224,6 +227,10 @@ var _base_fov := 75.0
 var _look_scale := 1.0
 var _prev_aim := false
 var _downs := {}             # control id -> was it down last frame (joypad edges)
+var _slot1_down := false     # previous state of the LB+RB slot-1 chord, for its edge
+## Seconds since the last damage taken. Passive regen (there are no health kits)
+## kicks in once this passes REGEN_DELAY, healing REGEN_RATE per second to full.
+var _since_damage := 0.0
 var _on_secondary := false   # which weapon slot is in hand
 var _cable_left := 0.0       # seconds of grapple pull remaining
 var _cable_anchor := Vector3.ZERO
@@ -372,6 +379,7 @@ func take_damage(amount: float, attacker: Node = null, headshot := false) -> voi
 	if amount <= 0.0:
 		return
 	health -= amount
+	_since_damage = 0.0  # taking a hit restarts the regen delay
 	health_changed.emit(health)
 	damaged.emit(amount)
 	# Tell whoever shot us that it landed. This is deliberately AFTER the
@@ -403,7 +411,7 @@ func _dash() -> void:
 	if is_on_floor():
 		velocity.y = maxf(velocity.y, DASH_LIFT)
 	_dash_cd = DASH_COOLDOWN
-	gear_changed.emit(grenades_left, medkits_left)
+	gear_changed.emit()
 
 
 ## Seconds until the dash is available again, 0 when it is ready.
@@ -505,28 +513,17 @@ func on_hit_confirmed(headshot: bool, killed: bool) -> void:
 
 
 ## Take a pickup's contents into the current build and re-apply it, so a gun
-## found on the ground behaves exactly like one that was bought. Health kits and
-## grenades are counted rather than swapped, and re-applying would reset them,
-## so those two are added after the fact.
+## found on the ground behaves exactly like one that was bought. Everything a
+## pickup grants is now a LOADOUT change (a weapon, a sidearm, a gadget), so it
+## is folded in and re-applied with no counted extras to carry across.
 func collect(item: Pickup) -> void:
-	var grenades := grenades_left
-	var medkits := medkits_left
 	var health_before := health
 	pending = loadout.duplicate_loadout()
 	_apply_loadout()
-	# _apply_loadout refills to the build's counts; put back what we were
-	# carrying and add what was on the ground.
-	grenades_left = grenades
-	medkits_left = medkits
-	match item.kind:
-		Pickup.Kind.GRENADES:
-			grenades_left = mini(grenades + item.amount, Loadout.GRENADE_MAX)
-		Pickup.Kind.MEDKIT:
-			medkits_left = mini(medkits + item.amount, Loadout.MEDKIT_MAX)
 	# A pickup is not a heal: you keep the damage you were carrying.
 	health = minf(health_before, max_health)
 	health_changed.emit(health)
-	gear_changed.emit(grenades_left, medkits_left)
+	gear_changed.emit()
 	_announce_hand()
 
 
@@ -601,8 +598,7 @@ func _apply_loadout() -> void:
 	_speed_mult = float(armor["speed"]) * loadout.kit_speed()
 	_jump_mult = armor["jump"]
 	health = max_health
-	grenades_left = loadout.grenades
-	medkits_left = loadout.medkits
+	_since_damage = 0.0
 	kills_this_life = 0
 	_on_secondary = not loadout.has_primary()
 	_rotary_out = false
@@ -628,7 +624,7 @@ func _apply_loadout() -> void:
 	model.set_cloak(1.0)
 	_clear_gadget_props()
 	_muster_squad()
-	gear_changed.emit(grenades_left, medkits_left)
+	gear_changed.emit()
 	_announce_hand()
 
 
@@ -965,6 +961,7 @@ func _physics_process(delta: float) -> void:
 		return
 	pickup_pressed = _interact_pressed()
 	_update_gear()
+	_update_regen(delta)
 	_update_aim(delta)
 	_update_guard(delta)
 	_update_crouch(delta)
@@ -1333,6 +1330,12 @@ func _use_gadget(slot: int) -> void:
 	if cd > 0.0 and _force_cd[slot] > 0.0:
 		return
 	match id:
+		Loadout.Gadget.GRENADE_FRAG, Loadout.Gadget.GRENADE_STICKY, \
+		Loadout.Gadget.GRENADE_SMOKE:
+			# Grenades are gadgets now: throw the type this one maps to, then a
+			# cooldown before the next — the recharge IS the ammo.
+			_throw_grenade(Loadout.GRENADE_GADGETS[id])
+			_start_gadget_cd(slot, cd)
 		Loadout.Gadget.CABLE:
 			_fire_cable()
 		Loadout.Gadget.SHIELD:
@@ -1401,14 +1404,36 @@ func slot_of(id: int) -> int:
 	return 1 if gadget2 == id else -1
 
 
-## Is the button for this slot down right now?
+## Is the button for this slot down right now? Slot 0 is the gadget control;
+## slot 1 is the SLOT-1 chord (keyboard G / pad LB+RB together).
 func _slot_held(slot: int) -> bool:
-	return _gadget_held() if slot == 0 else Controls.held(input_device, "grenade")
+	return _gadget_held() if slot == 0 else _slot1_held()
+
+
+## The second gadget slot's control. On the keyboard it is the `grenade`
+## binding (G by default). On a pad it is BOTH shoulders at once — a fixed
+## chord, not a rebindable single button, because that is what the design calls
+## for and the binding model holds one button per action. LB+RB together is
+## awkward to fire by accident, which suits a slot you commit a gadget to.
+func _slot1_held() -> bool:
+	if input_device < 0:
+		return Controls.held(-1, "grenade")
+	return Input.is_joy_button_pressed(input_device, JOY_BUTTON_LEFT_SHOULDER) \
+		and Input.is_joy_button_pressed(input_device, JOY_BUTTON_RIGHT_SHOULDER)
+
+
+## The rising edge of the slot-1 control, tracked per player like the other pad
+## edges (an InputMap action can't be scoped to one device).
+func _slot1_pressed() -> bool:
+	var down := _slot1_held()
+	var was: bool = _slot1_down
+	_slot1_down = down
+	return down and not was
 
 
 func _start_gadget_cd(slot: int, seconds: float) -> void:
 	_force_cd[slot] = seconds
-	gear_changed.emit(grenades_left, medkits_left)
+	gear_changed.emit()
 
 
 ## Seconds until the gadget on `slot` can be used again, 0 when it is ready.
@@ -1425,7 +1450,7 @@ func _apply_gadget_motion(delta: float) -> void:
 		var dleft := ceili(_dash_cd)
 		if dleft != _dash_shown:
 			_dash_shown = dleft
-			gear_changed.emit(grenades_left, medkits_left)
+			gear_changed.emit()
 	_update_lightning_channel(delta)
 	_update_cloak(delta)
 	# Tick the force powers' cooldowns, whichever slot they sit in.
@@ -1436,7 +1461,7 @@ func _apply_gadget_motion(delta: float) -> void:
 		var left := ceili(_force_cd[slot])
 		if left != _force_shown[slot]:
 			_force_shown[slot] = left
-			gear_changed.emit(grenades_left, medkits_left)
+			gear_changed.emit()
 	# Asked of BOTH slots, not of `gadget`: a Mandalorian can buy the jetpack
 	# into either hand, and keying this off slot 0 alone left the pack dead for
 	# anyone who bought it second.
@@ -1464,7 +1489,7 @@ func _apply_gadget_motion(delta: float) -> void:
 		var secs := ceili(_cable_cd)
 		if secs != _cable_cd_shown:
 			_cable_cd_shown = secs
-			gear_changed.emit(grenades_left, medkits_left)
+			gear_changed.emit()
 	# The claw is still in flight: the reel only starts when it bites.
 	if _hook_left > 0.0:
 		_hook_left -= delta
@@ -1501,7 +1526,7 @@ func _show_jet_fuel() -> void:
 	var step_pct := roundi(jet_fuel * 20.0)
 	if step_pct != _jet_pct:
 		_jet_pct = step_pct
-		gear_changed.emit(grenades_left, medkits_left)
+		gear_changed.emit()
 
 
 ## Launch up and over whatever we just reeled ourselves to. The rise is solved
@@ -1547,7 +1572,7 @@ func _fire_cable() -> void:
 	# much as a grapple.
 	_cable_cd = CABLE_COOLDOWN
 	_cable_cd_shown = ceili(_cable_cd)
-	gear_changed.emit(grenades_left, medkits_left)
+	gear_changed.emit()
 
 
 ## A rocket straight off the wrist. It reuses the RPG's projectile whole —
@@ -1590,7 +1615,7 @@ func _begin_cloak() -> void:
 	_cloak_left = CLOAK_TIME
 	GameState.set_cloaked(self, true)
 	model.set_cloak(CLOAK_ALPHA)
-	gear_changed.emit(grenades_left, medkits_left)
+	gear_changed.emit()
 
 
 func _end_cloak() -> void:
@@ -1603,7 +1628,7 @@ func _end_cloak() -> void:
 	_cloak_left = 0.0
 	GameState.set_cloaked(self, false)
 	model.set_cloak(1.0)
-	gear_changed.emit(grenades_left, medkits_left)
+	gear_changed.emit()
 
 
 ## Seconds of cloak left, 0 when visible — for the HUD.
@@ -1747,36 +1772,36 @@ func _update_gear() -> void:
 		_swap_weapon()
 	if _gadget_pressed():
 		_use_gadget(0)
-	# The grenade control drives the second gadget for whoever carries one. No
-	# kit has both, so the two never contend: the class with two gadget slots is
-	# exactly the class with no grenades.
-	if _grenade_pressed():
+	# The SLOT-1 control (keyboard G, pad LB+RB together) fires the second gadget.
+	# If the slot is empty and the class can dash, that button is the dash — the
+	# Force adept's dash costs no new binding, exactly as before.
+	if _slot1_pressed():
 		if gadget2 != Loadout.Gadget.NONE:
 			_use_gadget(1)
 		elif loadout.can_dash():
-			# Same trick as the Mandalorian's second gadget: a class with no
-			# grenades has this button free, so the dash costs no new binding.
 			_dash()
-		elif grenades_left > 0:
-			grenades_left -= 1
-			_throw_grenade()
-			gear_changed.emit(grenades_left, medkits_left)
-	if _medkit_pressed() and medkits_left > 0 and health < max_health:
-		medkits_left -= 1
-		health = minf(health + Loadout.MEDKIT_HEAL, max_health)
-		health_changed.emit(health)
-		gear_changed.emit(grenades_left, medkits_left)
 
 
-func _throw_grenade() -> void:
+## Passive regeneration: once REGEN_DELAY has passed since the last hit, heal
+## back to full. Replaces the health kit — you recover by breaking contact, not
+## by spending a consumable.
+func _update_regen(delta: float) -> void:
+	_since_damage += delta
+	if _since_damage < REGEN_DELAY or health >= max_health:
+		return
+	health = minf(health + REGEN_RATE * delta, max_health)
+	health_changed.emit(health)
+
+
+## Lob a grenade of `type`, from the camera along the look direction with an
+## upward share so it arcs instead of firing flat. Called by _use_gadget for a
+## grenade gadget.
+func _throw_grenade(type: int) -> void:
 	var grenade := GRENADE_SCENE.instantiate()
 	get_tree().current_scene.add_child(grenade)
-	# Thrown from the camera, along the look direction with an upward share so it
-	# arcs instead of firing flat.
 	var aim := -head.global_transform.basis.z
 	var toss := (aim + Vector3.UP * GRENADE_LOB).normalized() * GRENADE_THROW_SPEED
-	grenade.launch(head.global_position + aim * 0.6, toss + velocity, self,
-		loadout.grenade_type)
+	grenade.launch(head.global_position + aim * 0.6, toss + velocity, self, type)
 
 
 func _move_input() -> Vector2:
@@ -1841,14 +1866,6 @@ func _gadget_held() -> bool:
 
 func _fire_pressed() -> bool:
 	return _edge("fire")
-
-
-func _grenade_pressed() -> bool:
-	return _edge("grenade")
-
-
-func _medkit_pressed() -> bool:
-	return _edge("medkit")
 
 
 func _gadget_pressed() -> bool:

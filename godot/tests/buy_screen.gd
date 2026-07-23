@@ -109,14 +109,13 @@ func _ready() -> void:
 		"moving the cursor changed NOTHING about the build")
 	_expect(not p.buy_inside, "and opened no box")
 
-	# --- a box the kit does not have is skipped --------------------------
-	print("\n== boxes the kit does not have ==")
-	var force := Loadout.new()
-	force.adopt_kit(Loadout.Kit.FORCE)
-	print("  FORCE ADEPT: grenades box available %s, gadget box %s" % [
-		force.box_available(3), force.box_available(4)])
-	_expect(not force.box_available(3), "a Force adept has no GRENADES box")
-	_expect(force.box_available(4), "...but does have a GADGET box")
+	# --- every class has the two-slot GADGETS box now --------------------
+	print("\n== the universal second gadget slot ==")
+	for kit in [Loadout.Kit.FORCE, Loadout.Kit.CLONE, Loadout.Kit.WOOKIEE]:
+		var l := Loadout.new()
+		l.adopt_kit(kit)
+		_expect(l.row_available(Loadout.Row.GADGET2),
+			"%s has a second gadget slot" % l.kit_name())
 
 	print("\n==== %s ====" % ("BUY SCREEN WORKS" if _fails.is_empty()
 		else "%d FAILURE(S):\n  %s" % [_fails.size(), "\n  ".join(_fails)]))

@@ -94,6 +94,51 @@ func _ready() -> void:
 	_expect(not clone.allows(Loadout.Row.GADGET, Loadout.Gadget.WRIST_ROCKET),
 		"a clone cannot buy the wrist rocket")
 
+	# --- grenades are gadgets with a cooldown now -------------------------
+	print("\n== the grenade gadget ==")
+	var nader := await _spawn(_build(Loadout.Kit.CLONE, Weapon.Class.SOLDIER,
+		Loadout.Gadget.GRENADE_FRAG), Vector3(-40.0, 0.0, 0.0), 0)
+	# It sits in slot 0 here for the test; a player would fit it in slot 2.
+	await _frames(2)
+	var nades0 := _count("Grenade")
+	nader._use_gadget(0)
+	await _frames(1)
+	print("  threw: %d grenade(s), cooldown %.1fs" % [
+		_count("Grenade") - nades0, nader.gadget_cooldown(0)])
+	_expect(_count("Grenade") - nades0 > 0, "the gadget throws a real grenade")
+	_expect(nader.gadget_cooldown(0) > 0.0, "...and starts a cooldown, not a count")
+	# Immediately again: blocked by the cooldown.
+	var mid := _count("Grenade")
+	nader._use_gadget(0)
+	await _frames(1)
+	_expect(_count("Grenade") == mid, "a second throw is denied until it recharges")
+
+	# --- passive healing after a lull -------------------------------------
+	print("\n== passive heal ==")
+	nader.health = 40.0
+	nader._since_damage = 0.0
+	await _frames(2)
+	var hurt := nader.health
+	# Partway through the delay: no regen yet.
+	var t := 0.0
+	while t < Player.REGEN_DELAY * 0.5:
+		await _frames(1)
+		t += get_physics_process_delta_time()
+	var during := nader.health
+	# Well past the delay: it climbs.
+	while t < Player.REGEN_DELAY + 2.0:
+		await _frames(1)
+		t += get_physics_process_delta_time()
+	print("  %.0f during the delay -> %.0f after it" % [during, nader.health])
+	_expect(is_equal_approx(during, hurt), "no regen during the delay")
+	_expect(nader.health > during + 5.0, "then it heals back up on its own")
+	# ...and a hit restarts the delay.
+	var attacker2 := Node3D.new()
+	add_child(attacker2)
+	attacker2.global_position = nader.global_position + Vector3(0, 1, -6)
+	nader.take_damage(10.0, attacker2)
+	_expect(nader._since_damage < 0.1, "taking a hit restarts the regen delay")
+
 	print("\n==== %s ====" % ("GADGETS WORK" if _fails.is_empty()
 		else "%d FAILURE(S):\n  %s" % [_fails.size(), "\n  ".join(_fails)]))
 	get_tree().quit(0 if _fails.is_empty() else 1)

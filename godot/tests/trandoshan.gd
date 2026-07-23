@@ -82,16 +82,15 @@ func _ready() -> void:
 	print("  dashed %.1f m forward" % moved)
 	_expect(moved > 2.0, "the dash gadget carries you forward")
 
-	# --- and only the Trandoshan throws smoke ----------------------------
+	# --- and only the Trandoshan has the smoke grenade (a gadget now) ----
 	print("\n== smoke is theirs alone ==")
 	var clone := Loadout.new()
 	clone.adopt_kit(Loadout.Kit.CLONE)
-	_expect(not clone.allows(Loadout.Row.GRENADE_TYPE, Loadout.GrenadeType.SMOKE),
-		"a clone cannot select smoke")
-	_expect(tran.pending == null or true, "")  # spacer, keeps output aligned
+	_expect(not clone.allows(Loadout.Row.GADGET, Loadout.Gadget.GRENADE_SMOKE),
+		"a clone cannot fit the smoke grenade")
 	var tload := Loadout.new()
 	tload.adopt_kit(Loadout.Kit.TRANDOSHAN)
-	_expect(tload.allows(Loadout.Row.GRENADE_TYPE, Loadout.GrenadeType.SMOKE),
+	_expect(tload.allows(Loadout.Row.GADGET, Loadout.Gadget.GRENADE_SMOKE),
 		"...but the Trandoshan can")
 
 	print("\n==== %s ====" % ("THE TRANDOSHAN WORKS" if _fails.is_empty()

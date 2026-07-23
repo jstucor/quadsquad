@@ -185,20 +185,17 @@ func _royale_spot(rng: RandomNumberGenerator, extents: Vector2) -> Vector3:
 ## a button a class-free build does not use. royale_items filters them out.
 func _roll_pickup(item: Pickup, rng: RandomNumberGenerator) -> void:
 	var roll := rng.randf()
-	if roll < 0.34:
+	if roll < 0.42:
 		# `from` 1 skips the "no primary" row: a crate has to hold an actual gun.
 		var guns := Loadout.royale_items(Loadout.WEAPONS, 1)
 		item.setup(Pickup.Kind.PRIMARY, guns[rng.randi_range(0, guns.size() - 1)])
-	elif roll < 0.48:
+	elif roll < 0.58:
 		item.setup(Pickup.Kind.SIDEARM, rng.randi_range(0, Loadout.SECONDARIES.size() - 1))
-	elif roll < 0.60:
+	else:
+		# Gadgets, grenades included (they are gadgets now) — royale_items keeps a
+		# class's signature gear out, but the ordinary grenades stay in.
 		var gear := Loadout.royale_items(Loadout.GADGETS, 1)
 		item.setup(Pickup.Kind.GADGET, gear[rng.randi_range(0, gear.size() - 1)])
-	elif roll < 0.80:
-		item.setup(Pickup.Kind.GRENADES,
-			rng.randi_range(0, Loadout.GRENADE_TYPES.size() - 1), 1)
-	else:
-		item.setup(Pickup.Kind.MEDKIT, 0, 1)
 
 
 ## Nobody fights until every human has bought a loadout and deployed. The last
@@ -649,14 +646,10 @@ func _add_gear_readout(hud: Control, player: Player, color: Color) -> void:
 		if player.weapon.is_melee():
 			parts.append("GUARD SPENT" if player.guard_broken()
 				else "GUARD %d%%" % roundi(player.guard_level() * 100.0))
-		if player.grenades_left > 0:
-			parts.append("GRENADE x%d" % player.grenades_left)
-		if player.medkits_left > 0:
-			parts.append("MEDKIT x%d" % player.medkits_left)
 		if player.squad.size() > 0:
 			parts.append("SQUAD x%d" % player.squad.size())
 		gear.text = "   ".join(parts)
-	player.gear_changed.connect(func(_g: int, _m: int) -> void: refresh.call())
+	player.gear_changed.connect(func() -> void: refresh.call())
 	player.squad_changed.connect(func(_alive: int) -> void: refresh.call())
 	player.block_changed.connect(func(_l: float, _b: bool) -> void: refresh.call())
 	player.weapon_changed.connect(func(_n: String) -> void: refresh.call())

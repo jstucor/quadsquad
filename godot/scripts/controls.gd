@@ -36,8 +36,7 @@ const ACTIONS: Array[Dictionary] = [
 	{"id": "crouch", "name": "CROUCH", "pad": true},
 	{"id": "switch", "name": "SWAP WEAPON", "pad": true},
 	{"id": "gadget", "name": "GADGET", "pad": true},
-	{"id": "grenade", "name": "GRENADE", "pad": true},
-	{"id": "medkit", "name": "MEDKIT", "pad": true},
+	{"id": "grenade", "name": "GADGET 2 (kb)", "pad": false},
 	{"id": "map", "name": "MAP / STRIKE", "pad": true},
 	{"id": "interact", "name": "PICK UP", "pad": true},
 	{"id": "forward", "name": "MOVE FORWARD", "pad": false},
@@ -56,7 +55,6 @@ const DEFAULT_KEYS := {
 	"switch": {"key": KEY_Q},
 	"gadget": {"key": KEY_F},
 	"grenade": {"key": KEY_G},
-	"medkit": {"key": KEY_H},
 	"map": {"key": KEY_M},
 	"interact": {"key": KEY_E},
 	"forward": {"key": KEY_W},
@@ -71,8 +69,10 @@ const DEFAULT_KEYS := {
 # Fire and aim are the TRIGGERS alone. They used to also carry the shoulder
 # above them, which spent both bumpers on a duplicate of a control the player
 # already has under a finger; the bumpers are where a shooter expects its two
-# throwables, so gadget and grenade own them and keep their face/d-pad button as
-# the second way in.
+# throwables, so gadget owns X and keeps a d-pad button as a second way in. The
+# SECOND gadget slot is the LB+RB CHORD — read directly in Player, not bound here
+# — so both shoulders are left FREE of any single-button action, or holding the
+# chord would also fire whatever one shoulder was bound to.
 const DEFAULT_PAD := {
 	"fire": [{"kind": Kind.AXIS, "index": JOY_AXIS_TRIGGER_RIGHT, "dir": 1}],
 	"ads": [{"kind": Kind.AXIS, "index": JOY_AXIS_TRIGGER_LEFT, "dir": 1}],
@@ -80,14 +80,9 @@ const DEFAULT_PAD := {
 	"sprint": [{"kind": Kind.BUTTON, "index": JOY_BUTTON_LEFT_STICK}],
 	"crouch": [{"kind": Kind.BUTTON, "index": JOY_BUTTON_B}],
 	"switch": [{"kind": Kind.BUTTON, "index": JOY_BUTTON_Y}],
-	"gadget": [{"kind": Kind.BUTTON, "index": JOY_BUTTON_LEFT_SHOULDER},
-		{"kind": Kind.BUTTON, "index": JOY_BUTTON_X}],
-	"grenade": [{"kind": Kind.BUTTON, "index": JOY_BUTTON_RIGHT_SHOULDER},
+	"gadget": [{"kind": Kind.BUTTON, "index": JOY_BUTTON_X},
 		{"kind": Kind.BUTTON, "index": JOY_BUTTON_DPAD_UP}],
-	"medkit": [{"kind": Kind.BUTTON, "index": JOY_BUTTON_DPAD_DOWN}],
 	"map": [{"kind": Kind.BUTTON, "index": JOY_BUTTON_BACK}],
-	# D-pad left is the only face/pad control still free: A/B/X/Y, both
-	# shoulders, both triggers, both sticks and d-pad up/down are all spoken for.
 	"interact": [{"kind": Kind.BUTTON, "index": JOY_BUTTON_DPAD_LEFT}],
 }
 
@@ -267,6 +262,14 @@ static func has_override(device: int, id: String) -> bool:
 static func label(device: int, id: String) -> String:
 	ensure_loaded()
 	return key_label(id) if device < 0 else pad_label(device, id)
+
+
+## The second gadget slot's control, for buy-screen prompts. It is the one
+## control that is NOT a normal binding: a keyboard key (the `grenade` action)
+## for the keyboard player, and the fixed LB+RB chord on a pad (read directly in
+## Player, so there is no binding to look up).
+static func slot2_label(device: int) -> String:
+	return key_label("grenade") if device < 0 else "LB+RB"
 
 
 static func pad_label(device: int, id: String) -> String:
