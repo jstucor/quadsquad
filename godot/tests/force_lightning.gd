@@ -78,7 +78,40 @@ func _ready() -> void:
 	_expect(caught.size() <= 1 + ForcePowers.BOLT_CHAINS,
 		"never more than the cap, however many are stood together")
 
+	# --- the cone is WIDE and forgiving, but still has an edge -------------
+	# Clear the crowd out of the way, then place one enemy well off the aim
+	# line: inside the new cone but outside the old 14 deg one. Loose aim has to
+	# land it now — and an enemy past the cone's edge still must not be hit, or
+	# it would be an omnidirectional zap rather than a forgiving one.
+	# Tested one enemy at a time, so what lands is the CONE and never the chain.
+	print("\n== a wide, forgiving cone ==")
+	var far_away := Vector3(0.0, 0.0, 900.0)
+	for body in [mark, near, far_chain, fourth, out_of_reach, mate]:
+		body.global_position = far_away
+	jedi.rotation.y = 0.0
+	# 28 deg off the -Z aim line: inside the new 35 deg cone, outside the old 14.
+	var side := await _spawn(Loadout.starter(), Vector3(5.3, 0.0, -10.0), 1)
+	await _frames(2)
+	var side_before := side.health
+	ForcePowers.lightning(jedi, jedi.team)
+	print("  28 deg off took %.0f" % (side_before - side.health))
+	_expect(side_before - side.health > 0.0,
+		"loose aim lands a target the old narrow cone would have missed")
+
+	# Now ONLY an enemy past the cone edge (52 deg): a forgiving cone is still a
+	# cone, so it must find nobody.
+	side.global_position = far_away
+	var beyond := await _spawn(Loadout.starter(), Vector3(12.8, 0.0, -10.0), 1)
+	await _frames(2)
+	var edge := ForcePowers.lightning(jedi, jedi.team)
+	print("  52 deg off struck %d" % edge.size())
+	_expect(edge.is_empty(), "...but a target past the cone edge is not grabbed")
+	beyond.global_position = far_away
+	side.global_position = Vector3(5.3, 0.0, -10.0)   # one enemy back in front
+
 	# --- facing away hits nobody ------------------------------------------
+	# `side` stays in front; turning around puts it behind, so a wide cone is
+	# still a FORWARD cone.
 	print("\n== facing away ==")
 	jedi.rotation.y = PI   # turn away from everyone
 	var missed := ForcePowers.lightning(jedi, jedi.team)
@@ -86,6 +119,7 @@ func _ready() -> void:
 	_expect(missed.is_empty(), "nothing behind you is hit")
 
 	# --- the bolt draws itself and cleans itself up ------------------------
+	# `side` is still in front, so facing forward again finds it.
 	print("\n== the arc ==")
 	jedi.rotation.y = 0.0
 	jedi._channel_arc = ForcePowers.channel_bolt(

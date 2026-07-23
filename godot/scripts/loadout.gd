@@ -178,7 +178,7 @@ const GADGETS: Array[Dictionary] = [
 	# It is still not a gun: short of a rifle's range, on a long cooldown, and it
 	# arcs to the crowd behind the target rather than rewarding precision.
 	{"name": "FORCE LIGHTNING", "cost": 50, "kit": Kit.FORCE,
-		"blurb": "HOLD to pour lightning at who you look at, chaining to 3 more. 18 m, 4s"},
+		"blurb": "HOLD to pour lightning at the nearest enemy in front, chaining to 3 more. 18 m, 4s"},
 	# The Mandalorian's third gadget, and the only DAMAGE one it can buy. No
 	# "kit" key, exactly like the jetpack and the cable: the kit allow-list is
 	# what keeps it out of other classes' hands, and a rocket off the ground

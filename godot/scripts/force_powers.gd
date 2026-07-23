@@ -38,20 +38,24 @@ const PULL_ARC := deg_to_rad(10.0)   # a narrow cone: you pull who you LOOK at
 const PULL_FORCE := 21.0
 const PULL_LIFT := 3.5
 
-# LIGHTNING is the one power that kills. It is aimed like the pull — a narrow
-# cone on whoever you are looking at — and then ARCS to the nearest bodies to
-# THAT target rather than to the caster, so it punishes a group standing
-# together exactly as the mortar does, and cannot be swept across a room.
+# LIGHTNING is the one power that kills. It AUTO-TARGETS: point roughly forward
+# and it grabs the nearest enemy in a WIDE cone, so it forgives loose aim rather
+# than demanding you put the crosshair on a body. From that target it ARCS to
+# the nearest bodies to THEM rather than to the caster, so it punishes a group
+# standing together exactly as the mortar does, and cannot be swept across a
+# room.
 #
 # It is CHANNELLED: hold the button and it pours for up to CHANNEL_TIME, ticking
-# damage every CHANNEL_TICK and re-acquiring on every tick, so a target that
-# breaks the cone or ducks behind cover cuts the stream off. That re-acquire is
-# what makes holding it a real aim rather than a fire-and-forget button — and it
-# is why the per-tick damage is a fraction of what the old one-shot burst did:
-# the whole channel is worth a bit more than the burst was, but only if you can
-# keep it on somebody for two seconds while they shoot back.
+# damage every CHANNEL_TICK and re-acquiring on every tick — the wide cone is
+# what lets the stream STAY on a target that jukes without you tracking it
+# precisely. The per-tick damage is a fraction of the old one-shot burst: the
+# whole channel is worth a bit more than the burst was, but only if you can keep
+# it near somebody for two seconds while they shoot back.
 const BOLT_RANGE := 18.0
-const BOLT_ARC := deg_to_rad(14.0)
+# Half-angle of the acquisition cone. Deliberately generous — at the pull's 10°
+# you had to look almost straight at a body, which is the opposite of what a
+# forgiving auto-target wants. 35° means "aim in their general direction".
+const BOLT_ARC := deg_to_rad(35.0)
 const CHANNEL_TIME := 2.2            # seconds of stream before it cuts out
 const CHANNEL_TICK := 0.2            # ...and how often it bites
 const BOLT_DAMAGE := 11.0            # per tick, so ~121 over a full channel
