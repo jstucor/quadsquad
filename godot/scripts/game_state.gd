@@ -31,9 +31,14 @@ const MODE_BLURBS := {
 	Mode.ROYALE: "No respawns. Scavenge your gear, outlast the storm, last side wins",
 }
 
-# What each mode plays to: kills, seconds of control, or simply being the last
-# side left, which is one "point" awarded once.
+# DEFAULT victory threshold per mode: kills, seconds of control, or simply being
+# the last side left (one "point", awarded once). The menu lets you raise or
+# lower the first two — score_targets holds the chosen values, seeded from here.
 const SCORE_LIMITS := {Mode.DEATHMATCH: 25, Mode.ZONES: 60, Mode.ROYALE: 1}
+## The victory thresholds actually in force, chosen on the menu. Seeded from the
+## defaults; ROYALE's is fixed (last side standing is not a number you tune).
+## The offered choices live on the menu (SCORE_CHOICES there), not here.
+var score_targets := SCORE_LIMITS.duplicate()
 
 # A respawn must never land on a living body: two overlapping capsules push each
 # other apart every physics frame and ride that ejection out of the map, which
@@ -158,9 +163,20 @@ func active_teams() -> int:
 	return human_players if free_for_all else mini(team_count, MAX_TEAMS)
 
 
-## Which team a given human player lands on. Dealt round-robin, so 4 humans
-## across 2 teams is 2v2, across 3 is 2/1/1, and free-for-all is one each.
+## Teams the players PICKED on the team-select screen, one per human player.
+## Empty means nobody chose — every path that skips team-select (free-for-all)
+## leaves it empty and falls back to the round-robin below.
+var chosen_teams: Array[int] = []
+
+
+## Which team a given human player lands on. Their own pick from the team-select
+## screen when there is a valid one, else dealt round-robin — so 4 humans across
+## 2 teams is 2v2, across 3 is 2/1/1, and free-for-all is one each.
 func team_for_player(index: int) -> int:
+	if index < chosen_teams.size():
+		var pick := chosen_teams[index]
+		if pick >= 0 and pick < active_teams():
+			return pick
 	return index % active_teams()
 
 
@@ -226,7 +242,7 @@ func _read_cmdline() -> void:
 
 
 func score_limit() -> int:
-	return SCORE_LIMITS[mode]
+	return int(score_targets[mode])
 
 
 ## The current mode's blurb with its own numbers already in it.

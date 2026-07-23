@@ -32,16 +32,28 @@ func _ready() -> void:
 			items.append(d.get_item_text(i))
 		print("  %-14s -> %s" % [d.get_item_text(d.selected), str(items)])
 
-	var teams: OptionButton = dropdowns[1]
-	teams.select(1)
-	teams.item_selected.emit(1)
+	# Dropdown order matches the build: MAP, MODE, PLAYERS, TEAMS, TEAM SIZE,
+	# VICTORY, AI SKILL, AIM ASSIST.
+	var mode_dd: OptionButton = dropdowns[1]
+	var teams_dd: OptionButton = dropdowns[3]
+	var victory_dd: OptionButton = dropdowns[5]
+
+	teams_dd.select(1)
+	teams_dd.item_selected.emit(1)
 	await _frames(2)
 	print("picked '3 TEAMS' -> team_count %d, free_for_all %s" % [
 		GameState.team_count, GameState.free_for_all])
 
+	# VICTORY writes the mode's threshold: 100 KILLS in deathmatch.
+	GameState.mode = GameState.Mode.DEATHMATCH
+	victory_dd.select(4)             # [10, 25, 50, 75, 100] -> 100
+	victory_dd.item_selected.emit(4)
+	await _frames(2)
+	print("picked '100 KILLS' -> score_limit %d" % GameState.score_limit())
+
 	GameState.human_players = 4
-	teams.select(3)
-	teams.item_selected.emit(3)
+	teams_dd.select(3)
+	teams_dd.item_selected.emit(3)
 	await _frames(2)
 	print("picked 'FREE FOR ALL' -> free_for_all %s, teams %d" % [
 		GameState.free_for_all, GameState.active_teams()])

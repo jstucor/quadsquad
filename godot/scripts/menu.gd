@@ -17,6 +17,7 @@ extends Control
 ## wrong.
 
 const GAME_SCENE := "res://scenes/main.tscn"
+const TEAM_SELECT_SCENE := "res://scenes/team_select.tscn"
 const SETTINGS_SCENE := "res://scenes/settings.tscn"
 
 const BG_COLOR := Color(0.06, 0.07, 0.09)
@@ -25,7 +26,6 @@ const DIM := Color(0.62, 0.66, 0.72)
 const FAINT := Color(0.42, 0.46, 0.52)
 const PANEL := Color(0.10, 0.12, 0.15, 0.9)
 const PANEL_EDGE := Color(0.24, 0.30, 0.38)
-const BOX := Vector2(400, 200)
 
 var _summary: Label
 var _refresh_all: Callable
@@ -35,6 +35,7 @@ func _ready() -> void:
 	# A match captures the pointer; coming back here it has to be free again.
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	set_anchors_preset(Control.PRESET_FULL_RECT)
+	GameState.chosen_teams = []   # a fresh visit re-picks teams from scratch
 	_build()
 
 
@@ -55,13 +56,20 @@ func _build() -> void:
 
 	column.add_child(_label("QUADSQUAD", 52, ACCENT))
 
-	# The two picker boxes, side by side.
-	var boxes := HBoxContainer.new()
-	boxes.add_theme_constant_override("separation", 24)
-	boxes.alignment = BoxContainer.ALIGNMENT_CENTER
-	column.add_child(boxes)
-	var map_box := _picker(boxes, "MAP")
-	var mode_box := _picker(boxes, "GAME MODE")
+	# MAP and MODE are DROPDOWNS now too, matching the settings below — one press
+	# lands on any map instead of clicking through the whole roster.
+	var top := GridContainer.new()
+	top.columns = 2
+	top.add_theme_constant_override("h_separation", 10)
+	top.add_theme_constant_override("v_separation", 8)
+	column.add_child(top)
+	var map_dd := _dropdown(top, "MAP")
+	var mode_dd := _dropdown(top, "GAME MODE")
+
+	# The selected map + mode described in one line, since a dropdown shows only
+	# the name.
+	var blurb := _label("", 15, Color(0.62, 0.66, 0.72))
+	column.add_child(blurb)
 
 	# The match settings, as labelled DROPDOWNS. They used to be chips you
 	# pressed to cycle: to see the choices you had to walk through them, and to
@@ -76,6 +84,7 @@ func _build() -> void:
 	var players_dd := _dropdown(settings, "PLAYERS")
 	var teams_dd := _dropdown(settings, "TEAMS")
 	var size_dd := _dropdown(settings, "TEAM SIZE")
+	var victory_dd := _dropdown(settings, "VICTORY")
 	var skill_dd := _dropdown(settings, "AI SKILL")
 	var assist_dd := _dropdown(settings, "AIM ASSIST")
 
@@ -99,9 +108,9 @@ func _build() -> void:
 	quit_btn.pressed.connect(func() -> void: get_tree().quit())
 
 	_wire_focus([
-		[map_box, mode_box],
+		[map_dd, mode_dd],
 		[players_dd, teams_dd, size_dd],
-		[skill_dd, assist_dd],
+		[victory_dd, skill_dd, assist_dd],
 		[start],
 		[rotate_btn, controls_btn, quit_btn],
 	])
@@ -113,12 +122,10 @@ func _build() -> void:
 	# One refresh closure that everything calls, so no control has to know what
 	# any other one displays.
 	_refresh_all = func() -> void:
-		var map: Dictionary = GameState.MAPS[GameState.map_index]
-		_set_picker(map_box, map["name"], map["blurb"],
-			"%d of %d" % [GameState.map_index + 1, GameState.MAPS.size()])
-		_set_picker(mode_box, GameState.MODE_NAMES[GameState.mode],
-			GameState.mode_blurb(),
-			"%d of %d" % [GameState.mode + 1, GameState.MODE_NAMES.size()])
+		_fill(map_dd, _map_items(), GameState.map_index)
+		_fill(mode_dd, _mode_items(), GameState.mode)
+		blurb.text = "%s   —   %s" % [
+			GameState.MAPS[GameState.map_index]["blurb"], GameState.mode_blurb()]
 		# Every dropdown is REBUILT here rather than just re-selected, because
 		# what is legal changes as you go: team size cannot drop below the humans
 		# already standing in a team, and free-for-all needs a second player.
@@ -129,15 +136,23 @@ func _build() -> void:
 		var sizes := _size_items()
 		_fill(size_dd, sizes, sizes.find(_size_label(GameState.team_size)))
 		size_dd.disabled = GameState.free_for_all   # every side is one player
+		# VICTORY: the threshold to win, in the mode's own unit. ROYALE is last
+		# side standing — there is no number to tune, so the row is disabled.
+		var vics := _victory_values()
+		_fill(victory_dd, _victory_items(), maxi(vics.find(GameState.score_limit()), 0))
+		victory_dd.disabled = GameState.mode == GameState.Mode.ROYALE
 		_fill(skill_dd, _skill_items(), GameState.ai_skill)
 		_fill(assist_dd, _assist_items(), GameState.aim_assist)
 		_summary.text = _describe()
 
-	map_box.pressed.connect(func() -> void:
-		GameState.map_index = wrapi(GameState.map_index + 1, 0, GameState.MAPS.size())
+	map_dd.item_selected.connect(func(i: int) -> void:
+		GameState.map_index = i
 		_refresh_all.call())
-	mode_box.pressed.connect(func() -> void:
-		GameState.mode = wrapi(GameState.mode + 1, 0, GameState.MODE_NAMES.size())
+	mode_dd.item_selected.connect(func(i: int) -> void:
+		GameState.mode = i
+		_refresh_all.call())
+	victory_dd.item_selected.connect(func(i: int) -> void:
+		GameState.score_targets[GameState.mode] = _victory_values()[i]
 		_refresh_all.call())
 	players_dd.item_selected.connect(func(i: int) -> void:
 		GameState.human_players = GameState.MIN_HUMANS + i
@@ -162,7 +177,7 @@ func _build() -> void:
 
 	_fix_setup()
 	_refresh_all.call()
-	map_box.grab_focus()
+	map_dd.grab_focus()
 
 
 ## Wire every control's four focus neighbours from the row layout.
@@ -236,6 +251,41 @@ func _player_items() -> PackedStringArray:
 	return out
 
 
+func _map_items() -> PackedStringArray:
+	var out := PackedStringArray()
+	for m in GameState.MAPS:
+		out.append(str(m["name"]))
+	return out
+
+
+func _mode_items() -> PackedStringArray:
+	var out := PackedStringArray()
+	for i in GameState.MODE_NAMES.size():
+		out.append(str(GameState.MODE_NAMES[i]))
+	return out
+
+
+# What the current mode may play to, in its own unit — kills for deathmatch,
+# seconds of control for zones. ROYALE is not tunable (last side standing), so
+# its dropdown is disabled and never reads this.
+const SCORE_CHOICES := {
+	GameState.Mode.DEATHMATCH: [10, 25, 50, 75, 100],
+	GameState.Mode.ZONES: [60, 120, 200, 300],
+}
+
+
+func _victory_values() -> Array:
+	return SCORE_CHOICES.get(GameState.mode, [GameState.score_limit()])
+
+
+func _victory_items() -> PackedStringArray:
+	var out := PackedStringArray()
+	var unit := "SECONDS" if GameState.mode == GameState.Mode.ZONES else "KILLS"
+	for v in _victory_values():
+		out.append("%d %s" % [v, unit])
+	return out
+
+
 ## Team size starts at the biggest team's human headcount: a team can never be
 ## smaller than the people already standing in it.
 func _size_items() -> PackedStringArray:
@@ -297,41 +347,19 @@ func _describe() -> String:
 		ai, " v ".join(sides)]
 
 
+## START goes to the TEAM-SELECT screen first, where each player picks a side —
+## unless it is free-for-all, where every player is already their own team and
+## there is nothing to pick, so it drops straight into the match.
 func _start(rotate: bool) -> void:
 	GameState.rotate_maps = rotate
-	get_tree().change_scene_to_file(GAME_SCENE)
+	GameState.chosen_teams = []   # cleared; team-select fills it, FFA leaves it
+	if GameState.free_for_all:
+		get_tree().change_scene_to_file(GAME_SCENE)
+	else:
+		get_tree().change_scene_to_file(TEAM_SELECT_SCENE)
 
 
 # --- widgets -----------------------------------------------------------------
-
-## One big picker box: a heading, the current choice, a blurb and a position
-## counter. It is a Button so the whole panel is clickable AND focusable, which
-## is what makes it work from a pad as readily as from the mouse.
-func _picker(parent: HBoxContainer, heading: String) -> Button:
-	var b := _framed(Button.new())
-	b.custom_minimum_size = BOX
-	parent.add_child(b)
-	# The text lives in child labels rather than the Button's own caption, so the
-	# four lines can each have their own size and colour.
-	var lines := VBoxContainer.new()
-	lines.set_anchors_preset(Control.PRESET_FULL_RECT)
-	lines.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	lines.alignment = BoxContainer.ALIGNMENT_CENTER
-	lines.add_theme_constant_override("separation", 6)
-	b.add_child(lines)
-	lines.add_child(_label(heading, 16, FAINT))
-	lines.add_child(_label("", 32, Color(0.92, 0.95, 1.0)))  # value
-	lines.add_child(_label("", 15, DIM))                     # blurb
-	lines.add_child(_label("", 13, FAINT))                   # counter
-	return b
-
-
-func _set_picker(box: Button, value: String, blurb: String, counter: String) -> void:
-	var lines: VBoxContainer = box.get_child(0)
-	lines.get_child(1).text = value
-	lines.get_child(2).text = blurb
-	lines.get_child(3).text = counter
-
 
 ## One labelled setting dropdown: a caption above the control so the value
 ## itself does not have to carry its own name ("TEAMS  3" in a button caption
