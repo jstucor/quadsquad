@@ -217,13 +217,16 @@ const PROFILES := {
 # Purchased upgrades (Loadout.SIGHTS / UPGRADES) as multipliers on the base
 # profile. The holo ring is the cheap sight: a little zoom and a steadier aim,
 # with none of the scope's tunnel vision.
+const REDDOT_ZOOM_MULT := 0.93    # a reflex sight barely magnifies
+const REDDOT_SPREAD_MULT := 0.82  # ...but does steady the aim a little
 const HOLO_ZOOM_MULT := 0.85
 const HOLO_SPREAD_MULT := 0.7
-const SCOPE_ZOOM_MULT := 0.6    # smaller FOV = more magnification
+const SCOPE_ZOOM_MULT := 0.6      # smaller FOV = more magnification
+const SCOPE_4X_ZOOM_MULT := 0.3   # ...and the 4x is zoomed much further in
 const COOLING_HEAT_MULT := 0.75
 const COOLING_RATE_MULT := 1.25
-const GRIP_SPREAD_MULT := 0.65  # bloom derives from hip_spread, so it shrinks too
-const GRIP_RECOIL_MULT := 0.7   # ...and it's the only way to buy the kick down
+const GRIP_SPREAD_MULT := 0.65     # bloom derives from hip_spread, so it shrinks too
+const FOREGRIP_RECOIL_MULT := 0.8  # front grip: -20% kick, the only way to buy it down
 
 const BOLT_SCENE := preload("res://scenes/fx/blaster_bolt.tscn")
 const ROCKET_SCENE := preload("res://scenes/fx/rocket.tscn")
@@ -242,6 +245,10 @@ var _overheated := false
 var _burst_left := 0
 var _bloom := 0.0  # extra hip-fire spread (deg) built up by sustained fire
 var _spin := 0.0   # seconds the trigger has been held, for spin-up weapons
+## STANCE penalty on the cone, set by the owning Player each frame: >1 while
+## moving or airborne, <1 while crouched, 1 standing still. Left at 1 for bots,
+## which have their own aim-error model and never touch this.
+var stance_spread_mult := 1.0
 
 @onready var _viewmodel: Node3D = get_node_or_null("Viewmodel")
 
@@ -268,34 +275,49 @@ func _upgraded_profile(base: Dictionary, upgrades: Dictionary) -> Dictionary:
 	if upgrades.is_empty():
 		return base
 	var p := base.duplicate()
+	# A fitted sight REPLACES whatever optics the gun shipped with (the sniper's
+	# scope), it never stacks — two sights on one rail is nobody's intent. So the
+	# clear-view optics clear `scope` and the scopes set it: has_scope() is what
+	# grants pinpoint accuracy, so a gun that shows no scope must not shoot like
+	# one, and vice versa.
 	var sight: int = upgrades.get("sight", 0)
-	# The thermal holo aims EXACTLY like the ordinary ring — same clear view,
-	# same zoom and spread — and only adds the heat read, which is a HUD flag,
-	# not a ballistic one. So it falls through the holo branch and just sets its
-	# own marker.
-	if sight == Loadout.Sight.THERMAL:
-		p["thermal"] = true
-	if sight == Loadout.Sight.HOLO or sight == Loadout.Sight.THERMAL:
-		p["holo"] = true
-		# The ring REPLACES optics the gun shipped with (the sniper's), it does
-		# not sit alongside them — two sights on one rail is nobody's intent, and
-		# the viewmodel already builds it that way. Clearing the flag matters now
-		# that has_scope() is what grants pinpoint accuracy: a gun that doesn't
-		# show you a scope must not shoot like one.
-		p["scope"] = false
-		p["zoom_fov"] = float(p["zoom_fov"]) * HOLO_ZOOM_MULT
-		p["ads_spread"] = float(p["ads_spread"]) * HOLO_SPREAD_MULT
-	if sight == Loadout.Sight.SCOPE:
-		p["scope"] = true
-		p["zoom_fov"] = float(p["zoom_fov"]) * SCOPE_ZOOM_MULT
+	match sight:
+		Loadout.Sight.RED_DOT:
+			# A clear-view dot: the viewmodel treats it like the ring, the HUD
+			# draws a dot instead (has_reddot), and it barely magnifies.
+			p["holo"] = true
+			p["reddot"] = true
+			p["scope"] = false
+			p["zoom_fov"] = float(p["zoom_fov"]) * REDDOT_ZOOM_MULT
+			p["ads_spread"] = float(p["ads_spread"]) * REDDOT_SPREAD_MULT
+		Loadout.Sight.HOLO, Loadout.Sight.THERMAL:
+			# The thermal holo aims EXACTLY like the ordinary ring — the heat read
+			# is a HUD flag, not a ballistic one — so it shares this branch and
+			# only marks itself.
+			p["holo"] = true
+			p["scope"] = false
+			p["zoom_fov"] = float(p["zoom_fov"]) * HOLO_ZOOM_MULT
+			p["ads_spread"] = float(p["ads_spread"]) * HOLO_SPREAD_MULT
+			if sight == Loadout.Sight.THERMAL:
+				p["thermal"] = true
+		Loadout.Sight.SCOPE:
+			p["scope"] = true
+			p["zoom_fov"] = float(p["zoom_fov"]) * SCOPE_ZOOM_MULT
+		Loadout.Sight.SCOPE_4X:
+			p["scope"] = true
+			p["zoom_fov"] = float(p["zoom_fov"]) * SCOPE_4X_ZOOM_MULT
 	if upgrades.get("cooling", false):
 		p["heat_per_shot"] = float(p["heat_per_shot"]) * COOLING_HEAT_MULT
 		p["cool_rate"] = float(p["cool_rate"]) * COOLING_RATE_MULT
+	# GRIP steadies HIP FIRE only now; the front grip (below) took the recoil.
 	if upgrades.get("grip", false):
 		p["hip_spread"] = float(p["hip_spread"]) * GRIP_SPREAD_MULT
-		p["recoil"] = float(p["recoil"]) * GRIP_RECOIL_MULT
-		p["cam_recoil"] = float(p["cam_recoil"]) * GRIP_RECOIL_MULT
-		p["kick_back"] = float(p.get("kick_back", 0.0)) * GRIP_RECOIL_MULT
+	# FRONT GRIP tames the kick — the camera climb, the viewmodel kick, and the
+	# body shove of the heavy guns — and touches nothing about accuracy.
+	if upgrades.get("foregrip", false):
+		p["recoil"] = float(p["recoil"]) * FOREGRIP_RECOIL_MULT
+		p["cam_recoil"] = float(p["cam_recoil"]) * FOREGRIP_RECOIL_MULT
+		p["kick_back"] = float(p.get("kick_back", 0.0)) * FOREGRIP_RECOIL_MULT
 	return p
 
 
@@ -320,6 +342,13 @@ func has_scope() -> bool:
 ## reticle rather than the scope overlay.
 func has_holo() -> bool:
 	return _profile.get("holo", false)
+
+
+## The reflex dot: a clear-view optic like the holo (so has_holo is also true and
+## the viewmodel/no-blackout logic is shared), but the HUD draws a dot for it
+## rather than a ring.
+func has_reddot() -> bool:
+	return _profile.get("reddot", false)
 
 
 ## The Trandoshan's thermal ring: aims like a holo, but the HUD paints enemy
@@ -350,9 +379,14 @@ func max_range() -> float:
 ## also covers guns that ship with optics, and so it cannot be quietly undone by
 ## a future profile that sets a spread alongside "scope": true.
 func current_spread_deg() -> float:
-	if aiming:
-		return 0.0 if has_scope() else _profile["ads_spread"]
-	return _profile["hip_spread"] + _bloom
+	# A scope is pinpoint while aimed no matter the stance — that rule is
+	# absolute (see the class docs), so the multiplier below never touches its 0.
+	var base: float = 0.0 if (aiming and has_scope()) \
+		else (_profile["ads_spread"] if aiming else _profile["hip_spread"] + _bloom)
+	# Stance widens the cone on the move and tightens it crouched. The HUD bloom
+	# crosshair reads this same value, so the reticle blooms as you run and
+	# settles as you stand — the accuracy penalty is legible, not hidden.
+	return base * stance_spread_mult
 
 
 # Fixed-timestep so heat/cooldown/burst behave identically regardless of render

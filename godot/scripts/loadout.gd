@@ -101,15 +101,26 @@ const SECONDARY_MODS: Array[Dictionary] = [
 		"blurb": "Carry two. Fire is the right gun, aim is the left, both to fire together"},
 ]
 
-# Sights are one slot with three options rather than a toggle, because a holo
-# ring and a magnified scope are alternatives, not stackable extras.
-enum Sight { NONE, HOLO, SCOPE, THERMAL }
+# Sights are one slot with several options rather than stackable toggles: a
+# reflex dot, a holo ring and the two magnified scopes are ALTERNATIVES, and you
+# fit one. Walked left-to-right in this order (roughly increasing magnification),
+# which is also the SIGHTS array order — the array is indexed by the enum value,
+# so the two must stay in step.
+enum Sight { NONE, RED_DOT, HOLO, SCOPE, SCOPE_4X, THERMAL }
 const SIGHTS: Array[Dictionary] = [
 	{"name": "IRON", "cost": 0, "blurb": "Open sights"},
+	# The cheap close-combat optic: clear view, a crisp dot, barely any zoom, a
+	# small steadying of the aim. The reflex sight to the holo's ring.
+	{"name": "RED DOT", "cost": 15,
+		"blurb": "Reflex dot: clear view, minimal zoom, a little tighter aim"},
 	{"name": "HOLO RING", "cost": 20,
 		"blurb": "Hollow ring sight: clear view, mild zoom, tighter aim"},
 	{"name": "SCOPE", "cost": 25,
 		"blurb": "Pinpoint accurate while aimed, but it blacks out everything around it"},
+	# The long-range option: 4x magnification for reaching across the big maps,
+	# same pinpoint-and-blackout trade as the scope but zoomed much further in.
+	{"name": "4X SCOPE", "cost": 35,
+		"blurb": "4x sniper scope: pinpoint at range, but a heavy blackout around it"},
 	# The Trandoshan's, and only theirs: a holo ring that paints enemy HEAT while
 	# aimed, so it reads bodies straight through smoke — which is the whole combo
 	# with the class's smoke grenades. Aims like the holo (clear view, mild
@@ -120,9 +131,15 @@ const SIGHTS: Array[Dictionary] = [
 
 # Bolt-ons that modify the gun's profile (see Weapon.set_class). Each is owned
 # or not; `key` is the field on this object that stores that.
+## One per COOLING/GRIP/FOREGRIP row. Their ORDER must match those
+## rows (see _upgrade_index, which maps `row - Row.COOLING` into this array), so
+## a new bolt-on is a new row directly after GRIP and a new entry appended here.
 const UPGRADES: Array[Dictionary] = [
 	{"key": "cooling", "name": "COOLING VANES", "cost": 20, "blurb": "-25% heat per shot, cools faster"},
-	{"key": "grip", "name": "IMPROVED GRIP", "cost": 20, "blurb": "-35% hip spread, -30% kick"},
+	# GRIP is now ACCURACY only — the kick reduction moved to the front grip, so
+	# steadying your hip fire and taming your recoil are two separate buys.
+	{"key": "grip", "name": "IMPROVED GRIP", "cost": 20, "blurb": "-35% hip-fire spread"},
+	{"key": "foregrip", "name": "FRONT GRIP", "cost": 20, "blurb": "-20% kick and recoil climb"},
 ]
 
 # Armour frames: health against speed/jump. Index 1 (NONE) is the default.
@@ -302,12 +319,9 @@ const KITS: Array[Dictionary] = [
 		"armor": [0, 1, 2],
 		"default_armor": 0,
 		"grenades": true,
-		# The ONLY class that may throw smoke, and the only one that can see
-		# through it — the thermal sight and the smoke are one kit on purpose.
-		"grenade_types": [GrenadeType.FRAG, GrenadeType.SMOKE, GrenadeType.STICKY],
-		# ...and the only sight list that includes the thermal holo. NONE/HOLO/
-		# SCOPE stay available so a build that skips the gimmick is still legal.
-		"sights": [Sight.NONE, Sight.HOLO, Sight.SCOPE, Sight.THERMAL],
+		# SMOKE and the THERMAL HOLO carry their own "kit" key, so the Trandoshan
+		# reaches them (and every ordinary grenade and sight) with no list of its
+		# own — the thermal sight and the smoke are one kit on purpose.
 		# A focused armoury: a rifle, a marksman semi, a bullet-hose SMG, and a
 		# sniper. Precise and mobile rather than broad.
 		"primaries": [Weapon.Class.SOLDIER, Weapon.Class.SEMI, Weapon.Class.SMG,
@@ -352,9 +366,11 @@ const MEDKIT_HEAL := 60.0
 ## The buy screen is one row per line, in this order. SIGHT/COOLING/GRIP sit
 ## directly under WEAPON because they now fit the PRIMARY only; the sidearm's
 ## single slot sits under SECONDARY for the same reason.
+## COOLING, GRIP, FOREGRIP are the primary bolt-ons and MUST stay contiguous and
+## in the same order as UPGRADES — _upgrade_index maps them by `row - Row.COOLING`.
 enum Row {
 	KIT,
-	WEAPON, SIGHT, COOLING, GRIP,
+	WEAPON, SIGHT, COOLING, GRIP, FOREGRIP,
 	SECONDARY, SECONDARY_MOD,
 	GADGET, GADGET2, ARMOR, GRENADE_TYPE, GRENADES, MEDKITS, SQUAD, SQUAD_SKILL,
 }
@@ -376,7 +392,7 @@ enum Row {
 const BUY_BOXES: Array[Dictionary] = [
 	# CLASS comes first because it decides what every box under it may hold.
 	{"name": "CLASS", "rows": [Row.KIT]},
-	{"name": "PRIMARY", "rows": [Row.WEAPON, Row.SIGHT, Row.COOLING, Row.GRIP]},
+	{"name": "PRIMARY", "rows": [Row.WEAPON, Row.SIGHT, Row.COOLING, Row.GRIP, Row.FOREGRIP]},
 	{"name": "SIDEARM", "rows": [Row.SECONDARY, Row.SECONDARY_MOD]},
 	{"name": "GRENADES", "rows": [Row.GRENADE_TYPE, Row.GRENADES]},
 	{"name": "GADGET", "rows": [Row.GADGET, Row.GADGET2]},
@@ -400,6 +416,7 @@ var gadget2 := 0
 var sight := Sight.NONE
 var cooling := false
 var grip := false
+var foregrip := false
 var armor := DEFAULT_ARMOR  # index into ARMOR
 var grenades := 0
 var medkits := 0
@@ -609,31 +626,19 @@ func has_grenades() -> bool:
 func allows(row: int, index: int) -> bool:
 	var k := KITS[kit]
 	match row:
+		# The four catalogue rows share ONE rule (see _allows_entry): a
+		# "kit"-marked entry belongs to its owner alone; otherwise an optional
+		# per-kit allow-list restricts to those, else anything goes. The identity
+		# a restrictive list matches on is the weapon CLASS for guns and the plain
+		# INDEX for sights and grenades — which is the only thing that differs.
 		Row.WEAPON:
-			var entry: Dictionary = WEAPONS[index]
-			# A weapon carrying a "kit" key belongs to that kit ALONE, and its
-			# owner may always reach it — this is what lets the Force adept keep
-			# its lightsaber while ALSO shopping the ordinary guns below. Another
-			# kit's signature weapon is never allowed.
-			if entry.has("kit"):
-				return entry["kit"] == kit
-			# A `primaries` list means ONLY those non-kit classes (the Wookiee's
-			# heavies, the Trandoshan's four). Without one, any ordinary gun goes
-			# — so a Force adept with no list gets the whole rack plus its saber.
-			var only: Array = k.get("primaries", [])
-			if not only.is_empty():
-				return entry["class"] in only
-			return true
+			return _allows_entry(WEAPONS[index], WEAPONS[index]["class"], "primaries")
 		Row.SECONDARY:
-			# Same rule as the primary row, one table down. The Wookiee is the
-			# reason it exists: its bowcaster is its own, and it carries nothing
-			# else — a class whose sidearm is part of its identity needs the list
-			# to work in both directions.
-			var side: Dictionary = SECONDARIES[index]
-			var side_only: Array = k.get("secondaries", [])
-			if not side_only.is_empty():
-				return side["class"] in side_only
-			return not side.has("kit")
+			return _allows_entry(SECONDARIES[index], SECONDARIES[index]["class"], "secondaries")
+		Row.SIGHT:
+			return _allows_entry(SIGHTS[index], index, "sights")
+		Row.GRENADE_TYPE:
+			return _allows_entry(GRENADE_TYPES[index], index, "grenade_types")
 		Row.GADGET, Row.GADGET2:
 			if not index in k["gadgets"]:
 				return false
@@ -645,21 +650,22 @@ func allows(row: int, index: int) -> bool:
 			return index in k["secondary_mods"]
 		Row.ARMOR:
 			return index in k["armor"]
-		Row.SIGHT:
-			# An explicit list is the ONLY way to reach the thermal holo; absent,
-			# a kit gets the ordinary three and never the Trandoshan's.
-			var sights: Array = k.get("sights", [])
-			if not sights.is_empty():
-				return index in sights
-			return not SIGHTS[index].has("kit")
-		Row.GRENADE_TYPE:
-			# Same shape: smoke is the Trandoshan's, so a kit only reaches it
-			# through an explicit grenade_types list.
-			var types: Array = k.get("grenade_types", [])
-			if not types.is_empty():
-				return index in types
-			return not GRENADE_TYPES[index].has("kit")
 	return true
+
+
+## The shared allow-list rule for the catalogue rows. `entry` is the table row,
+## `identity` is what a restrictive list matches on (a Weapon.Class for guns, an
+## index for sights/grenades), and `list_name` is the kit key that restricts it.
+func _allows_entry(entry: Dictionary, identity, list_name: String) -> bool:
+	# A "kit"-marked entry (the saber, the bowcaster, smoke, the thermal holo) is
+	# its owner's alone and always reachable by them — which is what lets a class
+	# keep its signature gear while still shopping the ordinary catalogue.
+	if entry.has("kit"):
+		return entry["kit"] == kit
+	# Otherwise: a per-kit list means ONLY those (the Wookiee's heavies), and no
+	# list means anything ordinary goes.
+	var only: Array = KITS[kit].get(list_name, [])
+	return only.is_empty() or identity in only
 
 
 ## True if the row exists at all for this kit. A row that is unavailable is
@@ -672,7 +678,7 @@ func row_available(row: int) -> bool:
 			return gadget_slots() >= 2
 		Row.GRENADE_TYPE, Row.GRENADES:
 			return has_grenades()
-		Row.SIGHT, Row.COOLING, Row.GRIP:
+		Row.SIGHT, Row.COOLING, Row.GRIP, Row.FOREGRIP:
 			# Sights and cooling vanes on a sword are nothing. They are also the
 			# rows that would otherwise let a Force adept spend 65 tokens on
 			# absolutely no effect.
@@ -836,7 +842,7 @@ func squad_skill_stats() -> Dictionary:
 
 ## The PRIMARY's upgrade flags, in the shape Weapon.set_class wants.
 func primary_mods() -> Dictionary:
-	return {"sight": sight, "cooling": cooling, "grip": grip}
+	return {"sight": sight, "cooling": cooling, "grip": grip, "foregrip": foregrip}
 
 
 ## The SIDEARM's, from its own one-pick slot. Dual wield changes how the gun is
@@ -924,6 +930,8 @@ func _step_unchecked(row: int, dir: int) -> void:
 			cooling = not cooling
 		Row.GRIP:
 			grip = not grip
+		Row.FOREGRIP:
+			foregrip = not foregrip
 		Row.ARMOR:
 			armor = _walk(row, armor, dir, ARMOR.size())
 		Row.GRENADES:
@@ -960,6 +968,7 @@ func _copy_from(other: Loadout) -> void:
 	sight = other.sight
 	cooling = other.cooling
 	grip = other.grip
+	foregrip = other.foregrip
 	armor = other.armor
 	grenades = other.grenades
 	medkits = other.medkits

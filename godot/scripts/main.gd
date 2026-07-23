@@ -399,6 +399,15 @@ func _add_reticle(hud: Control, player: Player) -> void:
 	holo.resized.connect(holo.queue_redraw)
 	hud.add_child(holo)
 
+	# The red dot: the same clear-view aim as the ring, but a crisp centre dot
+	# instead of a ring around it.
+	var reddot := Control.new()
+	reddot.set_anchors_preset(Control.PRESET_FULL_RECT)
+	reddot.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	reddot.draw.connect(_draw_reddot.bind(reddot))
+	reddot.resized.connect(reddot.queue_redraw)
+	hud.add_child(reddot)
+
 	# The thermal read: while the Trandoshan aims their heat holo, a box is
 	# drawn over every enemy in front of them — through smoke, because a normal
 	# raycast ignores smoke (it has no collider), which is the whole combo with
@@ -423,10 +432,14 @@ func _add_reticle(hud: Control, player: Player) -> void:
 	var refresh := func() -> void:
 		var live := player.is_alive()
 		var scoped: bool = player.weapon.aiming and player.weapon.has_scope()
-		var ringed: bool = player.weapon.aiming and player.weapon.has_holo()
+		# A red dot is a holo under the hood (has_holo true), so split it out
+		# FIRST: dot gets the dot reticle, everything else holo gets the ring.
+		var dotted: bool = player.weapon.aiming and player.weapon.has_reddot()
+		var ringed: bool = player.weapon.aiming and player.weapon.has_holo() and not dotted
 		scope.visible = scoped and live
 		holo.visible = ringed and live
-		crosshair.visible = not scoped and not ringed and live
+		reddot.visible = dotted and live
+		crosshair.visible = not scoped and not ringed and not dotted and live
 	player.aim_changed.connect(func(_aiming: bool) -> void: refresh.call())
 	player.weapon_changed.connect(func(_name: String) -> void: refresh.call())
 	player.died.connect(func(_eliminated: bool) -> void: refresh.call())
@@ -1068,6 +1081,14 @@ func _draw_holo(c: Control) -> void:
 		var dir := Vector2.RIGHT.rotated(TAU * i / 4.0)
 		c.draw_line(center + dir * r * 0.72, center + dir * r * 0.92,
 			Color(1.0, 0.3, 0.22, 0.75), 2.0)
+
+
+## The reflex dot: a crisp centre dot with a soft halo, no ring, no blackout —
+## the fastest sight picture to read, which is the reflex sight's whole point.
+func _draw_reddot(c: Control) -> void:
+	var center := c.size * 0.5
+	c.draw_circle(center, 6.0, Color(1.0, 0.25, 0.18, 0.28))
+	c.draw_circle(center, 2.6, Color(1.0, 0.3, 0.22, 1.0))
 
 
 func _draw_scope(c: Control) -> void:

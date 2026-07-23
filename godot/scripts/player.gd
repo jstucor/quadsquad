@@ -142,6 +142,14 @@ const RECOIL_YAW_SHARE := 0.55  # sideways lean, as a share of the pitch kick
 # Two ways to steady a gun, both things the player chooses in the moment.
 const ADS_RECOIL_MULT := 0.8
 const CROUCH_RECOIL_MULT := 0.6
+# Stance penalties on the SPREAD cone (Weapon.stance_spread_mult). Moving opens
+# it up, a jump opens it further, and a crouch closes it — they multiply, so
+# crouch-walking is tighter than standing-walking but looser than a crouched
+# still shot. Crouch also drops the kick (CROUCH_RECOIL_MULT), so the crouched
+# still shot is the steadiest one you can take.
+const MOVE_SPREAD_MULT := 1.5
+const AIR_SPREAD_MULT := 2.1
+const CROUCH_SPREAD_MULT := 0.6
 # The backwards shove big guns give you. It can't just be added to velocity:
 # movement rewrites velocity.x/z from the stick every frame (same reason the
 # cable vault has to hold its heading), so it rides alongside as its own
@@ -977,6 +985,7 @@ func _physics_process(delta: float) -> void:
 	var move := _move_input()
 	var crouching := _crouch_held()
 	var sprinting := _sprint_held() and not crouching
+	_update_stance_spread(move, crouching)
 	var speed := (SPRINT_SPEED if sprinting else WALK_SPEED) * _speed_mult
 	if _rotary_out:
 		speed *= ROTARY_SPEED_MULT  # the cannon is heavy; you walk with it out
@@ -1250,8 +1259,12 @@ func _update_aim(delta: float) -> void:
 	# frame, so throwing the shield up mid-aim drops you straight back to the hip
 	# rather than leaving the sights stuck on the glass.
 	# A blade has no sights either, and its aim control is spent on the guard.
+	# You also cannot aim while RUNNING: a braced sight picture and a sprint are
+	# mutually exclusive, so the sights drop the moment you break into a run and
+	# come back up when you slow. Stand still (even holding sprint) and you may
+	# aim — it is MOVING at sprint that denies it.
 	var aiming := _ads_held() and not dual_active() and not shield_up() \
-		and not weapon.is_melee()
+		and not weapon.is_melee() and not _is_running()
 	weapon.aiming = aiming
 	if aiming != _prev_aim:
 		_prev_aim = aiming
@@ -1798,6 +1811,28 @@ func _crouch_held() -> bool:
 
 func _ads_held() -> bool:
 	return Controls.held(input_device, "ads")
+
+
+## Actually running: the sprint control down, not crouched, and the movement
+## stick pushed — so holding sprint while standing still is NOT running and does
+## not deny the sights. Used to disallow ADS mid-run.
+func _is_running() -> bool:
+	return _sprint_held() and not _crouch_held() and _move_input().length() > 0.1
+
+
+## Feed the weapons this frame's stance penalty on the spread cone: wider in the
+## air, wide while moving, tight while crouched (they multiply). Both hands get
+## it so a dual-wielding Mandalorian sprays wider on the move too.
+func _update_stance_spread(move: Vector2, crouching: bool) -> void:
+	var mult := 1.0
+	if not is_on_floor():
+		mult = AIR_SPREAD_MULT
+	elif move.length() > 0.1:
+		mult = MOVE_SPREAD_MULT
+	if crouching:
+		mult *= CROUCH_SPREAD_MULT
+	weapon.stance_spread_mult = mult
+	weapon_off.stance_spread_mult = mult
 
 
 func _gadget_held() -> bool:
