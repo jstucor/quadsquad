@@ -1,0 +1,151 @@
+extends Node3D
+
+## The two gadget changes: lightning that is CHANNELLED while held, and the
+## Mandalorian's wrist rocket.
+##
+## The channel is the interesting one to measure. Held on a target it should
+## bite repeatedly and add up to more than the old one-shot burst; released
+## early it should cost only a fraction of the cooldown; and swept off the
+## target it should stop dealing damage without ending the channel.
+##
+##   godot --headless --path godot tests/gadgets.tscn
+
+const PLAYER := preload("res://scenes/actors/player.tscn")
+
+var _fails: Array[String] = []
+var _hits: Array[float] = []
+
+
+func _ready() -> void:
+	GameState.match_live = true
+	_build_floor()
+
+	var jedi := await _spawn(_build(Loadout.Kit.FORCE, Weapon.Class.SABER,
+		Loadout.Gadget.FORCE_LIGHTNING), Vector3.ZERO, 0)
+	var mark := await _spawn(Loadout.starter(), Vector3(0.0, 0.0, -12.0), 1)
+	mark.damaged.connect(func(amount: float) -> void: _hits.append(amount))
+	await _frames(2)
+
+	print("== the channel ==")
+	print("  %.1fs of stream, a bite every %.2fs, %.0f per bite -> %.0f total" % [
+		ForcePowers.CHANNEL_TIME, ForcePowers.CHANNEL_TICK, ForcePowers.BOLT_DAMAGE,
+		ForcePowers.CHANNEL_TIME / ForcePowers.CHANNEL_TICK * ForcePowers.BOLT_DAMAGE])
+	mark.health = 100000.0
+	_hits.clear()
+	jedi._use_gadget(0)                       # opens the channel
+	var held := 0.0
+	for _i in 300:
+		# Hold the button: the channel reads the gadget control every frame.
+		Input.action_press("kb_gadget")
+		await _frames(1)
+		held += get_physics_process_delta_time()
+		if jedi._channel_left <= 0.0:
+			break
+	Input.action_release("kb_gadget")
+	var total := 0.0
+	for h in _hits:
+		total += h
+	print("  held %.2fs -> %d bites, %.0f damage, cooldown now %.1fs" % [
+		held, _hits.size(), total, jedi.gadget_cooldown(0)])
+	_expect(_hits.size() > 5, "holding it bites over and over, not once")
+	_expect(total > 90.0, "a full channel is worth more than a rifle magazine")
+	_expect(jedi.gadget_cooldown(0) > 0.0, "and a full channel costs the full cooldown")
+
+	# --- a tap costs almost nothing --------------------------------------
+	print("\n== a tap ==")
+	jedi._force_cd = [0.0, 0.0]
+	jedi._channel_left = 0.0
+	await _frames(2)
+	_hits.clear()
+	jedi._use_gadget(0)
+	await _frames(2)          # button never held: the channel closes at once
+	var tap_cd := jedi.gadget_cooldown(0)
+	var full: float = Loadout.GADGET_COOLDOWNS[Loadout.Gadget.FORCE_LIGHTNING]
+	print("  tapped -> cooldown %.2fs of a %.1fs maximum" % [tap_cd, full])
+	_expect(tap_cd > 0.0 and tap_cd < full * 0.6,
+		"a tap costs a fraction of the cooldown, not the whole thing")
+
+	# --- the wrist rocket -------------------------------------------------
+	print("\n== the wrist rocket ==")
+	var mando := await _spawn(_build(Loadout.Kit.MANDALORIAN, Weapon.Class.SMG,
+		Loadout.Gadget.WRIST_ROCKET), Vector3(40.0, 0.0, 0.0), 0)
+	var victim := await _spawn(Loadout.starter(), Vector3(40.0, 0.0, -14.0), 1)
+	await _frames(2)
+	print("  %s carries %s" % [mando.loadout.kit_name(),
+		Loadout.GADGETS[mando.gadget]["name"]])
+	_expect(mando.gadget == Loadout.Gadget.WRIST_ROCKET,
+		"a Mandalorian can buy the wrist rocket")
+	var before := victim.health
+	mando._use_gadget(0)
+	print("  fired: %d rocket(s) in the world" % _count("Rocket"))
+	_expect(_count("Rocket") > 0, "the gadget puts a real rocket in the world")
+	_expect(mando.gadget_cooldown(0) > 0.0, "...and starts its cooldown")
+	for _i in 200:
+		await _frames(1)
+		if victim.health < before:
+			break
+	print("  victim %.0f -> %.0f after the flight" % [before, victim.health])
+	_expect(victim.health < before, "and it damages what it flies into")
+	_expect(mando.is_alive(), "without blowing up the Mandalorian who fired it")
+
+	# --- nobody else may have it ------------------------------------------
+	var clone := Loadout.new()
+	clone.adopt_kit(Loadout.Kit.CLONE)
+	_expect(not clone.allows(Loadout.Row.GADGET, Loadout.Gadget.WRIST_ROCKET),
+		"a clone cannot buy the wrist rocket")
+
+	print("\n==== %s ====" % ("GADGETS WORK" if _fails.is_empty()
+		else "%d FAILURE(S):\n  %s" % [_fails.size(), "\n  ".join(_fails)]))
+	get_tree().quit(0 if _fails.is_empty() else 1)
+
+
+func _count(prefix: String) -> int:
+	var n := 0
+	for c in get_tree().current_scene.get_children():
+		if c.name.begins_with(prefix):
+			n += 1
+	return n
+
+
+func _build(kit: int, primary: int, gadget: int) -> Loadout:
+	var l := Loadout.new()
+	l.adopt_kit(kit)
+	l.weapon = Loadout.weapon_index(primary)
+	l.gadget = gadget
+	return l
+
+
+func _build_floor() -> void:
+	var body := StaticBody3D.new()
+	var shape := CollisionShape3D.new()
+	var box := BoxShape3D.new()
+	box.size = Vector3(200.0, 2.0, 200.0)
+	shape.shape = box
+	shape.position = Vector3(0.0, -1.0, 0.0)
+	body.add_child(shape)
+	body.collision_layer = 1
+	add_child(body)
+
+
+func _spawn(build: Loadout, at: Vector3, team: int) -> Player:
+	var p: Player = PLAYER.instantiate()
+	p.input_device = -1
+	p.position = at
+	p.team = team
+	add_child(p)
+	await get_tree().physics_frame
+	p.pending = build
+	p._apply_loadout()
+	await get_tree().physics_frame
+	return p
+
+
+func _frames(n: int) -> void:
+	for _i in n:
+		await get_tree().physics_frame
+
+
+func _expect(ok: bool, what: String) -> void:
+	print("  [%s] %s" % ["ok" if ok else "FAIL", what])
+	if not ok:
+		_fails.append(what)

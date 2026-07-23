@@ -103,7 +103,10 @@ func _ready() -> void:
 
 		var player: Player = PLAYER_SCENE.instantiate()
 		player.player_index = i
-		player.input_device = i - 1  # P1 keyboard/mouse; P2..P4 joypads 0..2
+		# Everyone is on a pad: P1..P4 are joypads 0..3. The one exception is the
+		# debug flag (`-- --debug`), which puts P1 on the keyboard and mouse so
+		# the game can be played at a desk with no controller plugged in.
+		player.input_device = -1 if (GameState.debug_kbm and i == 0) else i
 		player.team = GameState.team_for_player(i)
 		level.add_child(player)
 		var spawn := GameState.get_spawn_point(player.team, _team_slot(i))
@@ -396,6 +399,18 @@ func _add_reticle(hud: Control, player: Player) -> void:
 	holo.resized.connect(holo.queue_redraw)
 	hud.add_child(holo)
 
+	# The thermal read: while the Trandoshan aims their heat holo, a box is
+	# drawn over every enemy in front of them — through smoke, because a normal
+	# raycast ignores smoke (it has no collider), which is the whole combo with
+	# their smoke grenades. Walls still block it, so it is a heat SCOPE, not a
+	# wallhack of the map.
+	var thermal := Control.new()
+	thermal.set_anchors_preset(Control.PRESET_FULL_RECT)
+	thermal.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	thermal.draw.connect(_draw_thermal.bind(thermal, player))
+	get_tree().process_frame.connect(thermal.queue_redraw)
+	hud.add_child(thermal)
+
 	# Added LAST so it draws over every reticle — it has to show through the
 	# scope blackout too, or a sniper never gets told they connected. Each HUD
 	# only ever confirms its own player's hits; the click is shared.
@@ -647,6 +662,11 @@ func _gadget_readout(player: Player, slot: int) -> String:
 		Loadout.Gadget.CABLE:
 			var cd := player.cable_cooldown()
 			return "CABLE READY" if cd <= 0.0 else "CABLE %ds" % ceili(cd)
+		Loadout.Gadget.CLOAK:
+			# While it is up, count the seconds of invisibility left; otherwise
+			# fall through to the shared cooldown line below.
+			if player.cloak_left() > 0.0:
+				return "CLOAKED %ds" % ceili(player.cloak_left())
 	var name: String = Loadout.GADGETS[id]["name"]
 	# The force powers run on their own cooldown, so they can say when they are up.
 	if Loadout.GADGET_COOLDOWNS.has(id):
@@ -675,25 +695,11 @@ func _show_victory(team: int) -> void:
 ## cursor is on, and the deploy prompt. Shown at match start (DEPLOY) and after
 ## every death (ELIMINATED). Each player drives their own quadrant, so all four
 ## shop at once; nobody spawns until they press deploy.
-## How the buy screen is grouped into boxes: a heading, and the Loadout rows
-## that live inside it. Every row still belongs to exactly one box, so the
-## cursor walks the same flat row list it always did — the boxes are how it is
-## LAID OUT, not a change to how it is driven. That matters because four players
-## shop at once on one screen: only P1 has a mouse, so navigation has to stay on
-## each player's own stick or keys.
-const BUY_BOXES: Array[Dictionary] = [
-	# CLASS comes first because it decides what every box under it may hold.
-	{"name": "CLASS", "rows": [Loadout.Row.KIT]},
-	{"name": "PRIMARY", "rows": [Loadout.Row.WEAPON, Loadout.Row.SIGHT,
-		Loadout.Row.COOLING, Loadout.Row.GRIP]},
-	{"name": "SIDEARM", "rows": [Loadout.Row.SECONDARY, Loadout.Row.SECONDARY_MOD]},
-	{"name": "GRENADES", "rows": [Loadout.Row.GRENADE_TYPE, Loadout.Row.GRENADES]},
-	{"name": "GADGET", "rows": [Loadout.Row.GADGET, Loadout.Row.GADGET2]},
-	{"name": "ARMOUR", "rows": [Loadout.Row.ARMOR]},
-	{"name": "HEALTH", "rows": [Loadout.Row.MEDKITS]},
-	{"name": "AI SQUAD", "rows": [Loadout.Row.SQUAD, Loadout.Row.SQUAD_SKILL]},
-]
-const BUY_COLUMNS := 2
+## Boxes come from Loadout.BUY_BOXES — the grouping drives INPUT as well as
+## layout now (the selector moves box to box, and entering one scopes the rows
+## you can edit), so it belongs with the catalogue rather than with the screen
+## that happens to draw it.
+const BUY_COLUMNS := Player.BUY_GRID_COLUMNS
 ## The boxes have to fit whatever slice of the screen this player owns. At four
 ## players a viewport is a quarter of the window, and the full-size layout runs
 ## off both edges of it, so the whole screen is measured off the player count.
@@ -746,14 +752,16 @@ func _build_buy_screen(player: Player, color: Color) -> Control:
 
 	var names: Array[Label] = []
 	var values: Array[Label] = []
-	var frames: Array[PanelContainer] = []
+	# Panels indexed by BOX, not by row: the selector lives on a box now, so the
+	# highlight has to be addressable the same way the input is.
+	var boxes: Array[PanelContainer] = []
 	names.resize(Loadout.Row.size())
 	values.resize(Loadout.Row.size())
-	frames.resize(Loadout.Row.size())
-	for box in BUY_BOXES:
+	for box in Loadout.BUY_BOXES:
 		var frame := PanelContainer.new()
 		frame.add_theme_stylebox_override("panel", _buy_panel(BUY_BOX_EDGE))
 		grid.add_child(frame)
+		boxes.append(frame)
 		var inner := VBoxContainer.new()
 		inner.add_theme_constant_override("separation", 1)
 		frame.add_child(inner)
@@ -772,19 +780,48 @@ func _build_buy_screen(player: Player, color: Color) -> Control:
 			inner.add_child(line)
 			names[row] = name_label
 			values[row] = value_label
-			frames[row] = frame
+
+	# THE SPAWN BOX. A box of its own, under the grid and as wide as it, because
+	# deploying is now a thing you aim at rather than a button that fires from
+	# wherever the selector happens to be. It is also where the selector starts,
+	# so the ordinary respawn is still one press.
+	column.add_child(_spacer(4))
+	var spawn_frame := PanelContainer.new()
+	spawn_frame.add_theme_stylebox_override("panel", _buy_panel(BUY_BOX_EDGE))
+	column.add_child(spawn_frame)
+	boxes.append(spawn_frame)
+	var spawn_label := _centred_label("", m["head"] + 4, Color(0.85, 0.95, 0.8))
+	spawn_frame.add_child(spawn_label)
 
 	column.add_child(_spacer(4))
 	var blurb := _centred_label("", m["head"] + 1, Color(0.7, 0.74, 0.8))
 	column.add_child(blurb)
-	var prompt := _centred_label("", m["head"] + 3, Color(0.62, 0.66, 0.72))
+	var prompt := _centred_label("", m["head"] + 2, Color(0.62, 0.66, 0.72))
 	column.add_child(prompt)
-	column.add_child(_centred_label(
-		"up / down pick a line     left / right change it",
-		m["head"], Color(0.5, 0.54, 0.6)))
+
+	# The cursor overlay: a reticle drawn on top of the boxes, plus a per-frame
+	# resolver that turns the player's normalised cursor into "which box is it
+	# over" and writes that back. It has to read the REAL box rects (hidden boxes
+	# reflow the grid, so nothing analytic can know where a box actually landed),
+	# which is why this lives here in Main and not in Player.
+	var cursor := Control.new()
+	cursor.set_anchors_preset(Control.PRESET_FULL_RECT)
+	cursor.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	cursor.draw.connect(_draw_buy_cursor.bind(cursor, player, boxes, color))
+	panel.add_child(cursor)
 
 	var refresh := func() -> void:
-		_refresh_buy_screen(player, color, names, values, frames, budget, blurb, prompt)
+		_refresh_buy_screen(player, color, names, values, boxes, budget, blurb,
+			prompt, spawn_label)
+	# Resolve the cursor -> box every frame while the screen is up, and redraw the
+	# reticle. Only re-runs the text refresh when the box under the cursor
+	# actually changes, so a still cursor costs one has_point sweep and no more.
+	get_tree().process_frame.connect(func() -> void:
+		if not panel.visible:
+			return
+		cursor.queue_redraw()
+		if _resolve_buy_box(player, boxes):
+			refresh.call())
 	player.buy_changed.connect(func(_row: int) -> void: refresh.call())
 	player.deploy_ready.connect(func() -> void: refresh.call())
 	player.died.connect(func(eliminated: bool) -> void:
@@ -799,36 +836,108 @@ func _build_buy_screen(player: Player, color: Color) -> Control:
 	return panel
 
 
-func _buy_panel(edge: Color) -> StyleBoxFlat:
+## The cursor's arena: the union of every VISIBLE box rect. The normalised
+## cursor maps across this, so it can reach every box and nothing off the panel.
+func _buy_arena(boxes: Array[PanelContainer]) -> Rect2:
+	var arena := Rect2()
+	var first := true
+	for b in boxes:
+		if b == null or not b.visible:
+			continue
+		var r := b.get_global_rect()
+		if first:
+			arena = r
+			first = false
+		else:
+			arena = arena.merge(r)
+	return arena
+
+
+func _buy_cursor_pixel(player: Player, boxes: Array[PanelContainer]) -> Vector2:
+	var arena := _buy_arena(boxes)
+	return arena.position + Vector2(
+		player.buy_cursor.x * arena.size.x, player.buy_cursor.y * arena.size.y)
+
+
+## Set player.buy_box to whichever visible box the cursor is over — the one that
+## contains it, else the nearest by centre so there is always a live target.
+## Returns true when the box changed, so the caller redraws the text. Frozen
+## while a box is open: the cursor does not roam while you are editing.
+func _resolve_buy_box(player: Player, boxes: Array[PanelContainer]) -> bool:
+	if player.buy_inside:
+		return false
+	var px := _buy_cursor_pixel(player, boxes)
+	var best := player.buy_box
+	var best_d := INF
+	for i in boxes.size():
+		var b := boxes[i]
+		if b == null or not b.visible:
+			continue
+		var r := b.get_global_rect()
+		if r.has_point(px):
+			best = i
+			break
+		var d := r.get_center().distance_squared_to(px)
+		if d < best_d:
+			best_d = d
+			best = i
+	if best == player.buy_box:
+		return false
+	player.buy_box = best
+	return true
+
+
+## The reticle: a ring with a centre dot in the player's colour, at the cursor.
+## Hidden while a box is open — there is no cursor to steer then.
+func _draw_buy_cursor(c: Control, player: Player, boxes: Array[PanelContainer],
+		color: Color) -> void:
+	if player.buy_inside or c.size.y <= 0.0:
+		return
+	var local := _buy_cursor_pixel(player, boxes) - c.global_position
+	c.draw_arc(local, 9.0, 0.0, TAU, 24, Color(color, 0.95), 2.5, true)
+	c.draw_circle(local, 2.5, Color(color, 1.0))
+
+
+## One box's frame. `fill` tints the panel when the box is OPEN — the border
+## alone says "the selector is here", and open needs to read differently from
+## merely highlighted or the two states are the same picture.
+func _buy_panel(edge: Color, fill := Color(0, 0, 0, 0)) -> StyleBoxFlat:
 	var sb := StyleBoxFlat.new()
-	sb.bg_color = BUY_BOX_BG
+	sb.bg_color = BUY_BOX_BG if fill.a <= 0.0 else BUY_BOX_BG.blend(Color(fill, 0.22))
 	sb.border_color = edge
-	sb.set_border_width_all(1)
+	sb.set_border_width_all(2 if fill.a > 0.0 else 1)
 	sb.set_corner_radius_all(4)
 	sb.set_content_margin_all(6)
 	return sb
 
 
-## Rewrite the buy screen's text for the player's current pending build. The
-## cursor row is bracketed and tinted, and the BOX holding it takes the player's
-## colour on its border — so which category you are in reads at a glance even
-## from the far side of a four-way split.
+## Rewrite the buy screen for the player's current pending build.
+##
+## Three states have to be told apart at a glance from the far side of a
+## four-way split, so each gets a different signal rather than a different shade
+## of the same one:
+##
+##   the selector is ON a box      its border takes the player's colour
+##   the box is OPEN               ...and it fills with that colour, dimmed
+##   neither                       plain grey edge, no row caret at all
+##
+## The caret only exists inside an open box. That is deliberate: a caret sitting
+## on a line you cannot currently change is exactly the lie the old screen told.
 func _refresh_buy_screen(player: Player, color: Color, names: Array[Label],
-		values: Array[Label], frames: Array[PanelContainer],
-		budget: Label, blurb: Label, prompt: Label) -> void:
+		values: Array[Label], boxes: Array[PanelContainer],
+		budget: Label, blurb: Label, prompt: Label, spawn: Label) -> void:
 	var build := player.pending
 	budget.text = "TOKENS  %d spent   %d left of %d" % [
 		build.cost(), build.remaining(), Loadout.BUDGET]
-	var active: PanelContainer = frames[player.buy_row]
 	for i in names.size():
 		# A row this class does not have is hidden outright rather than shown
-		# dead: the cursor already skips it, and a line you cannot move reads as
-		# a broken screen from across a four-way split.
+		# dead: the selector already skips it, and a line you cannot move reads
+		# as a broken screen from across a four-way split.
 		var available := build.row_available(i)
 		names[i].get_parent().visible = available
 		if not available:
 			continue
-		var selected := i == player.buy_row
+		var selected := player.buy_inside and i == player.buy_row
 		var tint := color if selected else Color(1, 1, 1, 0.72)
 		names[i].text = "%s %s" % ["\u25b8" if selected else " ", build.row_label(i)]
 		var cost := build.row_cost(i)
@@ -837,27 +946,42 @@ func _refresh_buy_screen(player: Player, color: Color, names: Array[Label],
 			values[i].text += "   %d" % cost
 		names[i].add_theme_color_override("font_color", tint)
 		values[i].add_theme_color_override("font_color", tint)
-	# ...and a box with nothing left in it goes too, so the Mandalorian's screen
-	# has no empty GRENADES panel sitting on it.
-	for box in BUY_BOXES:
-		var frame: PanelContainer = frames[box["rows"][0]]
-		if frame == null:
-			continue
-		var any := false
-		for row in box["rows"]:
-			any = any or build.row_available(row)
-		frame.visible = any
-	for frame in frames:
-		if frame != null:
-			frame.add_theme_stylebox_override("panel",
-				_buy_panel(color if frame == active else BUY_BOX_EDGE))
-	blurb.text = build.row_blurb(player.buy_row, player.input_device)
-	# Count the lock down out loud: a silent "standby" for five seconds reads
+
+	for bi in boxes.size():
+		var frame := boxes[bi]
+		# A box with nothing left in it goes, so a Mandalorian's screen has no
+		# empty GRENADES panel sitting on it. SPAWN is always there.
+		frame.visible = bi == Player.SPAWN_BOX or build.box_available(bi)
+		var here := bi == player.buy_box
+		var open := here and player.buy_inside
+		frame.add_theme_stylebox_override("panel",
+			_buy_panel(color if here else BUY_BOX_EDGE, color if open else Color(0, 0, 0, 0)))
+
+	# The blurb explains whatever the selector is pointing at: the open row, or
+	# the box you are about to open.
+	if player.buy_inside:
+		blurb.text = build.row_blurb(player.buy_row, player.input_device)
+	elif player.buy_box == Player.SPAWN_BOX:
+		blurb.text = "Everything above is what you will deploy with"
+	else:
+		blurb.text = str(Loadout.BUY_BOXES[player.buy_box]["name"])
+
+	# Count the lock-down out loud: a silent "standby" for five seconds reads
 	# exactly like a match that has failed to start.
-	prompt.text = "%s  to deploy" % player.deploy_button_name() \
-		if player.deploy_armed() else "ready in %d..." % ceili(player.deploy_wait())
-	prompt.add_theme_color_override("font_color",
-		Color(0.85, 0.95, 0.8) if player.deploy_armed() else Color(0.55, 0.58, 0.62))
+	var a := player.buy_accept_name()
+	if player.deploy_armed():
+		spawn.text = "SPAWN     %s" % a
+		spawn.add_theme_color_override("font_color", Color(0.85, 0.95, 0.8))
+	else:
+		spawn.text = "ready in %d..." % ceili(player.deploy_wait())
+		spawn.add_theme_color_override("font_color", Color(0.55, 0.58, 0.62))
+
+	# ...and the prompt says what the buttons do RIGHT NOW, because the same two
+	# buttons do different things in the two states.
+	if player.buy_inside:
+		prompt.text = "%s change     %s back" % [a, player.buy_back_name()]
+	else:
+		prompt.text = "move the cursor     %s to modify" % a
 
 
 ## Bloom crosshair: four ticks at a radius that maps the weapon's current
@@ -878,6 +1002,58 @@ func _draw_bloom(c: Control, player: Player) -> void:
 	c.draw_line(center + Vector2(-radius, 0), center + Vector2(-radius - tick, 0), col, 2.0)
 	c.draw_line(center + Vector2(radius, 0), center + Vector2(radius + tick, 0), col, 2.0)
 	c.draw_circle(center, 1.5, col)
+
+
+## The thermal read: a heat box over every enemy the aiming Trandoshan can see,
+## smoke included. Projected onto THIS player's own viewport, so it is a scope
+## they look through and never a shared tracker — the design rule the map screen
+## follows for the same reason.
+##
+## What it shows: living enemies within THERMAL_RANGE and roughly in front, with
+## a clear line to them THROUGH SMOKE (the raycast is world-layer only, and
+## smoke has no collider, so a wall blocks it and a cloud does not). The point of
+## the class is throwing smoke and then reading bodies inside it that nobody else
+## can see.
+const THERMAL_RANGE := 90.0
+const THERMAL_HEAT := Color(1.0, 0.45, 0.15)
+
+
+func _draw_thermal(c: Control, player: Player) -> void:
+	if c.size.y <= 0.0 or not player.thermal_active():
+		return
+	var cam := player.camera()
+	if cam == null:
+		return
+	var space := cam.get_world_3d().direct_space_state
+	for body in GameState.combatants:
+		if not is_instance_valid(body) or body == player:
+			continue
+		if not ("team" in body and body.team != player.team):
+			continue
+		if body.has_method("is_alive") and not body.is_alive():
+			continue
+		var chest: Vector3 = body.global_position + Vector3.UP * 1.0
+		if cam.global_position.distance_to(chest) > THERMAL_RANGE:
+			continue
+		if cam.is_position_behind(chest):
+			continue
+		# Line of sight through smoke: world layer only, so a wall stops the ray
+		# and a smoke cloud (no collider) does not.
+		var q := PhysicsRayQueryParameters3D.create(cam.global_position, chest)
+		q.collision_mask = 1
+		q.exclude = [player.get_rid()]
+		if not space.intersect_ray(q).is_empty():
+			continue
+		# Project head and feet so the box scales with distance the way the body
+		# on screen does.
+		var head := cam.unproject_position(body.global_position + Vector3.UP * 1.8)
+		var feet := cam.unproject_position(body.global_position)
+		var h := absf(feet.y - head.y)
+		var w := maxf(h * 0.5, 6.0)
+		var top := Vector2(head.x - w * 0.5, head.y)
+		var rect := Rect2(top, Vector2(w, maxf(h, 8.0)))
+		c.draw_rect(rect, Color(THERMAL_HEAT, 0.9), false, 2.0)
+		c.draw_rect(rect, Color(THERMAL_HEAT, 0.12), true)
 
 
 ## A hollow ring with a centre dot. Unlike the scope it draws no blackout, so

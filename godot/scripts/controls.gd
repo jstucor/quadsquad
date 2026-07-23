@@ -65,20 +65,25 @@ const DEFAULT_KEYS := {
 	"right": {"key": KEY_D},
 }
 
-# Pad defaults. A list per action, because the stock fire/aim binds are a
-# trigger OR the shoulder above it — rebinding replaces the whole list with the
-# one input you pressed.
+# Pad defaults. A list per action, because a control can sit on more than one
+# input — rebinding replaces the whole list with the one input you pressed.
+#
+# Fire and aim are the TRIGGERS alone. They used to also carry the shoulder
+# above them, which spent both bumpers on a duplicate of a control the player
+# already has under a finger; the bumpers are where a shooter expects its two
+# throwables, so gadget and grenade own them and keep their face/d-pad button as
+# the second way in.
 const DEFAULT_PAD := {
-	"fire": [{"kind": Kind.AXIS, "index": JOY_AXIS_TRIGGER_RIGHT, "dir": 1},
-		{"kind": Kind.BUTTON, "index": JOY_BUTTON_RIGHT_SHOULDER}],
-	"ads": [{"kind": Kind.AXIS, "index": JOY_AXIS_TRIGGER_LEFT, "dir": 1},
-		{"kind": Kind.BUTTON, "index": JOY_BUTTON_LEFT_SHOULDER}],
+	"fire": [{"kind": Kind.AXIS, "index": JOY_AXIS_TRIGGER_RIGHT, "dir": 1}],
+	"ads": [{"kind": Kind.AXIS, "index": JOY_AXIS_TRIGGER_LEFT, "dir": 1}],
 	"jump": [{"kind": Kind.BUTTON, "index": JOY_BUTTON_A}],
 	"sprint": [{"kind": Kind.BUTTON, "index": JOY_BUTTON_LEFT_STICK}],
 	"crouch": [{"kind": Kind.BUTTON, "index": JOY_BUTTON_B}],
 	"switch": [{"kind": Kind.BUTTON, "index": JOY_BUTTON_Y}],
-	"gadget": [{"kind": Kind.BUTTON, "index": JOY_BUTTON_X}],
-	"grenade": [{"kind": Kind.BUTTON, "index": JOY_BUTTON_DPAD_UP}],
+	"gadget": [{"kind": Kind.BUTTON, "index": JOY_BUTTON_LEFT_SHOULDER},
+		{"kind": Kind.BUTTON, "index": JOY_BUTTON_X}],
+	"grenade": [{"kind": Kind.BUTTON, "index": JOY_BUTTON_RIGHT_SHOULDER},
+		{"kind": Kind.BUTTON, "index": JOY_BUTTON_DPAD_UP}],
 	"medkit": [{"kind": Kind.BUTTON, "index": JOY_BUTTON_DPAD_DOWN}],
 	"map": [{"kind": Kind.BUTTON, "index": JOY_BUTTON_BACK}],
 	# D-pad left is the only face/pad control still free: A/B/X/Y, both
@@ -103,6 +108,17 @@ const PAD_AXIS_NAMES := {
 # look, so capturing them would take a pad's steering away mid-rebind.
 const BINDABLE_AXES: Array[int] = [JOY_AXIS_TRIGGER_LEFT, JOY_AXIS_TRIGGER_RIGHT]
 
+# The pad half of the front-end. Godot ships joypad events on ui_up/down/left/
+# right and on NOTHING else, so out of the box a pad can move the menu's focus
+# and then cannot press what it landed on — the menus are unusable from a
+# controller until these two are added. START is deliberately left off: the
+# settings screen keeps it as the way out of a rebind listen, which is the one
+# input a pad player cannot otherwise escape.
+const UI_PAD := {
+	"ui_accept": JOY_BUTTON_A,
+	"ui_cancel": JOY_BUTTON_B,
+}
+
 const UNBOUND_LABEL := "—"  # em dash: this action has nothing on it
 ## Returned for an unbound control, so the per-frame lookup never builds one.
 const EMPTY_BINDS: Array = []
@@ -121,6 +137,7 @@ static func ensure_loaded() -> void:
 	_reset_tables()
 	_load()
 	apply_keyboard()
+	apply_ui_pad()
 
 
 ## Rewrite every kb_<id> action from the current keyboard table. The rest of the
@@ -140,6 +157,25 @@ static func apply_keyboard() -> void:
 			var mb := InputEventMouseButton.new()
 			mb.button_index = bind["mouse"]
 			InputMap.action_add_event(action, mb)
+
+
+## Put A and B on the menus' accept/cancel.
+##
+## These are NOT rebindable and are not part of the ACTIONS list: they are the
+## front-end's own controls, not a player's, and every screen that uses them is
+## driven by whichever pad reaches it first. Hence device -1 (ALL devices) on
+## the events — the default 0 would let only player 1's pad work the menu, and
+## the whole point of this screen being pad-driven is that anyone at the couch
+## can set the match up.
+static func apply_ui_pad() -> void:
+	for action in UI_PAD:
+		if not InputMap.has_action(action):
+			continue
+		var ev := InputEventJoypadButton.new()
+		ev.button_index = UI_PAD[action]
+		ev.device = -1
+		if not InputMap.action_has_event(action, ev):
+			InputMap.action_add_event(action, ev)
 
 
 static func kb_action(id: String) -> String:
@@ -176,19 +212,38 @@ static func pad_held(device: int, id: String) -> bool:
 	return false
 
 
-## What a pad actually uses for an action: its own override if it has one, and
-## the shared ALL_PADS profile otherwise.
+## What a pad actually uses for an action, in order of preference:
+##
+##   1. its OWN override, if somebody has rebound this pad specifically
+##   2. PLAYER 1's pad, because P1's layout is the house layout
+##   3. the shared ALL_PADS profile
+##   4. the built-in default
+##
+## Step 2 is the one worth explaining. Four pads at one couch are four copies of
+## the same controller, and somebody who rebinds crouch because the default is
+## wrong for them has just as certainly fixed it for players 2, 3 and 4 — asking
+## each of them to repeat the same rebind is asking four times for one decision.
+## So P1's pad is treated as everyone's starting point. It is still only a
+## FALLBACK: a pad that has been given its own binding keeps it, which is what
+## the settings screen's per-pad rows are for.
 ##
 ## This runs per control per pad player per frame, so it must not allocate:
 ## `_pads.get(device, {})` would build a throwaway Dictionary on EVERY call
 ## (GDScript evaluates a default argument eagerly), which is exactly the
 ## per-frame garbage the Pi 5 budget rules out. Hence the null checks and the
 ## one shared empty array.
+const P1_PAD := 0
+
+
 static func bindings_for(device: int, id: String) -> Array:
 	ensure_loaded()
 	var own = _pads.get(device)
 	if own != null and own.has(id):
 		return own[id]
+	if device != P1_PAD:
+		var p1 = _pads.get(P1_PAD)
+		if p1 != null and p1.has(id):
+			return p1[id]
 	var shared = _pads.get(ALL_PADS)
 	if shared != null and shared.has(id):
 		return shared[id]

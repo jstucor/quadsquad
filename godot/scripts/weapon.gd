@@ -21,6 +21,7 @@ enum Class {
 	SMG, CARBINE, SCATTERGUN, DMR,   # primaries
 	DH17, BRYAR,                     # sidearms
 	SABER,                           # the Force adept's melee primary
+	BOWCASTER,                       # the Wookiee's sidearm, and only theirs
 }
 enum FireMode { AUTO, SEMI, BURST }
 
@@ -189,6 +190,28 @@ const PROFILES := {
 		"heat_per_shot": 0.0, "cool_rate": 1.0, "scope": false,
 		"recoil": 1.1, "cam_recoil": 0.022, "melee": true,
 	},
+	# The Wookiee's sidearm: a crossbow that throws a spread of energy quarrels.
+	# Three pellets through one cone, which is the scattergun's mechanism and
+	# needs no new code — the damage is already pooled per target, so one trigger
+	# pull is one hit marker and one tick however many quarrels land.
+	#
+	# It is a SIDEARM that hits like a primary (78 on a clean hit, more than a
+	# rifle's four rounds) and pays for it in everything else: under a shot a
+	# second, half a rifle's reach, and a third of the heat pool per pull, so
+	# three pulls lock it out. That is deliberate — the class it belongs to is
+	# carrying an HMG or a rocket tube in the other hand, and the bowcaster is
+	# what it fights with while those are hot or empty of targets.
+	#
+	# The cone is TIGHT (2.2 hip against the scattergun's 3.2, and remember two
+	# independent rotations make the effective corner ~1.4x that) so it stays a
+	# weapon at mid range rather than a second shotgun.
+	Class.BOWCASTER: {
+		"name": "Bowcaster", "fire_interval": 0.9, "damage": 26.0,
+		"range": 60.0, "hip_spread": 2.2, "ads_spread": 0.9, "zoom_fov": 58.0,
+		"heat_per_shot": 0.34, "cool_rate": 0.30, "scope": false,
+		"recoil": 1.5, "cam_recoil": 0.19, "kick_back": 2.6,
+		"mode": FireMode.SEMI, "pellets": 3,
+	},
 }
 
 # Purchased upgrades (Loadout.SIGHTS / UPGRADES) as multipliers on the base
@@ -246,7 +269,13 @@ func _upgraded_profile(base: Dictionary, upgrades: Dictionary) -> Dictionary:
 		return base
 	var p := base.duplicate()
 	var sight: int = upgrades.get("sight", 0)
-	if sight == Loadout.Sight.HOLO:
+	# The thermal holo aims EXACTLY like the ordinary ring — same clear view,
+	# same zoom and spread — and only adds the heat read, which is a HUD flag,
+	# not a ballistic one. So it falls through the holo branch and just sets its
+	# own marker.
+	if sight == Loadout.Sight.THERMAL:
+		p["thermal"] = true
+	if sight == Loadout.Sight.HOLO or sight == Loadout.Sight.THERMAL:
 		p["holo"] = true
 		# The ring REPLACES optics the gun shipped with (the sniper's), it does
 		# not sit alongside them — two sights on one rail is nobody's intent, and
@@ -256,7 +285,7 @@ func _upgraded_profile(base: Dictionary, upgrades: Dictionary) -> Dictionary:
 		p["scope"] = false
 		p["zoom_fov"] = float(p["zoom_fov"]) * HOLO_ZOOM_MULT
 		p["ads_spread"] = float(p["ads_spread"]) * HOLO_SPREAD_MULT
-	elif sight == Loadout.Sight.SCOPE:
+	if sight == Loadout.Sight.SCOPE:
 		p["scope"] = true
 		p["zoom_fov"] = float(p["zoom_fov"]) * SCOPE_ZOOM_MULT
 	if upgrades.get("cooling", false):
@@ -291,6 +320,13 @@ func has_scope() -> bool:
 ## reticle rather than the scope overlay.
 func has_holo() -> bool:
 	return _profile.get("holo", false)
+
+
+## The Trandoshan's thermal ring: aims like a holo, but the HUD paints enemy
+## heat through smoke while it is raised. Load-bearing for the heat overlay in
+## Main, nothing else.
+func has_thermal() -> bool:
+	return _profile.get("thermal", false)
 
 
 ## A blade rather than a gun: same hitscan, no tracer, no muzzle flash, and no
@@ -369,6 +405,25 @@ func _try_shot() -> void:
 		return
 	_cooldown = _profile["fire_interval"]
 	_fire_shot()
+
+
+## Which render layer this weapon's first-person model belongs on. Set by the
+## owning Player to its own private viewmodel bit; the viewmodel re-applies it
+## every time it rebuilds itself, which is what a straight `mi.layers = ...` at
+## spawn could not do. Harmless on a bot, which has no viewmodel at all.
+func set_view_layer(bits: int) -> void:
+	if _viewmodel and "view_layer" in _viewmodel:
+		_viewmodel.view_layer = bits
+		_viewmodel._apply_view_layer()
+
+
+## The owner's guard just stopped a hit; show it on the blade. Forwarded rather
+## than reached for, because the viewmodel is this node's private child — Player
+## knows about the block, and Weapon is the one thing that knows where the model
+## holding it lives.
+func parry() -> void:
+	if _viewmodel and _viewmodel.has_method("parry"):
+		_viewmodel.parry()
 
 
 func _fire_shot() -> void:

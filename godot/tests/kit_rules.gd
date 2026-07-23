@@ -26,9 +26,9 @@ func walk(b, row: int) -> Array:
 func _init() -> void:
 	var L = load("res://scripts/loadout.gd")
 	var fails := []
-	var kit_names := ["CLONE", "MANDALORIAN", "FORCE"]
+	var kit_names := ["CLONE", "MANDALORIAN", "FORCE", "WOOKIEE", "TRANDOSHAN"]
 
-	for k in 3:
+	for k in kit_names.size():
 		var b = L.new()
 		b.adopt_kit(k)
 		var name: String = b.kit_name()
@@ -41,11 +41,20 @@ func _init() -> void:
 		var gads := walk(b, L.Row.GADGET)
 		print("  gadgets   : %s" % str(gads))
 		b.adopt_kit(k)
+		var sides := walk(b, L.Row.SECONDARY)
+		print("  sidearms  : %s" % str(sides))
+		b.adopt_kit(k)
 		var mods := walk(b, L.Row.SECONDARY_MOD)
-		print("  sidearm   : %s" % str(mods))
+		print("  side mods : %s" % str(mods))
 		b.adopt_kit(k)
 		var arm := walk(b, L.Row.ARMOR)
 		print("  armour    : %s" % str(arm))
+		b.adopt_kit(k)
+		var sights := walk(b, L.Row.SIGHT)
+		print("  sights    : %s" % str(sights))
+		b.adopt_kit(k)
+		var nades := walk(b, L.Row.GRENADE_TYPE)
+		print("  grenade t : %s" % str(nades))
 		b.adopt_kit(k)
 		print("  grenades  : %s   gadget2 row: %s" % [
 			b.row_available(L.Row.GRENADES), b.row_available(L.Row.GADGET2)])
@@ -55,8 +64,9 @@ func _init() -> void:
 		if k == 2:
 			if guns != ["Lightsaber"]:
 				fails.append("%s: primary should be the saber ALONE, got %s" % [name, guns])
-			if not ("FORCE PUSH" in gads and "FORCE PULL" in gads and "FORCE LEAP" in gads):
-				fails.append("%s: missing a force gadget: %s" % [name, gads])
+			for power in ["FORCE PUSH", "FORCE PULL", "FORCE LEAP", "FORCE LIGHTNING"]:
+				if not (power in gads):
+					fails.append("%s: missing %s: %s" % [name, power, gads])
 		else:
 			if saber_ok:
 				fails.append("%s can reach the lightsaber" % name)
@@ -83,10 +93,57 @@ func _init() -> void:
 			for banned in ["MORTAR", "TURRET", "ROTARY CANNON"]:
 				if banned in gads:
 					fails.append("%s can take %s; that is the clone's" % [name, banned])
-			if b.row_available(L.Row.GRENADES):
-				fails.append("%s should carry no grenades" % name)
+		# Grenades: the two kits built around a full gadget bar go without.
+		if (k == 1 or k == 2) and b.row_available(L.Row.GRENADES):
+			fails.append("%s should carry no grenades" % name)
+		if (k == 0 or k == 3) and not b.row_available(L.Row.GRENADES):
+			fails.append("%s should carry grenades" % name)
+
+		# --- the Wookiee owns the heavy weapons, the bowcaster and the barrier --
+		var heavies := ["T-21 HMG", "PLX-1 RPG"]
+		if k == 3:
+			if guns != heavies:
+				fails.append("WOOKIEE should hold the heavy guns ALONE, got %s" % str(guns))
+			if sides != ["Bowcaster"]:
+				fails.append("WOOKIEE should carry the bowcaster alone, got %s" % str(sides))
+			if not ("FRONT SHIELD" in gads):
+				fails.append("WOOKIEE cannot take the FRONT SHIELD")
+			if "SCOPE" in mods:
+				fails.append("WOOKIEE can scope a PELLET sidearm: 3 quarrels on one point")
+			if arm != ["PLATED", "HEAVY PLATE"]:
+				fails.append("WOOKIEE should wear plate or better, got %s" % str(arm))
+		else:
+			for heavy in heavies:
+				if heavy in guns:
+					fails.append("%s can reach %s; that is the Wookiee's" % [name, heavy])
+			if "Bowcaster" in sides:
+				fails.append("%s can carry the bowcaster; only the Wookiee may" % name)
+			if "FRONT SHIELD" in gads:
+				fails.append("%s can take the FRONT SHIELD; that is the Wookiee's" % name)
 		if k != 1 and b.row_available(L.Row.GADGET2):
 			fails.append("%s should not have a second gadget row" % name)
+
+		# --- the Trandoshan owns SMOKE, the thermal sight, cloak and dash ------
+		if k == 4:
+			if not ("SMOKE" in nades):
+				fails.append("TRANDOSHAN cannot throw SMOKE, its signature grenade")
+			if not ("THERMAL HOLO" in sights):
+				fails.append("TRANDOSHAN cannot fit its THERMAL HOLO")
+			if not ("CLOAK" in gads and "SPRINT DASH" in gads):
+				fails.append("TRANDOSHAN needs CLOAK and DASH, got %s" % str(gads))
+			var want := ["DC-15 Rifle", "A280 Semi", "Westar M5 SMG", "NT-242 Sniper"]
+			for g in want:
+				if not (g in guns):
+					fails.append("TRANDOSHAN missing %s: %s" % [g, str(guns)])
+		else:
+			if "SMOKE" in nades:
+				fails.append("%s can throw SMOKE; that is the Trandoshan's" % name)
+			if "THERMAL HOLO" in sights:
+				fails.append("%s can fit the thermal holo; only the Trandoshan may" % name)
+			if "CLOAK" in gads:
+				fails.append("%s can cloak; that is the Trandoshan's" % name)
+			if "SPRINT DASH" in gads:
+				fails.append("%s can take the dash gadget; that is the Trandoshan's" % name)
 
 		# The cursor must never stop on a row this class does not have.
 		for r in L.Row.size():
@@ -139,7 +196,17 @@ func _init() -> void:
 	print("  gadgets: %s" % str(gear_names))
 	if "Lightsaber" in gun_names:
 		fails.append("royale crates can contain a lightsaber")
-	for banned in ["FORCE PUSH", "FORCE PULL", "FORCE LEAP"]:
+	if "Bowcaster" in gun_names:
+		fails.append("royale crates can contain a bowcaster")
+	# ...but the heavy guns and the barrier are a class's by BALANCE, not by
+	# mechanism: they work fine for a plain trooper, so kit-locking them in the
+	# shop must not empty them out of a mode that has no classes at all.
+	for keep in ["T-21 HMG", "PLX-1 RPG"]:
+		if not (keep in gun_names):
+			fails.append("royale lost %s out of its crates" % keep)
+	if not ("FRONT SHIELD" in gear_names):
+		fails.append("royale lost the FRONT SHIELD out of its crates")
+	for banned in ["FORCE PUSH", "FORCE PULL", "FORCE LEAP", "FORCE LIGHTNING"]:
 		if banned in gear_names:
 			fails.append("royale crates can contain %s" % banned)
 	var start = L.royale_start()

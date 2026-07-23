@@ -2,7 +2,9 @@ class_name Player
 extends CharacterBody3D
 ## First-person player: movement, per-player device input, health, the bought
 ## loadout, and the buy-screen/deploy flow.
-## input_device -1 = keyboard + mouse (player 1); >= 0 = that joypad device.
+## input_device -1 = keyboard + mouse; >= 0 = that joypad device. Main puts
+## every player on a pad (P1..P4 = joypads 0..3), but the keyboard path is kept
+## working for testing and because Controls still binds it.
 ## Each player's model renders on layer (2 + player_index); bind_camera()
 ## clears that bit from the viewport camera so you never see your own body
 ## while the other three players (and your shadow) still do.
@@ -32,6 +34,8 @@ const SHIELD_SCENE := preload("res://scenes/fx/front_shield.tscn")
 const TURRET_SCENE := preload("res://scenes/actors/turret.tscn")
 const MORTAR_SCENE := preload("res://scenes/actors/mortar.tscn")
 const CABLE_WIRE_SCENE := preload("res://scenes/fx/cable_wire.tscn")
+const LIGHTNING_SCENE := preload("res://scenes/fx/lightning_arc.tscn")
+const ROCKET_SCENE := preload("res://scenes/fx/rocket.tscn")
 
 # Gadgets. The jetpack burns a 0..1 fuel pool and refills on the ground; the
 # cable yanks you toward whatever you grappled for a fixed pull; the rotary
@@ -63,8 +67,28 @@ const ROTARY_SPEED_MULT := 0.55
 # roughly 1/BLOCK_COST damage: at 0.009 a full guard eats ~110, or about five
 # rifle rounds, and then you are open. That is the exhaustion the class trades
 # its range for — blocking buys you the walk in, it does not win the fight.
+#
+# The guard is CONTINUOUS: while the button is down and the pool is not spent,
+# every round arriving in front is stopped OUTRIGHT. It is spent by damage and
+# by nothing else — no drain for merely holding it, and no partial hits. Both of
+# those made it feel intermittent, which is the opposite of what a block is for:
+# a guard you cannot trust to be up is one you may as well not raise.
+## The buy screen's grid. SPAWN_BOX is one past the last category — the deploy
+## target, drawn as a wide box under the grid — and the column count has to
+## match what Main lays the panels out in, or the selector moves one way on the
+## stick and another way on the screen.
+const BUY_GRID_COLUMNS := 2
+## How fast the buy cursor crosses the panel, in normalised units per second at
+## full stick — the panel is 1.0 wide, so ~1.9 sweeps corner to corner in about
+## half a second. Fast enough to feel like a pointer, slow enough to land on a
+## box.
+const BUY_CURSOR_SPEED := 1.9
+## A `static var` rather than a const: `Array.size()` is a method call, which
+## GDScript will not accept in a constant expression. Derived rather than
+## written out so it cannot drift when a box is added to the table.
+static var SPAWN_BOX := Loadout.BUY_BOXES.size()
+
 const BLOCK_COST := 0.009
-const BLOCK_IDLE_DRAIN := 0.14   # pool per second just holding it up
 const BLOCK_REGEN := 0.28        # pool per second once lowered
 const BLOCK_RECOVER_AT := 0.35   # a broken guard cannot be raised until here
 const BLOCK_ARC := deg_to_rad(105.0)  # half-angle in front that the blade covers
@@ -160,6 +184,17 @@ var max_health := 100.0
 ## persists across deaths; `pending` is what the buy screen is editing.
 var loadout := Loadout.starter()
 var pending := Loadout.starter()
+## The buy screen's selector. It is a free-moving CURSOR now, not a box-to-box
+## step: `buy_cursor` is its position, normalised 0..1 across the panel, driven
+## by the movement stick every frame. `buy_box` is whichever panel the cursor is
+## OVER — resolved from the real box rects by Main, because hidden boxes reflow
+## the layout and only Main knows where they actually landed. `buy_inside` is
+## whether that box has been OPENED with accept; nothing about the build can
+## change while it is false, which is the point (see _enter_buy_screen). SPAWN
+## is the box past the last category, and the cursor starts on it.
+var buy_cursor := Vector2(0.5, 1.0)
+var buy_box := 0
+var buy_inside := false
 var buy_row := 0
 ## Kills on the CURRENT life. Reset on every deploy, so it reads as a streak
 ## rather than a running total.
@@ -207,6 +242,17 @@ var pickup_pressed := false
 var pickup_in_reach: Node3D
 var _rotary_out := false
 var _force_cd := [0.0, 0.0]   # seconds left on each gadget slot's cooldown
+## The lightning channel: seconds of stream left, which slot opened it, and the
+## time until the next bite. A channel rather than a shot because the power is
+## HELD — see ForcePowers.CHANNEL_TIME.
+var _channel_left := 0.0
+var _channel_slot := -1
+var _channel_tick := 0.0
+var _channel_arc: Node3D       # the bolt currently on screen, re-aimed per tick
+## The Trandoshan's cloak: seconds of invisibility left. While it is up the
+## model is faded and `GameState.cloaked` holds this player, which every AI
+## vision check skips. Firing or the timer ending drops it.
+var _cloak_left := 0.0
 var _force_shown := [0, 0]    # last whole second pushed to the HUD, per slot
 ## Saber guard. `_block` is the exhaustion pool, 0..1; it drains while raised
 ## and, much faster, per point of damage it stops. At zero the guard BREAKS and
@@ -232,6 +278,8 @@ var _dead := false
 var _speed_mult := 1.0     # from the armour frame: scales walk + sprint
 var _jump_mult := 1.0      # from the armour frame: scales jump velocity
 var _buy_latch := Vector2.ZERO  # stick/key held: one step per push, not per frame
+var _accept_latch := false # A: one action per press, never per frame
+var _back_latch := false   # ...and the same for B
 var _deploy_wait := 0.0    # seconds until the deploy button goes live
 var _deploy_armed := false # ...and whether it already has
 var _deploy_latch := false # deploy must be a fresh press, not one held from before
@@ -244,7 +292,7 @@ var _corpse: Node3D        # the flop spawned on death, freed on respawn
 ## one at runtime, and it keeps the viewmodel layer wiring in one place.
 @onready var weapon_off: Weapon = $Head/WeaponOff
 @onready var remote_cam: RemoteTransform3D = $Head/RemoteTransform3D
-@onready var model: Node3D = $Model
+@onready var model: CharacterModel = $Model
 @onready var _collision: CollisionShape3D = $CollisionShape3D
 
 
@@ -253,11 +301,13 @@ func _ready() -> void:
 	_anim = model.find_child("AnimationPlayer", true, false)
 	for mi in model.find_children("*", "MeshInstance3D", true, false):
 		mi.layers = 1 << (1 + player_index)
-	# Put this player's viewmodel on its private layer (owner-only).
-	for mi in weapon.find_children("*", "MeshInstance3D", true, false):
-		mi.layers = 1 << (VIEWMODEL_BIT + player_index)
-	for mi in weapon_off.find_children("*", "MeshInstance3D", true, false):
-		mi.layers = 1 << (VIEWMODEL_BIT + player_index)
+	# Put this player's viewmodel on its private layer (owner-only). Told to the
+	# WEAPON rather than stamped on the meshes here: there are none yet, and the
+	# gun is rebuilt by _apply_loadout below and again on every swap. Stamping
+	# them here left every rebuild on the shared layer, where the other three
+	# players saw this one's first-person weapon hanging in front of its face.
+	weapon.set_view_layer(1 << (VIEWMODEL_BIT + player_index))
+	weapon_off.set_view_layer(1 << (VIEWMODEL_BIT + player_index))
 	# Own copy of the capsule so crouch-resizing one player doesn't resize all.
 	_collision.shape = _collision.shape.duplicate()
 	weapon.shooter = self
@@ -307,9 +357,9 @@ func take_damage(amount: float, attacker: Node = null, headshot := false) -> voi
 	if attacker != null and attacker != self and "team" in attacker \
 			and attacker.team == team:
 		return
-	# The saber guard stops what it can pay for, and tires doing it. Anything
-	# left over goes through as normal — a broken guard is not a shield that
-	# merely stops working, it is one that stops covering you mid-burst.
+	# The saber guard stops the whole hit while it has anything left to pay with,
+	# and spends itself doing it. Once it BREAKS, everything lands as normal —
+	# what the pool buys is a window, not a permanent shield.
 	amount = _absorb_with_guard(amount, attacker)
 	if amount <= 0.0:
 		return
@@ -376,18 +426,21 @@ func guard_broken() -> bool:
 	return _block_broken
 
 
-## Drain the guard while it is up, refill it while it is down, and un-break it
-## once there is enough back to be worth raising.
+## Refill the guard while it is down, and un-break it once there is enough back
+## to be worth raising. Holding it up costs NOTHING by itself — the pool is a
+## damage budget, not a stamina bar, so what ends a block is being shot at, not
+## the clock. Standing with the blade up used to spend the whole pool in seven
+## seconds, which meant a guard raised early was already gone when the shooting
+## started.
+##
+## This runs whatever is in hand, deliberately. Skipping it for a non-melee
+## weapon froze the pool the moment you swapped: a Force adept who broke their
+## guard and drew the sidearm to cover the gap came back to a blade that was
+## still spent, and stayed spent until they held it out long enough to refill.
 func _update_guard(delta: float) -> void:
-	if not weapon.is_melee():
-		return
 	var before := _block
 	var was_broken := _block_broken
-	if guard_up():
-		_block = maxf(_block - BLOCK_IDLE_DRAIN * delta, 0.0)
-		if _block <= 0.0:
-			_block_broken = true
-	else:
+	if not guard_up():
 		_block = minf(_block + BLOCK_REGEN * delta, 1.0)
 		if _block_broken and _block >= BLOCK_RECOVER_AT:
 			_block_broken = false
@@ -396,9 +449,15 @@ func _update_guard(delta: float) -> void:
 		block_changed.emit(_block, _block_broken)
 
 
-## How much of a hit the guard stops. It only covers the ARC you are facing, so
-## being flanked beats it, and it pays BLOCK_COST of the pool per point stopped
-## — when the pool runs dry mid-hit the remainder lands.
+## How much of a hit the guard stops: ALL of it, or none.
+##
+## It still only covers the ARC you are facing, so being flanked beats it, and it
+## still pays BLOCK_COST of the pool per point stopped. What it no longer does is
+## let the remainder through when the pool runs dry mid-hit: the shot that empties
+## the guard is stopped in full and BREAKS it, and the next one is the one that
+## hurts. Splitting a round between the blade and your chest is invisible from
+## behind the blade — all the player sees is a block that sometimes does not
+## work.
 func _absorb_with_guard(amount: float, attacker: Node) -> float:
 	if not guard_up() or attacker == null or not attacker is Node3D:
 		return amount
@@ -410,13 +469,15 @@ func _absorb_with_guard(amount: float, attacker: Node) -> float:
 	facing.y = 0.0
 	if facing.length() < 0.01 or facing.normalized().angle_to(to.normalized()) > BLOCK_ARC:
 		return amount   # came in from behind the blade
-	var affordable := _block / BLOCK_COST
-	var stopped := minf(amount, affordable)
-	_block = maxf(_block - stopped * BLOCK_COST, 0.0)
+	_block = maxf(_block - amount * BLOCK_COST, 0.0)
 	if _block <= 0.0:
 		_block_broken = true
+	# Show it on the blade. Raised HERE rather than at the weapon that fired, for
+	# the same reason the hit marker is raised in take_damage: this is the one
+	# place that knows the block actually happened and what it cost.
+	weapon.parry()
 	block_changed.emit(_block, _block_broken)
-	return amount - stopped
+	return 0.0
 
 
 ## Take an outside shove — a Force push or pull. It rides _kick_vel rather than
@@ -458,7 +519,7 @@ func collect(item: Pickup) -> void:
 	health = minf(health_before, max_health)
 	health_changed.emit(health)
 	gear_changed.emit(grenades_left, medkits_left)
-	weapon_changed.emit(_hand_name())
+	_announce_hand()
 
 
 ## Credited by whatever we just killed. Duck-typed like the rest of the combat
@@ -496,15 +557,39 @@ func deploy_button_name() -> String:
 	return Controls.label(input_device, "jump")
 
 
+## The buy screen's two buttons, named for THIS player's bindings. Nothing in
+## the UI may say "A" or "B": those are this pad's defaults, not a fact, and the
+## moment somebody rebinds either one the prompt would be a lie.
+func buy_accept_name() -> String:
+	return Controls.label(input_device, "jump")
+
+
+## BACK is the pad's B button, FIXED — not the `crouch` binding, and the one
+## thing on this screen that cannot be rebound. Same reasoning as the controls
+## screen's START/BACK: a mode you can get stuck inside needs an exit that no
+## rebind can take away. It is not hypothetical — this project's own saved
+## config has crouch on R3, so keying "close the box" to it would have put the
+## exit somewhere nobody would ever press.
+func buy_back_name() -> String:
+	return "ESC" if input_device < 0 else "B"
+
+
+func _buy_back_held() -> bool:
+	if input_device < 0:
+		return Input.is_key_pressed(KEY_ESCAPE) or Input.is_key_pressed(KEY_BACKSPACE)
+	return Input.is_joy_button_pressed(input_device, JOY_BUTTON_B)
+
+
 ## Take on the bought build: armour stats, the gun with its upgrades fitted, and
 ## a fresh set of consumables. Called on every deploy, never mid-life.
 func _apply_loadout() -> void:
 	loadout = pending.duplicate_loadout()
 	var armor := loadout.armor_stats()
-	max_health = armor["health"]
 	# The class multiplies the frame, rather than replacing it: a Force adept in
-	# a light frame is quick for both reasons, which is the point of letting them
-	# wear one.
+	# a light frame is quick and tough for both reasons, which is the point of
+	# letting them wear one. Health goes through Loadout.max_health() so the buy
+	# screen's HP line and what you deploy with are the same arithmetic.
+	max_health = loadout.max_health()
 	_speed_mult = float(armor["speed"]) * loadout.kit_speed()
 	_jump_mult = armor["jump"]
 	health = max_health
@@ -528,10 +613,15 @@ func _apply_loadout() -> void:
 	_hook_left = 0.0
 	_cable_cd = 0.0  # a fresh life gets a fresh cable
 	_vault_left = 0.0
+	# A fresh life is never cloaked, and the model is solid again — set_cloak(1.0)
+	# also puts back the transparency the last life's cloak left on the materials.
+	_cloak_left = 0.0
+	GameState.set_cloaked(self, false)
+	model.set_cloak(1.0)
 	_clear_gadget_props()
 	_muster_squad()
 	gear_changed.emit(grenades_left, medkits_left)
-	weapon_changed.emit(_hand_name())
+	_announce_hand()
 
 
 ## Bring the squad up to the headcount you paid for. Survivors are kept and only
@@ -570,28 +660,85 @@ func _spawn_bot() -> Bot:
 	return bot
 
 
-## Buy-screen input while dead: up/down picks a row, left/right changes it, and
-## the jump button deploys once the floor has elapsed. All of it rides inputs
-## the player already has, so there is nothing extra to bind.
-func _update_buy_input() -> void:
-	var move := _buy_axis()
+## Buy-screen input while dead. TWO MODES, and which one you are in is the
+## whole design:
+##
+##   CURSOR  the stick drives a free pointer over the boxes. Nothing changes. A
+##           on a category opens it; A on SPAWN deploys, once the floor elapsed.
+##   OPEN    up/down walks the rows inside that box, left/right changes them,
+##           B closes it and hands control back to the cursor.
+##
+## Deploying is accept on the SPAWN box rather than the jump button working from
+## anywhere, and modifying is accept on the box UNDER THE CURSOR — the same idea
+## both times: while you are shopping, every button that does something has to be
+## aimed at a target you can see. All of it rides inputs the player already has.
+func _update_buy_input(delta: float) -> void:
+	var accept := _deploy_held()          # A, the same button as JUMP/DEPLOY
+	var back := _buy_back_held()          # B, fixed — see buy_back_name()
+	var accept_edge := accept and not _accept_latch
+	var back_edge := back and not _back_latch
+	_accept_latch = accept
+	_back_latch = back
+	_deploy_latch = accept  # kept in step: a held A must never deploy on respawn
+
+	if buy_inside:
+		apply_buy_input(_buy_axis(), accept_edge, back_edge)
+		return
+	# Cursor state: the stick moves the pointer (analog, every frame), and the
+	# box it lands on is resolved by Main. Forward on the stick is up on screen,
+	# which _move_input already gives as a negative Y.
+	var raw := _move_input()
+	if raw != Vector2.ZERO:
+		buy_cursor.x = clampf(buy_cursor.x + raw.x * BUY_CURSOR_SPEED * delta, 0.0, 1.0)
+		buy_cursor.y = clampf(buy_cursor.y + raw.y * BUY_CURSOR_SPEED * delta, 0.0, 1.0)
+	apply_buy_input(Vector2i.ZERO, accept_edge, back_edge)
+
+
+## The screen's LOGIC, with the pad already read. Split out so a test can drive
+## it directly — a test sets buy_box (the box the cursor is notionally over) and
+## presses accept, which is what proves what a press DOES without needing a HUD
+## to resolve a cursor position into a box.
+func apply_buy_input(move: Vector2i, accept_edge: bool, back_edge: bool) -> void:
+	if buy_inside:
+		_update_buy_open(move, back_edge)
+		return
+	if not accept_edge:
+		return
+	if buy_box == SPAWN_BOX:
+		if _deploy_armed:
+			_respawn()
+		return
+	# Opening a box parks the row cursor on its first real line, so the caret
+	# never starts on something this kit does not have.
+	var first := pending.first_row_in(buy_box)
+	if first < 0:
+		return
+	buy_inside = true
+	buy_row = first
+	buy_changed.emit(buy_row)
+
+
+## Inside an open box: rows above/below, values left/right, B to come back out.
+func _update_buy_open(move: Vector2i, back_edge: bool) -> void:
+	if back_edge:
+		buy_inside = false
+		buy_changed.emit(buy_row)
+		return
 	if move.y != 0:
-		buy_row = pending.next_row(
-			wrapi(buy_row + move.y, 0, Loadout.Row.size()), move.y)
+		buy_row = pending.step_row_in(buy_box, buy_row, move.y)
 		buy_changed.emit(buy_row)
 	if move.x != 0 and pending.step(buy_row, move.x):
 		# Changing class rewrites the whole build, which can take the row the
-		# cursor is sitting on out of existence (the grenade rows, most often).
-		# Walk it forward to the next real one rather than leaving it parked on a
-		# line that is no longer drawn.
-		buy_row = pending.next_row(buy_row, 1)
+		# cursor is sitting on out of existence (the grenade rows, most often) —
+		# or the whole box, if you were in one the new kit does not have.
+		if not pending.box_available(buy_box):
+			buy_inside = false
+			buy_box = SPAWN_BOX
+		else:
+			buy_row = pending.step_row_in(buy_box, buy_row, 0)
+			if not pending.row_available(buy_row):
+				buy_row = pending.first_row_in(buy_box)
 		buy_changed.emit(buy_row)
-	# The button has to be pressed, not merely held down from before you died.
-	var deploy := _deploy_held()
-	if deploy and not _deploy_latch and _deploy_armed:
-		_respawn()
-		return
-	_deploy_latch = deploy
 
 
 ## One step per push on each axis, from the movement stick/keys plus the d-pad.
@@ -630,6 +777,18 @@ func view_fov() -> float:
 	return _camera.fov if _camera else _base_fov
 
 
+## This player's camera, for the HUD to project world points onto its own
+## viewport (the thermal read). Null until bind_camera has run.
+func camera() -> Camera3D:
+	return _camera
+
+
+## Is the heat sight raised right now? The thermal overlay only draws while it
+## is, so it reads as a scope you look through rather than a permanent tracker.
+func thermal_active() -> bool:
+	return not _dead and weapon.aiming and weapon.has_thermal()
+
+
 ## True if a world-space hit point lands in this body's head band (tracks the
 ## crouch so a crouched head still counts). Weapons use it for bonus damage.
 func is_headshot(world_pos: Vector3) -> bool:
@@ -656,6 +815,10 @@ func _enter_buy_screen(floor_secs: float, eliminated: bool) -> void:
 	_dead = true
 	velocity = Vector3.ZERO
 	weapon.aiming = false
+	# Dying while cloaked must not leave a ghost in GameState.cloaked that no AI
+	# can ever see — the body is about to be hidden anyway.
+	if _cloak_left > 0.0:
+		_end_cloak()
 	if map_open:
 		map_open = false  # the buy screen owns the view now
 		map_toggled.emit(false)
@@ -670,9 +833,24 @@ func _enter_buy_screen(floor_secs: float, eliminated: bool) -> void:
 	# The screen opens on the build you were using, so an unchanged respawn is
 	# one button press.
 	pending = loadout.duplicate_loadout()
-	buy_row = 0
+	# The selector opens ON THE SPAWN BOX, closed, every time. That is the whole
+	# safety property of this screen: the frame you die you are usually still
+	# holding a direction, and the old flat cursor started on the CLASS row where
+	# a nudge re-rolled the entire build. From here a stray shove moves a
+	# highlight and nothing else, and the common case — respawn with what you
+	# had — is still one press of the same button it always was.
+	buy_box = SPAWN_BOX
+	buy_inside = false
+	# The cursor opens ON the spawn box, so a straight respawn is still: wait out
+	# the floor, press accept. Moving the cursor never touches the build, so a
+	# stick still held on the death frame just drifts a pointer — the accident
+	# the box rework was for cannot happen at all now.
+	buy_cursor = Vector2(0.5, 1.0)
+	buy_row = pending.first_row_in(0)
 	# Forget any held trigger/button: the new life starts on a fresh press.
 	_buy_latch = Vector2.ZERO
+	_accept_latch = true   # A must be released and pressed again
+	_back_latch = true
 	_deploy_latch = true  # released-then-pressed, so a held jump can't deploy
 	_downs.clear()
 	_deploy_wait = floor_secs
@@ -704,7 +882,7 @@ func _process_dead(delta: float) -> void:
 			deploy_ready.emit()
 		elif ceili(_deploy_wait) != whole_before:
 			buy_changed.emit(buy_row)  # so the "ready in N" line actually counts
-	_update_buy_input()
+	_update_buy_input(delta)
 
 
 func _respawn() -> void:
@@ -1043,6 +1221,11 @@ func _update_crouch(delta: float) -> void:
 ## backwards if the gun is heavy enough to have a kick_back. The stance you were
 ## in when you pulled the trigger decides how much of that you actually eat.
 func _on_weapon_fired(cam_recoil: float, kick_back: float) -> void:
+	# A shot drops the cloak: a hunter that stays invisible while firing is not
+	# a stealth tool, it is a wallhack. The wrist rocket routes through here too,
+	# which is correct — anything that reveals your position ends the cloak.
+	if _cloak_left > 0.0:
+		_end_cloak()
 	var steady := 1.0
 	if weapon.aiming:
 		steady *= ADS_RECOIL_MULT
@@ -1091,7 +1274,7 @@ func _swap_weapon() -> void:
 	weapon.set_class(loadout.secondary_class() if _on_secondary
 		else loadout.weapon_class() as Weapon.Class, loadout.mods_for(_on_secondary))
 	_refresh_offhand()
-	weapon_changed.emit(_hand_name())
+	_announce_hand()
 
 
 ## True while a second sidearm is actually in the off hand: you bought DUAL
@@ -1116,6 +1299,15 @@ func _refresh_offhand() -> void:
 
 func _hand_name() -> String:
 	return "DUAL %s" % weapon.display_name() if dual_active() else weapon.display_name()
+
+
+## Everything that changes what is IN OUR HANDS goes through here: the HUD name
+## and the third-person model both have to follow a swap, and they were drifting
+## apart because only the HUD was being told. The model is what other players
+## read, so a blade stowed on the wrong body is a lie about who can block.
+func _announce_hand() -> void:
+	weapon_changed.emit(_hand_name())
+	model.set_melee(weapon.is_melee())
 
 
 ## The gadget button. Toggles (shield, rotary) and one-shots (cable, turret) act
@@ -1147,6 +1339,27 @@ func _use_gadget(slot: int) -> void:
 			# the class out of the fight for seven seconds.
 			var caught := ForcePowers.pull(self, team)
 			_start_gadget_cd(slot, cd if caught != null else cd * 0.3)
+		Loadout.Gadget.FORCE_LIGHTNING:
+			# Opens the CHANNEL; the stream itself is poured in
+			# _update_lightning_channel while the button stays down. The cooldown
+			# is not charged here — it starts when the channel ENDS, so a tap that
+			# found nobody costs almost nothing and a full two seconds of holding
+			# costs the lot.
+			_channel_left = ForcePowers.CHANNEL_TIME
+			_channel_slot = slot
+			_channel_tick = 0.0
+		Loadout.Gadget.WRIST_ROCKET:
+			_fire_wrist_rocket()
+			_start_gadget_cd(slot, cd)
+		Loadout.Gadget.CLOAK:
+			_begin_cloak()
+			_start_gadget_cd(slot, cd)
+		Loadout.Gadget.DASH:
+			# The same lunge the Force adept has, offered here as a gadget. It runs
+			# on its OWN cooldown timer (_dash_cd) already, so the gadget cooldown
+			# is set to match rather than double-gating it.
+			_dash()
+			_start_gadget_cd(slot, cd)
 		Loadout.Gadget.FORCE_LEAP:
 			var launch := ForcePowers.leap_velocity(self)
 			velocity.y = launch.y
@@ -1200,6 +1413,8 @@ func _apply_gadget_motion(delta: float) -> void:
 		if dleft != _dash_shown:
 			_dash_shown = dleft
 			gear_changed.emit(grenades_left, medkits_left)
+	_update_lightning_channel(delta)
+	_update_cloak(delta)
 	# Tick the force powers' cooldowns, whichever slot they sit in.
 	for slot in 2:
 		if _force_cd[slot] <= 0.0:
@@ -1322,6 +1537,109 @@ func _fire_cable() -> void:
 	gear_changed.emit(grenades_left, medkits_left)
 
 
+## A rocket straight off the wrist. It reuses the RPG's projectile whole —
+## `rocket.gd` already flies, arms, splashes and credits its shooter — so the
+## gadget is a launch site and a set of numbers, not a second weapon.
+##
+## Two things it does NOT share with the RPG. It is weaker (a gadget on a 7 s
+## cooldown must not out-damage a 110-token primary), and it launches from the
+## HEAD rather than the weapon anchor, so the shot goes exactly where the
+## crosshair is even while a gun is in hand — you fire this without lowering
+## whatever you are already holding, which is the whole point of it being on
+## your wrist.
+const WRIST_ROCKET_SPLASH := 3.6
+const WRIST_ROCKET_DAMAGE := 62.0
+const WRIST_ROCKET_RANGE := 180.0
+
+
+func _fire_wrist_rocket() -> void:
+	var rocket := ROCKET_SCENE.instantiate()
+	get_tree().current_scene.add_child(rocket)
+	# Started a little ahead of the head so it clears our own capsule: the
+	# projectile has a collider, and spawning it inside the shooter is how the
+	# grenade's sticky learned to glue itself to its thrower's chest.
+	var dir := -head.global_transform.basis.z
+	rocket.launch(head.global_position + dir * 0.6, dir, self,
+		WRIST_ROCKET_SPLASH, WRIST_ROCKET_DAMAGE, WRIST_ROCKET_RANGE)
+	# The same shove a heavy gun gives, so firing it reads as launching something.
+	_on_weapon_fired(0.09, 1.6)
+
+
+## How long a cloak lasts, and how faint you go. Not fully invisible to a HUMAN
+## opponent — a faint shimmer is still there to spot if they are looking — but
+## AI cannot see you at all (GameState.cloaked). That split is deliberate: an
+## invisibility that beats a watching human as well is oppressive on a couch.
+const CLOAK_TIME := 5.0
+const CLOAK_ALPHA := 0.12   # how much of the model still shows
+
+
+func _begin_cloak() -> void:
+	_cloak_left = CLOAK_TIME
+	GameState.set_cloaked(self, true)
+	model.set_cloak(CLOAK_ALPHA)
+	gear_changed.emit(grenades_left, medkits_left)
+
+
+func _end_cloak() -> void:
+	# Idempotent on the CLOAKED STATE, not on the timer: _update_cloak decrements
+	# _cloak_left to zero and THEN calls this, so guarding on the timer made the
+	# natural time-out skip its own cleanup and leave a permanent ghost in
+	# GameState.cloaked.
+	if not GameState.is_cloaked(self):
+		return
+	_cloak_left = 0.0
+	GameState.set_cloaked(self, false)
+	model.set_cloak(1.0)
+	gear_changed.emit(grenades_left, medkits_left)
+
+
+## Seconds of cloak left, 0 when visible — for the HUD.
+func cloak_left() -> float:
+	return _cloak_left
+
+
+func _update_cloak(delta: float) -> void:
+	if _cloak_left <= 0.0:
+		return
+	_cloak_left -= delta
+	if _cloak_left <= 0.0:
+		_end_cloak()
+
+
+## Pour the lightning while the button is held. Each tick RE-ACQUIRES: the cone
+## is tested again from wherever you are now looking, so a target that walks
+## behind a wall or out of the arc cuts the stream instantly, and following them
+## with the crosshair is the skill the power asks for.
+##
+## The cooldown is charged when the channel ENDS, in proportion to how much of it
+## was actually spent — a tap that hit nobody costs almost nothing, while holding
+## it dry costs the full four seconds. That is the same "a miss should not take
+## the class out of the fight" rule the pull already follows, made continuous.
+func _update_lightning_channel(delta: float) -> void:
+	if _channel_left <= 0.0:
+		return
+	var holding := _slot_held(_channel_slot) and not _dead and not map_open
+	_channel_left -= delta
+	if holding and _channel_left > 0.0:
+		_channel_tick -= delta
+		if _channel_tick <= 0.0:
+			_channel_tick = ForcePowers.CHANNEL_TICK
+			# One bite: resolves damage, replaces the drawn bolt, and returns
+			# null on an empty cone — which drops the bolt but keeps the channel
+			# open, so sweeping off a target and back on stays one press.
+			_channel_arc = ForcePowers.channel_bolt(
+				self, team, LIGHTNING_SCENE, weapon, _channel_arc)
+		return
+	# Ended: released, out of time, dead, or on the map screen.
+	var spent := 1.0 - clampf(_channel_left / ForcePowers.CHANNEL_TIME, 0.0, 1.0)
+	var cd: float = Loadout.GADGET_COOLDOWNS.get(Loadout.Gadget.FORCE_LIGHTNING, 0.0)
+	_start_gadget_cd(_channel_slot, maxf(cd * spent, cd * 0.25))
+	_channel_left = 0.0
+	_channel_slot = -1
+	if is_instance_valid(_channel_arc):
+		_channel_arc.queue_free()
+
+
 ## Is the front shield currently up? Anything that should be denied while you
 ## are carrying a barrier asks this — right now that is aiming down sights.
 func shield_up() -> bool:
@@ -1350,7 +1668,7 @@ func _toggle_rotary() -> void:
 		weapon.set_class(loadout.secondary_class() if _on_secondary
 			else loadout.weapon_class() as Weapon.Class, loadout.mods_for(_on_secondary))
 	_refresh_offhand()
-	weapon_changed.emit(_hand_name())
+	_announce_hand()
 
 
 ## Drop an auto-turret a couple of metres ahead. One at a time: placing again
@@ -1544,11 +1862,18 @@ func _update_anim(move: Vector2, sprinting: bool) -> void:
 	# moving -> walk/run, else idle. No landing clip on purpose. Crouching swaps
 	# in the folded-leg variants; there is no crouched sprint because sprint is
 	# already suppressed while crouched.
+	#
+	# The guard sits BELOW the crouch on purpose, even though it is the more
+	# valuable tell: there is no crouched guard clip, so putting it above would
+	# stand the model up out of a capsule that is still crouched — and the head
+	# the model draws is the head other players are shooting at.
 	var target: String
 	if not is_on_floor():
 		target = "jump"
 	elif _crouch_t > 0.5:
 		target = "crouch_walk" if move.length() > 0.1 else "crouch_idle"
+	elif guard_up():
+		target = "guard_walk" if move.length() > 0.1 else "guard_idle"
 	elif move.length() > 0.1:
 		target = "run" if sprinting else "walk"
 	else:
@@ -1569,5 +1894,10 @@ func _update_anim(move: Vector2, sprinting: bool) -> void:
 			# is paced off that or the feet skate at a third of the stride.
 			_anim.speed_scale = clampf(
 				ground_speed / (WALK_SPEED * CROUCH_SPEED_MULT), 0.6, 2.2)
+		"guard_walk":
+			# The guard's stance takes a shorter step than the plain walk (a
+			# smaller hip swing over a slightly shorter cycle), so it is paced off
+			# its own stride, not the walk's, or the feet skate.
+			_anim.speed_scale = clampf(ground_speed / 1.8, 0.6, 2.2)
 		_:
 			_anim.speed_scale = 1.0

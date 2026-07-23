@@ -105,6 +105,9 @@ func _acquire_target() -> void:
 
 
 func _can_see(other: Node3D) -> bool:
+	# A cloaked target is invisible to a turret too — same rule as the bot's.
+	if GameState.is_cloaked(other):
+		return false
 	var from := global_position + Vector3.UP * EYE_HEIGHT
 	var to := other.global_position + Vector3.UP * TARGET_AIM_HEIGHT
 	# Smoke has no collider (it would stop bullets too), so it is checked

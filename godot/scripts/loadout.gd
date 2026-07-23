@@ -27,15 +27,20 @@ const BUDGET := 200
 ##   armor          which ARMOR indices it may wear
 ##   default_armor  what it starts on, which is how "lighter by default" is said
 ##   grenades       false removes the grenade rows entirely
+##   grenade_types  if present, the ONLY GrenadeType ids it may throw (else all
+##                  but SMOKE — smoke is the Trandoshan's alone)
+##   sights         if present, the ONLY Sight ids it may fit (else all but the
+##                  Trandoshan's thermal)
 ##   primaries      if present, the ONLY primary classes it may hold
 ##   speed          multiplier on foot speed, on TOP of the armour frame's
+##   health         multiplier on the armour frame's health, same idea as speed
 ##   dash           true if the class can dash (see Player._dash)
 ##
 ## A gun marked with a "kit" key in WEAPONS is that kit's alone, so a class
 ## without an explicit `primaries` list still cannot pick up a lightsaber.
 ## The table itself is further down, under the gadget and armour catalogues it
 ## has to name; only the enum can live up here, where WEAPONS needs it.
-enum Kit { CLONE, MANDALORIAN, FORCE }
+enum Kit { CLONE, MANDALORIAN, FORCE, WOOKIEE, TRANDOSHAN }
 
 # PRIMARY guns, cheapest first (the menu walks them in this order). "None" is a
 # real option: your sidearm is free, so an all-gadget build can skip the rifle
@@ -50,9 +55,14 @@ const WEAPONS: Array[Dictionary] = [
 	{"class": Weapon.Class.SCATTERGUN, "cost": 60},
 	{"class": Weapon.Class.HEAVY, "cost": 70},
 	{"class": Weapon.Class.DMR, "cost": 75},
-	{"class": Weapon.Class.HMG, "cost": 80},
+	# The two heaviest things a body can carry are the WOOKIEE's alone. They keep
+	# a `royale` flag because that mode has no classes at all: a rocket tube on
+	# the ground works perfectly well for a plain trooper, unlike a lightsaber
+	# with no guard behind it, so kit-locking them in the shop must not quietly
+	# empty two of the best finds out of the crates.
+	{"class": Weapon.Class.HMG, "cost": 80, "kit": Kit.WOOKIEE, "royale": true},
 	{"class": Weapon.Class.SNIPER, "cost": 85},
-	{"class": Weapon.Class.RPG, "cost": 110},
+	{"class": Weapon.Class.RPG, "cost": 110, "kit": Kit.WOOKIEE, "royale": true},
 	# Appended rather than slotted in by price, because WEAPONS is indexed by
 	# POSITION and inserting here would shift every BOT_BUILDS preset below it.
 	# The order only exists to walk the menu, and the one kit that can take the
@@ -70,6 +80,10 @@ const SECONDARIES: Array[Dictionary] = [
 	{"class": Weapon.Class.HOLDOUT, "cost": 20},
 	{"class": Weapon.Class.REVOLVER, "cost": 35},
 	{"class": Weapon.Class.BRYAR, "cost": 40},
+	# The Wookiee's, and the only sidearm it may carry. Free for the same reason
+	# the pistol is: it is not a choice, it is what the class has in its hands,
+	# and charging for the one option is just a smaller budget.
+	{"class": Weapon.Class.BOWCASTER, "cost": 0, "kit": Kit.WOOKIEE},
 ]
 
 # The sidearm's own slot. Deliberately NOT the primary's three upgrades: a
@@ -87,13 +101,19 @@ const SECONDARY_MODS: Array[Dictionary] = [
 
 # Sights are one slot with three options rather than a toggle, because a holo
 # ring and a magnified scope are alternatives, not stackable extras.
-enum Sight { NONE, HOLO, SCOPE }
+enum Sight { NONE, HOLO, SCOPE, THERMAL }
 const SIGHTS: Array[Dictionary] = [
 	{"name": "IRON", "cost": 0, "blurb": "Open sights"},
 	{"name": "HOLO RING", "cost": 20,
 		"blurb": "Hollow ring sight: clear view, mild zoom, tighter aim"},
 	{"name": "SCOPE", "cost": 25,
 		"blurb": "Pinpoint accurate while aimed, but it blacks out everything around it"},
+	# The Trandoshan's, and only theirs: a holo ring that paints enemy HEAT while
+	# aimed, so it reads bodies straight through smoke — which is the whole combo
+	# with the class's smoke grenades. Aims like the holo (clear view, mild
+	# zoom); the heat read is drawn on the player's own HUD, see Main.
+	{"name": "THERMAL HOLO", "cost": 30, "kit": Kit.TRANDOSHAN,
+		"blurb": "Holo ring that marks enemy heat through smoke while aimed"},
 ]
 
 # Bolt-ons that modify the gun's profile (see Weapon.set_class). Each is owned
@@ -118,15 +138,22 @@ const DEFAULT_ARMOR := 1
 
 # GADGETS: one slot, on the rebindable "gadget" control. Each is a different
 # verb rather than more damage — see Player._use_gadget and the gadget scenes.
+## NOTE: GADGETS is indexed by this enum, and the buy row IS the gadget id, so a
+## new power goes on the END. Inserting one in the middle would renumber every
+## saved and preset gadget underneath it.
 enum Gadget { NONE, JETPACK, CABLE, SHIELD, ROTARY, TURRET, MORTAR,
-	FORCE_PUSH, FORCE_PULL, FORCE_LEAP }
+	FORCE_PUSH, FORCE_PULL, FORCE_LEAP, FORCE_LIGHTNING, WRIST_ROCKET,
+	CLOAK, DASH }
 const GADGETS: Array[Dictionary] = [
 	{"name": "NONE", "cost": 0, "blurb": "No gadget"},
 	{"name": "JETPACK", "cost": 45,
 		"blurb": "Hold the gadget button to fly. Fuel burns fast, refills on the ground"},
 	{"name": "WRIST CABLE", "cost": 30,
 		"blurb": "Grapple within 34 m, reel in and vault on top. 5s between uses"},
-	{"name": "FRONT SHIELD", "cost": 50,
+	# The barrier is the WOOKIEE's now. Same `royale` opt-in as the heavy guns:
+	# class-locked in the shop, still findable on the ground in a mode that has
+	# no classes to lock it to.
+	{"name": "FRONT SHIELD", "cost": 50, "kit": Kit.WOOKIEE, "royale": true,
 		"blurb": "Toggle a barrier that stops incoming fire. Shoot through it, but no aiming"},
 	{"name": "ROTARY CANNON", "cost": 75,
 		"blurb": "Toggle a spin-up rotary gun. Huge output, but you walk"},
@@ -145,6 +172,25 @@ const GADGETS: Array[Dictionary] = [
 		"blurb": "Drag the one you are looking at to you, from 34 m. 7s"},
 	{"name": "FORCE LEAP", "cost": 35, "kit": Kit.FORCE,
 		"blurb": "A Force-assisted bound: high, long, and it closes ground fast. 4s"},
+	# The exception to "these move people rather than damaging them", and the only
+	# ranged damage the class can buy — which is what it is for: a saber that
+	# cannot reach past 3.4 m has no answer at all to someone holding a doorway.
+	# It is still not a gun: short of a rifle's range, on a long cooldown, and it
+	# arcs to the crowd behind the target rather than rewarding precision.
+	{"name": "FORCE LIGHTNING", "cost": 50, "kit": Kit.FORCE,
+		"blurb": "HOLD to pour lightning at who you look at, chaining to 3 more. 18 m, 4s"},
+	# The Mandalorian's third gadget, and the only DAMAGE one it can buy. No
+	# "kit" key, exactly like the jetpack and the cable: the kit allow-list is
+	# what keeps it out of other classes' hands, and a rocket off the ground
+	# works perfectly well for a class-free royale trooper.
+	{"name": "WRIST ROCKET", "cost": 55,
+		"blurb": "A rocket straight off your wrist: splash, no reload, 7s between shots"},
+	# The Trandoshan's two. No "kit" key — the allow-list keeps them theirs, and
+	# a cloak or a dash off the ground is fine for a class-free royale trooper.
+	{"name": "CLOAK", "cost": 45,
+		"blurb": "Vanish for a few seconds. Firing drops it. AI cannot see you cloaked. 9s"},
+	{"name": "SPRINT DASH", "cost": 25,
+		"blurb": "A quick burst in the way you are moving. 4s"},
 ]
 
 ## What a gadget costs to use again, in seconds. Only the force powers are on a
@@ -152,15 +198,24 @@ const GADGETS: Array[Dictionary] = [
 ## cable) times itself.
 const GADGET_COOLDOWNS := {
 	Gadget.FORCE_PUSH: 6.0, Gadget.FORCE_PULL: 7.0, Gadget.FORCE_LEAP: 4.0,
+	# Short, because the channel itself is now the limit on how often it lands:
+	# two seconds of holding still is the cost, and a nine-second lock-out on top
+	# of that made the class's only ranged answer something you had once a fight.
+	Gadget.FORCE_LIGHTNING: 4.0,
+	# The wrist rocket is on a cooldown for the same reason the force powers are:
+	# it is a gadget, not a gun, and the whole balance of it is how often it
+	# arrives rather than what it does when it lands.
+	Gadget.WRIST_ROCKET: 7.0,
+	Gadget.CLOAK: 9.0,
+	Gadget.DASH: 4.0,
 }
 
 
 const KITS: Array[Dictionary] = [
 	{
 		"name": "CLONE TROOPER",
-		"blurb": "Republic line trooper. The full armoury and every deployable",
-		"gadgets": [Gadget.NONE, Gadget.SHIELD, Gadget.ROTARY, Gadget.TURRET,
-			Gadget.MORTAR],
+		"blurb": "Republic line trooper. Every rifle worth carrying and every deployable",
+		"gadgets": [Gadget.NONE, Gadget.ROTARY, Gadget.TURRET, Gadget.MORTAR],
 		"gadget_slots": 1,
 		"secondary_mods": [SecondaryMod.NONE, SecondaryMod.SCOPE, SecondaryMod.COOLING],
 		"armor": [0, 1, 2, 3],
@@ -169,8 +224,8 @@ const KITS: Array[Dictionary] = [
 	},
 	{
 		"name": "MANDALORIAN",
-		"blurb": "Two gadgets and no grenades. Flies, grapples, and the only one who dual-wields",
-		"gadgets": [Gadget.NONE, Gadget.JETPACK, Gadget.CABLE],
+		"blurb": "Two gadgets and no grenades. Flies, grapples, fires wrist rockets, dual-wields",
+		"gadgets": [Gadget.NONE, Gadget.JETPACK, Gadget.CABLE, Gadget.WRIST_ROCKET],
 		"gadget_slots": 2,
 		"secondary_mods": [SecondaryMod.NONE, SecondaryMod.SCOPE, SecondaryMod.COOLING,
 			SecondaryMod.DUAL],
@@ -182,8 +237,9 @@ const KITS: Array[Dictionary] = [
 	},
 	{
 		"name": "FORCE ADEPT",
-		"blurb": "Lightsaber only. Fast, dashes, double jumps; aim to block until you tire",
-		"gadgets": [Gadget.NONE, Gadget.FORCE_PUSH, Gadget.FORCE_PULL, Gadget.FORCE_LEAP],
+		"blurb": "Lightsaber only. Tough, fast, dashes and double jumps; hold aim to block until the guard breaks",
+		"gadgets": [Gadget.NONE, Gadget.FORCE_PUSH, Gadget.FORCE_PULL, Gadget.FORCE_LEAP,
+			Gadget.FORCE_LIGHTNING],
 		"gadget_slots": 1,
 		"secondary_mods": [SecondaryMod.NONE, SecondaryMod.SCOPE, SecondaryMod.COOLING],
 		"armor": [0, 1],
@@ -193,7 +249,64 @@ const KITS: Array[Dictionary] = [
 		# A melee class has to be able to reach the fight, so it is quick on foot
 		# and can dash. Light frame on top of this puts it at 1.12 * 1.2.
 		"speed": 1.2,
+		# ...and it has to SURVIVE the crossing. Everyone else shoots on the way in
+		# while the adept can only close, and the guard is not cover: it pays a pool
+		# per point stopped and breaks. The frame is multiplied rather than replaced
+		# for the same reason speed is, so the two armours it may wear still differ.
+		"health": 1.25,
 		"dash": true,
+	},
+	{
+		"name": "WOOKIEE",
+		"blurb": "Heavy weapons and a bowcaster. Slow, enormously tough, and the only one with a barrier",
+		# One gadget, and it is the barrier — taken off the clone, because a
+		# shield in front of a rifleman is cover for a fire team, while a shield
+		# in front of a slow heavy is the only way that heavy crosses open ground.
+		"gadgets": [Gadget.NONE, Gadget.SHIELD],
+		"gadget_slots": 1,
+		# NO SCOPE on the sidearm. A scope means zero spread while aimed
+		# (Weapon.current_spread_deg), which on a PELLET weapon collapses all
+		# three quarrels onto one point — 78 damage at any range, for 20 tokens.
+		"secondary_mods": [SecondaryMod.NONE, SecondaryMod.COOLING],
+		# Plate or nothing: there is no light-framed Wookiee.
+		"armor": [2, 3],
+		"default_armor": 2,
+		"grenades": true,
+		# The heavy weapons are the class, and nothing else may carry them. Note
+		# there is no "none" option here: a Wookiee that has not bought a heavy
+		# gun is just a slow trooper, so the cheaper of the two is the floor.
+		"primaries": [Weapon.Class.HMG, Weapon.Class.RPG],
+		"secondaries": [Weapon.Class.BOWCASTER],
+		# Carrying a squad weapon costs you the legs, and being built like this
+		# pays for it: 130-175 of frame becomes 169-227. The slowest thing on the
+		# map and the hardest to shift off a doorway.
+		"speed": 0.9,
+		"health": 1.3,
+	},
+	{
+		"name": "TRANDOSHAN",
+		"blurb": "Reptilian hunter. Thermal sight, smoke, and can vanish or dash. Quick and lightly armoured",
+		# CLOAK to break contact and DASH to reposition — no deployables, no
+		# barrier: the class is about being where the enemy is not.
+		"gadgets": [Gadget.NONE, Gadget.CLOAK, Gadget.DASH],
+		"gadget_slots": 1,
+		"secondary_mods": [SecondaryMod.NONE, SecondaryMod.SCOPE, SecondaryMod.COOLING],
+		"armor": [0, 1, 2],
+		"default_armor": 0,
+		"grenades": true,
+		# The ONLY class that may throw smoke, and the only one that can see
+		# through it — the thermal sight and the smoke are one kit on purpose.
+		"grenade_types": [GrenadeType.FRAG, GrenadeType.SMOKE, GrenadeType.STICKY],
+		# ...and the only sight list that includes the thermal holo. NONE/HOLO/
+		# SCOPE stay available so a build that skips the gimmick is still legal.
+		"sights": [Sight.NONE, Sight.HOLO, Sight.SCOPE, Sight.THERMAL],
+		# A focused armoury: a rifle, a marksman semi, a bullet-hose SMG, and a
+		# sniper. Precise and mobile rather than broad.
+		"primaries": [Weapon.Class.SOLDIER, Weapon.Class.SEMI, Weapon.Class.SMG,
+			Weapon.Class.SNIPER],
+		# Fast and thin: it fights by not being shot at, so it moves.
+		"speed": 1.15,
+		"health": 0.95,
 	},
 ]
 
@@ -216,8 +329,10 @@ const SQUAD_SKILLS: Array[Dictionary] = [
 enum GrenadeType { FRAG, SMOKE, STICKY }
 const GRENADE_TYPES: Array[Dictionary] = [
 	{"name": "FRAG", "cost": 25, "blurb": "Bounces, 2s fuse, heavy splash"},
-	{"name": "SMOKE", "cost": 15,
-		"blurb": "Blinds the area for 9s — nothing sees through it, AI included"},
+	# The Trandoshan's, marked like a signature weapon so the default grenade
+	# rule keeps it out of every other kit's hands — see allows(Row.GRENADE_TYPE).
+	{"name": "SMOKE", "cost": 15, "kit": Kit.TRANDOSHAN,
+		"blurb": "Blinds the area for 9s — nothing sees through it, AI included (you do, with thermal)"},
 	{"name": "STICKY", "cost": 35,
 		"blurb": "Sticks where it lands, people included, then detonates"},
 ]
@@ -235,6 +350,33 @@ enum Row {
 	SECONDARY, SECONDARY_MOD,
 	GADGET, GADGET2, ARMOR, GRENADE_TYPE, GRENADES, MEDKITS, SQUAD, SQUAD_SKILL,
 }
+
+## HOW THE BUY SCREEN IS GROUPED, and — since the rework — how it is DRIVEN.
+##
+## The old screen walked one flat list of rows: up/down moved a cursor through
+## every line on the screen and left/right changed whatever it was sitting on.
+## That is why a stray nudge of the stick on the frame you died could silently
+## re-roll your class, which is the worst possible thing for it to change: the
+## kit resets the whole build.
+##
+## Now the selector moves between BOXES, and a box has to be OPENED before any
+## line inside it can be touched. Two consequences worth stating: the grouping
+## is input, not decoration, so it lives here with the catalogue rather than in
+## the screen that draws it; and SPAWN is a box of its own (added by the screen,
+## not listed here) so that deploying is a deliberate press on a target rather
+## than a button that works from anywhere.
+const BUY_BOXES: Array[Dictionary] = [
+	# CLASS comes first because it decides what every box under it may hold.
+	{"name": "CLASS", "rows": [Row.KIT]},
+	{"name": "PRIMARY", "rows": [Row.WEAPON, Row.SIGHT, Row.COOLING, Row.GRIP]},
+	{"name": "SIDEARM", "rows": [Row.SECONDARY, Row.SECONDARY_MOD]},
+	{"name": "GRENADES", "rows": [Row.GRENADE_TYPE, Row.GRENADES]},
+	{"name": "GADGET", "rows": [Row.GADGET, Row.GADGET2]},
+	{"name": "ARMOUR", "rows": [Row.ARMOR]},
+	{"name": "HEALTH", "rows": [Row.MEDKITS]},
+	{"name": "AI SQUAD", "rows": [Row.SQUAD, Row.SQUAD_SKILL]},
+]
+
 
 var kit := Kit.CLONE   # index into KITS; picks what the rest of this may be
 var weapon := 0        # index into WEAPONS (NO_PRIMARY = sidearm only)
@@ -272,8 +414,11 @@ const BOT_BUILDS: Array[Dictionary] = [
 		"armor": 2, "grenades": 1},                                    # 45+20+25+25
 	{"name": "MARKSMAN", "weapon": 10, "secondary": 0, "sight": Sight.SCOPE,
 		"armor": 0, "grip": true},                                     # 85+25+20+20
-	{"name": "GUNNER", "weapon": 9, "secondary": 0, "sight": Sight.NONE,
-		"armor": 3, "cooling": true},                                  # 80+60+20
+	# Was the T-21 HMG, which is a Wookiee weapon now. The Z-6 is what a clone
+	# suppresses with, and the heavy plate and vanes are what the role actually
+	# was — a body that stands still and keeps firing.
+	{"name": "GUNNER", "weapon": 7, "secondary": 0, "sight": Sight.NONE,
+		"armor": 3, "cooling": true},                                  # 70+60+20
 	{"name": "ENGINEER", "weapon": 2, "secondary": 3, "sight": Sight.HOLO,
 		"gadget": Gadget.TURRET, "armor": 1},                          # 45+35+20+65
 	# SCOUT and SKIRMISHER carry the wrist cable, which is the Mandalorian's, so
@@ -284,8 +429,11 @@ const BOT_BUILDS: Array[Dictionary] = [
 		"gadget": Gadget.CABLE, "armor": 0, "medkits": 1},             # 55+20+20+30+20+30
 	{"name": "GRENADIER", "weapon": 3, "secondary": 0, "sight": Sight.HOLO,
 		"armor": 2, "grenades": 3},                                    # 50+20+25+75
+	# SHOCK used to carry the front shield. That is the Wookiee's now, so it
+	# leans on the rotary instead — same job (walk at you behind something that
+	# does not care), different tool.
 	{"name": "SHOCK", "weapon": 7, "secondary": 0, "sight": Sight.NONE,
-		"gadget": Gadget.SHIELD, "armor": 2, "medkits": 1},            # 70+50+25+30
+		"gadget": Gadget.ROTARY, "armor": 2},                          # 70+75+25
 	# New guns get presets of their own, so the AI actually field them.
 	{"name": "BREACHER", "weapon": 6, "secondary": 1, "sight": Sight.NONE,
 		"armor": 2, "grenades": 1},                                    # 60+15+25+25
@@ -300,9 +448,32 @@ const BOT_BUILDS: Array[Dictionary] = [
 	{"name": "BOUNTY HUNTER", "kit": Kit.MANDALORIAN, "weapon": 4, "secondary": 1,
 		"sight": Sight.HOLO, "armor": 0, "gadget": Gadget.CABLE,
 		"gadget2": Gadget.JETPACK},                                    # 50+15+20+20+30+45
+	# Fields the wrist rocket, so the AI actually throw one at you.
+	{"name": "DEATH WATCH", "kit": Kit.MANDALORIAN, "weapon": 1, "secondary": 0,
+		"sight": Sight.HOLO, "armor": 1, "gadget": Gadget.WRIST_ROCKET,
+		"gadget2": Gadget.JETPACK, "medkits": 1},                      # 40+20+55+45+30
 	{"name": "DUELLIST", "kit": Kit.FORCE, "weapon": 12, "secondary": 0,
 		"sight": Sight.NONE, "armor": 0, "gadget": Gadget.FORCE_PUSH,
 		"medkits": 1},                                                 # 55+20+45+30
+	{"name": "ACOLYTE", "kit": Kit.FORCE, "weapon": 12, "secondary": 0,
+		"sight": Sight.NONE, "armor": 0, "gadget": Gadget.FORCE_LIGHTNING,
+		"medkits": 1},                                                 # 55+20+50+30
+	# The Trandoshan fields both of its ideas: a cloaking sniper and a
+	# smoke-and-dash rusher. Both legal for the kit; the kit_rules test checks it.
+	{"name": "STALKER", "kit": Kit.TRANDOSHAN, "weapon": 10, "secondary": 0,
+		"sight": Sight.THERMAL, "armor": 0, "gadget": Gadget.CLOAK},    # 85+30+20+45
+	{"name": "SLAVER", "kit": Kit.TRANDOSHAN, "weapon": 1, "secondary": 2,
+		"sight": Sight.THERMAL, "armor": 1, "gadget": Gadget.DASH,
+		"grenade_type": GrenadeType.SMOKE, "grenades": 2},             # 40+20+30+25+2*15
+	# The Wookiee fields both of its guns, because they play nothing alike: one
+	# holds a lane behind the barrier, the other deletes whatever is behind cover.
+	# `secondary` 5 is the bowcaster, which is the only sidearm either may hold —
+	# get that index wrong and the kit_rules test says so.
+	{"name": "BULWARK", "kit": Kit.WOOKIEE, "weapon": 9, "secondary": 5,
+		"sight": Sight.NONE, "armor": 2, "gadget": Gadget.SHIELD,
+		"medkits": 1},                                                 # 80+25+50+30
+	{"name": "DEMOLISHER", "kit": Kit.WOOKIEE, "weapon": 11, "secondary": 5,
+		"sight": Sight.NONE, "armor": 3, "grenades": 1},               # 110+60+25
 ]
 
 
@@ -324,10 +495,17 @@ static func bot_build(index: int) -> Loadout:
 ## class for it to belong to. Handing one out would give a scavenger a weapon
 ## with no guard to go with it, or a power on a button that class-free builds do
 ## not have. `from` skips the leading "none" row where a table has one.
+##
+## An entry may opt back IN with `"royale": true`. That is for gear which is a
+## class's by BALANCE rather than by mechanism — the heavy guns and the barrier
+## work exactly as well in the hands of a plain trooper, and dropping them from
+## the crates would quietly gut the loot table. The test is: does the item need
+## something only a class has? A saber needs the guard, a Force power needs the
+## button. A rocket tube needs neither.
 static func royale_items(table: Array[Dictionary], from := 0) -> Array[int]:
 	var out: Array[int] = []
 	for i in range(from, table.size()):
-		if not table[i].has("kit"):
+		if not table[i].has("kit") or table[i].get("royale", false):
 			out.append(i)
 	return out
 
@@ -391,6 +569,20 @@ func kit_speed() -> float:
 	return float(KITS[kit].get("speed", 1.0))
 
 
+## Health multiplier for the class, on top of the armour frame's. Same shape as
+## kit_speed for the same reason: the frames stay meaningfully different inside a
+## class instead of one flat number replacing everything the player bought.
+func kit_health() -> float:
+	return float(KITS[kit].get("health", 1.0))
+
+
+## What the armour frame is actually worth to THIS build, class included. Every
+## place that sets a body's health goes through here, so the number on the buy
+## screen and the number you deploy with cannot drift apart.
+func max_health() -> float:
+	return float(armor_stats()["health"]) * kit_health()
+
+
 func can_dash() -> bool:
 	return bool(KITS[kit].get("dash", false))
 
@@ -411,6 +603,16 @@ func allows(row: int, index: int) -> bool:
 				return entry["class"] in only
 			# No explicit list: everything except another kit's signature weapon.
 			return not entry.has("kit")
+		Row.SECONDARY:
+			# Same rule as the primary row, one table down. The Wookiee is the
+			# reason it exists: its bowcaster is its own, and it carries nothing
+			# else — a class whose sidearm is part of its identity needs the list
+			# to work in both directions.
+			var side: Dictionary = SECONDARIES[index]
+			var side_only: Array = k.get("secondaries", [])
+			if not side_only.is_empty():
+				return side["class"] in side_only
+			return not side.has("kit")
 		Row.GADGET, Row.GADGET2:
 			if not index in k["gadgets"]:
 				return false
@@ -422,6 +624,20 @@ func allows(row: int, index: int) -> bool:
 			return index in k["secondary_mods"]
 		Row.ARMOR:
 			return index in k["armor"]
+		Row.SIGHT:
+			# An explicit list is the ONLY way to reach the thermal holo; absent,
+			# a kit gets the ordinary three and never the Trandoshan's.
+			var sights: Array = k.get("sights", [])
+			if not sights.is_empty():
+				return index in sights
+			return not SIGHTS[index].has("kit")
+		Row.GRENADE_TYPE:
+			# Same shape: smoke is the Trandoshan's, so a kit only reaches it
+			# through an explicit grenade_types list.
+			var types: Array = k.get("grenade_types", [])
+			if not types.is_empty():
+				return index in types
+			return not GRENADE_TYPES[index].has("kit")
 	return true
 
 
@@ -441,6 +657,46 @@ func row_available(row: int) -> bool:
 			# absolutely no effect.
 			return has_primary() and not primary_is_melee()
 	return true
+
+
+## --- buy-screen boxes ---------------------------------------------------------
+
+## True if this kit has anything at all inside that box. A box with nothing left
+## in it is hidden AND skipped by the selector, exactly as an unavailable row is
+## — a Mandalorian's screen has no GRENADES panel to land on.
+func box_available(box: int) -> bool:
+	if box < 0 or box >= BUY_BOXES.size():
+		return false
+	for row in BUY_BOXES[box]["rows"]:
+		if row_available(row):
+			return true
+	return false
+
+
+## The first row inside a box that this kit actually has, or -1.
+func first_row_in(box: int) -> int:
+	if box < 0 or box >= BUY_BOXES.size():
+		return -1
+	for row in BUY_BOXES[box]["rows"]:
+		if row_available(row):
+			return row
+	return -1
+
+
+## Step to another row INSIDE one box, without escaping it. Returns the row it
+## lands on; walking off either end stops rather than wrapping into the next box,
+## because a box you opened is the only thing you should be able to change.
+func step_row_in(box: int, from: int, dir: int) -> int:
+	var rows: Array = BUY_BOXES[box]["rows"]
+	var at := rows.find(from)
+	if at < 0:
+		return first_row_in(box)
+	var i := at + dir
+	while i >= 0 and i < rows.size():
+		if row_available(rows[i]):
+			return rows[i]
+		i += dir
+	return from
 
 
 func primary_is_melee() -> bool:
@@ -470,6 +726,10 @@ func adopt_kit(new_kit: int) -> void:
 	# A kit with exactly one legal primary is holding it, not choosing it.
 	var only: Array = k.get("primaries", [])
 	fresh.weapon = weapon_index(only[0]) if not only.is_empty() else NO_PRIMARY
+	# ...and the same for the sidearm, or a Wookiee would adopt its kit still
+	# holding the pistol on row 0 — an illegal build that the buy screen would
+	# then refuse to step off, because every direction from it is disallowed.
+	fresh.secondary = fresh._first_allowed(Row.SECONDARY, SECONDARIES.size())
 	fresh.gadget = Gadget.NONE
 	fresh.gadget2 = Gadget.NONE
 	_copy_from(fresh)
@@ -589,6 +849,15 @@ func step(row: int, dir: int) -> bool:
 ## stopping where it started if there is nothing further along. Stepping ONE at a
 ## time and refusing would strand the cursor on the first disallowed entry, so
 ## the skip has to happen here rather than in step().
+## The lowest entry on a row this kit may hold, or 0 if it may hold none — the
+## starting point adopt_kit drops a fresh build on.
+func _first_allowed(row: int, size: int) -> int:
+	for i in size:
+		if allows(row, i):
+			return i
+	return 0
+
+
 func _walk(row: int, current: int, dir: int, size: int) -> int:
 	var i := current + dir
 	while i >= 0 and i < size:
@@ -605,17 +874,23 @@ func _step_unchecked(row: int, dir: int) -> void:
 		Row.WEAPON:
 			weapon = _walk(row, weapon, dir, WEAPONS.size())
 		Row.SECONDARY:
-			secondary = clampi(secondary + dir, 0, SECONDARIES.size() - 1)
+			# Walked, not clamped: the row has kit-locked entries in it now, and
+			# a clamp would have let anyone step onto the bowcaster.
+			secondary = _walk(row, secondary, dir, SECONDARIES.size())
 		Row.SECONDARY_MOD:
 			secondary_mod = _walk(row, secondary_mod, dir, SECONDARY_MODS.size())
 		Row.GRENADE_TYPE:
-			grenade_type = clampi(grenade_type + dir, 0, GRENADE_TYPES.size() - 1)
+			# Walked, not clamped: SMOKE is kit-locked, so a clamp would let
+			# anyone step onto it.
+			grenade_type = _walk(row, grenade_type, dir, GRENADE_TYPES.size())
 		Row.GADGET:
 			gadget = _walk(row, gadget, dir, GADGETS.size())
 		Row.GADGET2:
 			gadget2 = _walk(row, gadget2, dir, GADGETS.size())
 		Row.SIGHT:
-			sight = clampi(sight + dir, 0, SIGHTS.size() - 1)
+			# Walked, not clamped: THERMAL is kit-locked, so a clamp would let
+			# anyone step onto it.
+			sight = _walk(row, sight, dir, SIGHTS.size())
 		Row.COOLING:
 			cooling = not cooling
 		Row.GRIP:
@@ -748,8 +1023,9 @@ func row_blurb(row: int, device: int = -1) -> String:
 		Row.SIGHT:
 			return "%s   (primary only)" % SIGHTS[sight]["blurb"]
 		Row.ARMOR:
-			var a := armor_stats()
-			return "%s   %d HP" % [a["blurb"], roundi(a["health"])]
+			# The kit's multiplier is folded in, so the line reads what you will
+			# actually deploy with rather than the frame's paper number.
+			return "%s   %d HP" % [armor_stats()["blurb"], roundi(max_health())]
 		Row.GRENADES:
 			return "%s, %d each, thrown with %s" % [
 				GRENADE_TYPES[grenade_type]["name"],

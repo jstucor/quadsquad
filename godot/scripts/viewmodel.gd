@@ -45,6 +45,18 @@ const ADS_KICK_MULT := 0.4
 const FLASH_TIME := 0.045
 
 var aiming_source: Node3D    # the parent Weapon (aiming / has_scope live here)
+## The render layer these meshes belong on: the owner's private viewmodel bit,
+## so only their own camera sees the gun in their hands. 0 leaves them on the
+## default layer, which is what a bot wants (its weapon IS a world object).
+##
+## Applied on every REBUILD, not once at spawn. Player used to set it on the
+## meshes that existed when it became ready — and there are none, because the
+## gun is built by the set_class on the very next line, and rebuilt again on
+## every weapon swap and every respawn. All of those parts landed on layer 1, so
+## every OTHER player saw this one's first-person weapon floating at their face.
+## Unmissable once it was a metre of lit blade; a small dark rifle overlapping
+## the third-person one is why it went unnoticed.
+var view_layer := 0
 
 var _player: CharacterBody3D
 var _scope: MeshInstance3D
@@ -53,6 +65,11 @@ var _flash: MeshInstance3D
 var _saber: Node3D           # the saber's own pivot, when a blade is in hand
 var _swing := 0.0            # 1 at the start of a swing, decaying to 0
 var _swing_side := 1.0       # alternates, so consecutive strikes cross over
+var _parry := 0.0            # 1 the frame a hit is stopped, decaying to 0
+var _parry_side := 1.0       # which way the blade is knocked, alternating
+var _blade_core: StandardMaterial3D  # kept so a parry can flare them
+var _blade_glow: StandardMaterial3D
+var _brace_t := 0.0          # phase of the guard's slow sway
 
 var _kick := 0.0             # current recoil amount (0..KICK_CEILING), springs to 0
 var _kick_yaw := 0.0         # random left/right lean per shot
@@ -150,6 +167,10 @@ const SHAPES := {
 		"receiver": Vector3(0.04, 0.062, 0.16), "barrel": Vector3(0.024, 0.024, 0.24),
 		"stock": false, "grip": false, "cylinder": 0.04, "muzzle": 0.04,
 	},
+	Weapon.Class.BOWCASTER: {  # Wookiee crossbow: fat body, short bore, limbs
+		"receiver": Vector3(0.072, 0.09, 0.22), "barrel": Vector3(0.03, 0.03, 0.18),
+		"stock": true, "grip": true, "drum": 0.05, "muzzle": 0.04, "limbs": 0.15,
+	},
 	# The lightsaber is built by _build_saber, not from these fields: a hilt and
 	# a blade share nothing with a receiver and a barrel. The entry exists so
 	# the class is present in the table and `saber` can flag the branch.
@@ -186,6 +207,32 @@ const SWING_YAW := 1.05     # ...carried across the body
 const SWING_ROLL := 0.55
 const BLADE_CORE := Color(0.75, 0.92, 1.0)
 const BLADE_GLOW := Color(0.25, 0.65, 1.0)
+const BLADE_ENERGY := 5.0   # core emission at rest; a parry flares off this
+
+## THE GUARD. It has to be unmistakable, because everything else about blocking
+## is invisible: the arc it covers, the pool it spends and the break are all
+## numbers. If the pose is a small tilt, a player holding the button has no idea
+## whether anything is happening — so the blade comes right up across the view,
+## the hilt is drawn in to the centre of the chest, and the whole weapon rides a
+## slow brace instead of sitting frozen.
+## ...while still leaving the player able to SEE. The blade is a metre of solid
+## white: brought fully across the centre it blinds you exactly when you are
+## being shot at, so it rises through the right of the frame with the hilt held
+## out at chest height, and the crosshair stays clear.
+const GUARD_ROT := Vector3(1.16, -0.34, 0.62)
+const GUARD_AT := Vector3(0.13, -0.20, -0.40)      # out, up, and further away
+const GUARD_DRAW_IN := Vector3(-0.05, 0.03, 0.0)   # ...the whole model leans in
+const GUARD_BRACE := 0.035   # radians of sway, so a held guard is visibly HELD
+const GUARD_BRACE_RATE := 3.4
+
+## The parry: what a stopped hit looks like. The blade is knocked back and flares
+## for a moment, which is the only confirmation that the guard just paid for
+## something — the pool draining is a number on the HUD and nobody reading it is
+## looking at the fight.
+const PARRY_TIME := 0.26
+const PARRY_ROT := Vector3(-0.30, 0.30, -0.34)
+const PARRY_PUSH := Vector3(0.05, -0.03, 0.07)  # driven back toward the camera
+const PARRY_FLARE := 9.0     # added to BLADE_ENERGY at the moment of the block
 
 
 func _build(class_id: int, scoped: bool, holo: bool) -> void:
@@ -199,6 +246,8 @@ func _build(class_id: int, scoped: bool, holo: bool) -> void:
 	_holo = null
 	_flash = null
 	_saber = null
+	_blade_core = null
+	_blade_glow = null
 
 	var shape: Dictionary = SHAPES.get(class_id, SHAPES[Weapon.Class.SOLDIER])
 	if shape.get("saber", false):
@@ -265,6 +314,27 @@ func _build(class_id: int, scoped: bool, holo: bool) -> void:
 			var leg := _box(Vector3(0.012, 0.09, 0.012),
 				Vector3(0.03 * side, -0.06, barrel_z + 0.04), dark)
 			leg.rotation.z = 0.35 * side
+	if shape.get("limbs", false):
+		# The bowcaster's crossbow limbs, out at the MUZZLE end and swept back,
+		# with a string strung between the tips. It is the whole reason the
+		# weapon is recognisable — built from the same boxes as everything else,
+		# because a silhouette is what a viewmodel is for and this one is a
+		# CROSSBOW. Sitting them mid-barrel and short read as a rifle with a bar
+		# stuck through it.
+		var span: float = shape["limbs"]
+		var limb_z := -receiver.z * 0.5 - barrel.z * 0.9
+		for side in [-1.0, 1.0]:
+			var limb := _box(Vector3(span, 0.018, 0.038),
+				Vector3(span * 0.5 * side, 0.0, limb_z), gun)
+			# Only a slight sweep. At 0.5 rad the limbs lay along the view axis and
+			# vanished into the receiver from the owner's own camera — which is the
+			# only camera that ever sees a viewmodel.
+			limb.rotation.y = -0.16 * side
+		# The string runs BEHIND the tips, and in gunmetal: the accent material
+		# is the emissive power cell, and a glowing orange bowstring reads as a
+		# fault light rather than a weapon.
+		_box(Vector3(span * 1.95, 0.008, 0.008),
+			Vector3(0.0, 0.0, limb_z + span * 0.16), dark)
 	_box(Vector3(0.02, 0.018, 0.04), Vector3(0, receiver.y * 0.5 - 0.005, -0.02), accent)
 
 	# Sights. The scope is a tube on a mount; the holo is a hollow ring you can
@@ -362,7 +432,7 @@ func _build_saber() -> void:
 	core_mat.albedo_color = BLADE_CORE
 	core_mat.emission_enabled = true
 	core_mat.emission = BLADE_CORE
-	core_mat.emission_energy_multiplier = 5.0
+	core_mat.emission_energy_multiplier = BLADE_ENERGY
 
 	var glow_mat := StandardMaterial3D.new()
 	glow_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
@@ -378,6 +448,10 @@ func _build_saber() -> void:
 	_cyl(BLADE_RADIUS, BLADE_LENGTH, Vector3(0, -0.015, blade_z), core_mat, _saber)
 	_cyl(BLADE_RADIUS * 1.9, BLADE_LENGTH * 0.99, Vector3(0, -0.015, blade_z), glow_mat, _saber)
 	hilt.name = "SaberHilt"
+	# Held so a parry can flare them. They belong to this blade alone (built here,
+	# not shared out of a table), so writing to them cannot leak onto anyone else.
+	_blade_core = core_mat
+	_blade_glow = glow_mat
 
 	# No sights on a sword. Aiming blocks instead, so the ADS slide is a small
 	# guard-raise rather than bringing anything onto the camera axis.
@@ -449,6 +523,17 @@ func configure(class_id: int, scoped := false, holo := false) -> void:
 	# The sniper ships with optics, but a bought holo ring replaces them rather
 	# than sitting alongside — two sights on one rail is nobody's intent.
 	_build(class_id, (scoped or class_id == Weapon.Class.SNIPER) and not holo, holo)
+	# Every part in there is new, so the owner's layer has to go on again. Done
+	# here rather than inside _build because _build returns early for a blade.
+	_apply_view_layer()
+
+
+## Put the freshly built parts on the owner's private viewmodel layer.
+func _apply_view_layer() -> void:
+	if view_layer == 0:
+		return
+	for mi in find_children("*", "MeshInstance3D", true, false):
+		mi.layers = view_layer
 
 
 ## The saber's own animation. Two states and one action:
@@ -463,18 +548,25 @@ func configure(class_id: int, scoped := false, holo := false) -> void:
 ## SWINGING is a single arc traced by sin(): the blade accelerates through the
 ## strike and settles back, and consecutive swings alternate sides so holding
 ## the trigger looks like a sequence of cuts rather than one chop on repeat.
-func _animate_saber(delta: float, guarding: bool, bob: Vector3) -> void:
+## `_aim_t` is stepped by the caller, once, for every weapon: stepping it again
+## here fought the caller's own step and left the raise crawling.
+func _animate_saber(delta: float, bob: Vector3) -> void:
 	_swing = maxf(_swing - delta / SWING_TIME, 0.0)
-	_aim_t = move_toward(_aim_t, 1.0 if guarding else 0.0, delta / AIM_TIME)
+	_parry = maxf(_parry - delta / PARRY_TIME, 0.0)
+	_brace_t += delta * GUARD_BRACE_RATE
 
-	# The viewmodel root only carries the bob and the guard's small draw-in; the
-	# swing belongs to the saber pivot.
-	position = HIP_POS.lerp(Vector3(-0.04, 0.02, 0.04), _aim_t) + bob
+	# The viewmodel root only carries the bob and the guard's draw-in; the swing
+	# and the parry belong to the saber pivot.
+	position = HIP_POS.lerp(GUARD_DRAW_IN, _aim_t) + bob + PARRY_PUSH * _parry
 	rotation = Vector3.ZERO
 
-	var pose := SABER_REST
-	# Guard: blade brought upright and square across the front.
-	pose = pose.lerp(Vector3(1.46, -0.50, 0.18), _aim_t)
+	# Guard: blade brought up across the view, hilt drawn in to the chest.
+	var pose := SABER_REST.lerp(GUARD_ROT, _aim_t)
+	var at := SABER_AT.lerp(GUARD_AT, _aim_t)
+	# ...and BRACED there. A pose that holds perfectly still reads as a frozen
+	# animation, which is the one thing a defensive stance must not look like.
+	pose += Vector3(sin(_brace_t) * GUARD_BRACE,
+		sin(_brace_t * 0.63) * GUARD_BRACE * 0.7, 0.0) * _aim_t
 
 	# 0 at the start of the swing, 1 at the end; sin() gives the arc a fast
 	# middle and a soft finish at both ends.
@@ -484,9 +576,40 @@ func _animate_saber(delta: float, guarding: bool, bob: Vector3) -> void:
 		arc * SWING_PITCH,
 		arc * SWING_YAW * _swing_side,
 		arc * SWING_ROLL * -_swing_side)
+
+	# The parry rocks the blade back off the impact and springs it home. Same sin
+	# arc as the swing, so a block reads as a deliberate motion rather than a
+	# twitch, and it alternates sides so a burst stopped by the guard looks like
+	# the blade working rather than one shudder repeated.
+	if _parry > 0.0:
+		var knock := sin((1.0 - _parry) * PI)
+		pose += Vector3(PARRY_ROT.x, PARRY_ROT.y * _parry_side,
+			PARRY_ROT.z * _parry_side) * knock
+
 	_saber.rotation = pose
-	_saber.position = SABER_AT
+	_saber.position = at
+	_flare_blade()
 	visible = true
+
+
+## Push the parry's brightness onto the blade. The flare is on the EMISSION
+## rather than on a separate flash mesh so it lights the whole length of the
+## blade at once, which is what sells contact somewhere along it.
+func _flare_blade() -> void:
+	if _blade_core == null:
+		return
+	var flare := PARRY_FLARE * _parry
+	_blade_core.emission_energy_multiplier = BLADE_ENERGY + flare
+	_blade_glow.emission_energy_multiplier = 3.0 + flare * 0.6
+
+
+## The guard just stopped a hit. Cosmetic only — Player has already decided what
+## the block cost and whether it broke.
+func parry() -> void:
+	if _saber == null:
+		return
+	_parry = 1.0
+	_parry_side = -_parry_side
 
 
 ## Called on each shot; strength scales the kick per weapon class.
@@ -513,7 +636,15 @@ func _process(delta: float) -> void:
 		aiming = aiming_source.aiming
 		scoped = aiming_source.has_scope()
 
-	_aim_t = move_toward(_aim_t, 1.0 if aiming else 0.0, delta / AIM_TIME)
+	# The guard is NOT `weapon.aiming`. Player forces that flag false for a melee
+	# weapon — a blade has no sights — so reading it here left _aim_t pinned at 0
+	# and the guard pose below never played at all. Ask the OWNER instead, which
+	# is also the only thing that knows about the exhaustion pool, so the blade
+	# drops back to rest the moment the guard breaks. Bots have no guard_up.
+	var guarding: bool = _player != null and _player.has_method("guard_up") \
+		and _player.guard_up()
+
+	_aim_t = move_toward(_aim_t, 1.0 if (aiming or guarding) else 0.0, delta / AIM_TIME)
 	_kick = move_toward(_kick, 0.0, delta * RECOIL_DECAY)
 
 	# Walk bob, damped while aiming and only on the ground.
@@ -527,7 +658,7 @@ func _process(delta: float) -> void:
 	# A blade has its own motion: it swings on its pivot instead of kicking the
 	# whole viewmodel, and raising the guard is a pose rather than a sight slide.
 	if _saber != null:
-		_animate_saber(delta, aiming, bob)
+		_animate_saber(delta, bob)
 		return
 
 	var pos := HIP_POS.lerp(_ads_pos, _aim_t) + bob

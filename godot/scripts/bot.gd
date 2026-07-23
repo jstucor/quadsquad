@@ -21,6 +21,8 @@ const TURRET_SCENE := preload("res://scenes/actors/turret.tscn")
 const MORTAR_SCENE := preload("res://scenes/actors/mortar.tscn")
 const SHIELD_SCENE := preload("res://scenes/fx/front_shield.tscn")
 const CABLE_WIRE_SCENE := preload("res://scenes/fx/cable_wire.tscn")
+const LIGHTNING_SCENE := preload("res://scenes/fx/lightning_arc.tscn")
+const ROCKET_SCENE := preload("res://scenes/fx/rocket.tscn")
 
 # One row per Loadout.SQUAD_SKILLS tier, same order.
 # aim_error = degrees of aim wobble (the bot's "spread" on top of the weapon's);
@@ -120,6 +122,13 @@ var loadout: Loadout              # the preset it deployed with
 ## Bots act on the FIRST gadget slot only. The Mandalorian preset carries a
 ## second one it never uses, which costs it nothing it would otherwise have.
 var _force_cd := 0.0
+## The lightning channel: seconds of stream left, time to the next bite, and the
+## bolt currently drawn. `_tick_delta` is this frame's delta, stashed because the
+## channel is advanced from inside the engage branch.
+var _channel_left := 0.0
+var _channel_tick := 0.0
+var _channel_arc: Node3D
+var _tick_delta := 0.0
 var _shove := Vector3.ZERO        # decaying push from someone else's Force power
 var _path := PackedVector2Array()
 var _path_i := 0
@@ -198,7 +207,7 @@ func setup(owner: Node3D, bot_team: int, skill_index: int, build := -1) -> void:
 	_skill = SKILLS[clampi(skill_index, 0, SKILLS.size() - 1)]
 	loadout = Loadout.bot_build(build if build >= 0 else randi())
 	var armor := loadout.armor_stats()
-	health = float(armor["health"]) * float(_skill["health"])
+	health = loadout.max_health() * float(_skill["health"])
 	# The class multiplies the frame here exactly as it does on a Player, so an
 	# AI Force adept closes ground as fast as a human one.
 	_speed = BASE_SPEED * float(armor["speed"]) * float(_skill["speed"]) \
@@ -207,6 +216,9 @@ func setup(owner: Node3D, bot_team: int, skill_index: int, build := -1) -> void:
 	_medkits = loadout.medkits
 	model.set_team_color(GameState.TEAM_COLORS[team])
 	weapon.set_class(loadout.deploy_class(), loadout.primary_mods())
+	# Show the blade on the body, not just in the hitscan: a saber bot that walks
+	# in holding a blaster gives no warning at all that it intends to reach you.
+	model.set_melee(weapon.is_melee())
 	if loadout.gadget == Loadout.Gadget.SHIELD:
 		_raise_shield()
 	# The bot's gun is a world object, not a viewmodel: everyone should see it.
@@ -267,6 +279,9 @@ func _physics_process(delta: float) -> void:
 	_grenade_cd = maxf(_grenade_cd - delta, 0.0)
 	_cable_cd = maxf(_cable_cd - delta, 0.0)
 	_force_cd = maxf(_force_cd - delta, 0.0)
+	# The channel is ticked from _throw_lightning_if_in_reach, which runs inside
+	# the engage branch and so has no delta of its own to hand it.
+	_tick_delta = delta
 	_use_medkit_if_hurt()
 	_retarget_in -= delta
 	_memory_left = maxf(_memory_left - delta, 0.0)
@@ -338,6 +353,10 @@ func _acquire_target() -> void:
 
 
 func _can_see(other: Node3D) -> bool:
+	# A cloaked target is invisible to AI outright — the same idea as smoke, one
+	# body instead of an area. This is what the Trandoshan's cloak buys.
+	if GameState.is_cloaked(other):
+		return false
 	var from := global_position + Vector3.UP * EYE_HEIGHT
 	var to := other.global_position + Vector3.UP * EYE_HEIGHT * 0.6
 	# Smoke has no collider (it would stop bullets too), so it is checked
@@ -392,6 +411,8 @@ func _fight(delta: float) -> void:
 	_place_turret_if_ready(false)  # in contact: dig in where we stand
 	_place_mortar_if_ready(false)
 	_force_push_if_crowded(gap)
+	_throw_lightning_if_in_reach(gap)
+	_fire_wrist_rocket_if_useful(gap)
 	_call_mortar_strike(delta)
 	_reaction_left = maxf(_reaction_left - delta, 0.0)
 	var facing := Vector3.FORWARD.rotated(Vector3.UP, rotation.y)
@@ -519,7 +540,9 @@ func _watch_for_snag(want: Vector3, delta: float) -> void:
 func _use_medkit_if_hurt() -> void:
 	if _medkits <= 0:
 		return
-	var full := float(loadout.armor_stats()["health"]) * float(_skill["health"])
+	# Same arithmetic as setup(), class multiplier included, or a Force adept would
+	# top up to a ceiling below the health it actually deployed with.
+	var full := loadout.max_health() * float(_skill["health"])
 	if health > full * MEDKIT_AT:
 		return
 	_medkits -= 1
@@ -659,6 +682,65 @@ func _force_push_if_crowded(gap: float) -> void:
 		return
 	if ForcePowers.push(self, team) > 0:
 		_force_cd = float(Loadout.GADGET_COOLDOWNS[Loadout.Gadget.FORCE_PUSH])
+
+
+## The other half of a Force adept's answer to distance: when the target is too
+## far to cut but inside the arc's reach, throw lightning at it. The gate is a
+## RANGE band rather than a crowd, because unlike push this is what the bot uses
+## while it is still closing — and it is spent only on a target it can actually
+## see, which _nearest_in_cone re-checks for itself.
+func _throw_lightning_if_in_reach(gap: float) -> void:
+	if loadout == null or loadout.gadget != Loadout.Gadget.FORCE_LIGHTNING:
+		return
+	# Already pouring: keep it going while the target is still in reach. A bot
+	# has to CHANNEL for the same reason a player does — the power is worth 11 a
+	# tick now, so one bite is a scratch and the whole threat is in holding it.
+	if _channel_left > 0.0:
+		_channel_left -= _tick_delta
+		if gap > ForcePowers.BOLT_RANGE or _channel_left <= 0.0:
+			_channel_left = 0.0
+			_force_cd = float(Loadout.GADGET_COOLDOWNS[Loadout.Gadget.FORCE_LIGHTNING])
+			return
+		_channel_tick -= _tick_delta
+		if _channel_tick <= 0.0:
+			_channel_tick = ForcePowers.CHANNEL_TICK
+			_channel_arc = ForcePowers.channel_bolt(
+				self, team, LIGHTNING_SCENE, weapon, _channel_arc)
+		return
+	if _force_cd > 0.0 or gap > ForcePowers.BOLT_RANGE * 0.9:
+		return
+	# Open on the FIRST bite: channel_bolt returns null if the cone was empty, so
+	# the channel is committed only when it actually hit — and the cone is
+	# resolved (and damage dealt) exactly once, not once to probe and once to fire.
+	var arc := ForcePowers.channel_bolt(self, team, LIGHTNING_SCENE, weapon, _channel_arc)
+	if arc == null:
+		return
+	_channel_arc = arc
+	_channel_left = ForcePowers.CHANNEL_TIME
+	_channel_tick = ForcePowers.CHANNEL_TICK
+
+
+## A wrist rocket, on the same "use it when the moment it is for arrives" rule
+## as the grenade: far enough away that the splash cannot reach us, close enough
+## to hit. It is deliberately NOT fired at point-blank — a bot blowing itself up
+## is the one thing an AI rocket must never do.
+func _fire_wrist_rocket_if_useful(gap: float) -> void:
+	if loadout == null or _force_cd > 0.0:
+		return
+	if loadout.gadget != Loadout.Gadget.WRIST_ROCKET \
+			and loadout.gadget2 != Loadout.Gadget.WRIST_ROCKET:
+		return
+	if gap < Player.WRIST_ROCKET_SPLASH * 2.5 or gap > 60.0:
+		return
+	if _target == null or not _can_see(_target):
+		return
+	var rocket := ROCKET_SCENE.instantiate()
+	get_parent().add_child(rocket)
+	var from := head.global_position
+	var dir := (_target.global_position + Vector3.UP * TARGET_AIM_HEIGHT - from).normalized()
+	rocket.launch(from + dir * 0.6, dir, self, Player.WRIST_ROCKET_SPLASH,
+		Player.WRIST_ROCKET_DAMAGE, Player.WRIST_ROCKET_RANGE)
+	_force_cd = float(Loadout.GADGET_COOLDOWNS[Loadout.Gadget.WRIST_ROCKET])
 
 
 ## Take a shove from someone else's Force power. See _physics_process for why it

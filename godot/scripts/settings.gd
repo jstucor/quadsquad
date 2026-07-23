@@ -17,10 +17,12 @@ const DIM := Color(0.62, 0.66, 0.72)
 const FAINT := Color(0.42, 0.46, 0.52)
 const LISTEN_COLOR := Color(1.0, 0.78, 0.35)
 
-## Profiles in the order the picker cycles them. KEYBOARD is its own thing;
-## the rest are pad device indices, with Controls.ALL_PADS as the shared one.
+## Profiles in the order the picker cycles them, which is also the order it opens
+## in: the shared pad layout first, because everybody plays on a pad and the
+## keyboard is the odd one out now rather than the default. The rest are pad
+## device indices, with Controls.ALL_PADS as the shared one.
 const KEYBOARD := -2
-const PROFILES: Array[int] = [KEYBOARD, Controls.ALL_PADS, 0, 1, 2, 3]
+const PROFILES: Array[int] = [Controls.ALL_PADS, 0, 1, 2, 3, KEYBOARD]
 
 var _profile := 0            # index into PROFILES
 var _listening := ""         # control id being rebound, "" when idle
@@ -141,19 +143,24 @@ func _refresh() -> void:
 func _refresh_hint() -> void:
 	if not _listening.is_empty():
 		if _is_keyboard():
-			_hint.text = "Press the key or button to use.    ESC cancels."
+			_hint.text = "Press the key to use.    START / ESC cancels."
 		elif _device() == Controls.ALL_PADS:
-			_hint.text = "Press the button or trigger to use.    ESC cancels."
+			_hint.text = "Press the button or trigger to use.    START / ESC cancels."
 		else:
-			_hint.text = "Press the button or trigger to use.    ESC cancels." \
-				+ "    BACKSPACE clears this pad's override."
+			_hint.text = "Press the button or trigger to use.    START / ESC cancels." \
+				+ "    BACK clears this pad's override."
 		return
 	if _is_keyboard():
-		_hint.text = "Enter / A on a row rebinds it.    Movement is only on the keyboard."
+		_hint.text = "A / Enter on a row rebinds it.    Movement is only on the keyboard."
 	elif _device() == Controls.ALL_PADS:
-		_hint.text = "This layout is what every pad uses unless it has its own. * = overridden"
+		_hint.text = "A on a row rebinds it. Every pad uses this unless it has its own" \
+			+ " — or player 1 has rebound it."
+	elif _device() == Controls.P1_PAD:
+		_hint.text = "A rebinds. Player 1's layout is what pads 2-4 use unless they" \
+			+ " have their own."
 	else:
-		_hint.text = "Bindings for pad %d only; unmarked rows follow ALL PADS." % (_device() + 1)
+		_hint.text = "A rebinds. * = pad %d's own; unmarked rows follow player 1." \
+			% (_device() + 1)
 
 
 func _cycle_profile() -> void:
@@ -202,6 +209,22 @@ func _input(event: InputEvent) -> void:
 			return
 		# Backspace on a specific pad hands the row back to the shared layout.
 		if event.keycode == KEY_BACKSPACE and not _is_keyboard():
+			Controls.clear_override(_device(), _listening)
+			_end_listen()
+			return
+	# The pad's own way out. A listen swallows everything so it can capture any
+	# button, which leaves a player with no keyboard trapped in the row they
+	# opened — so START always cancels and BACK always clears, and neither can be
+	# bound from a pad. Nothing is lost: START is on no control, and the only way
+	# you would want BACK on this row is the binding clearing already gives you.
+	# START cancels on the KEYBOARD profile too, where a pad can't bind anything
+	# and so could otherwise open a row it has no way to close.
+	if event is InputEventJoypadButton and event.pressed:
+		if event.button_index == JOY_BUTTON_START:
+			_end_listen()
+			return
+		if not _is_keyboard() and event.button_index == JOY_BUTTON_BACK \
+				and _device() != Controls.ALL_PADS:
 			Controls.clear_override(_device(), _listening)
 			_end_listen()
 			return

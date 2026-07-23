@@ -67,6 +67,12 @@ const MAPS: Array[Dictionary] = [
 		"scene": preload("res://scenes/levels/catwalk.tscn")},
 	{"name": "GEONOSIS", "blurb": "Vast red basin: five mesas around an arena. 300m across",
 		"scene": preload("res://scenes/levels/geonosis.tscn")},
+	{"name": "KASHYYYK", "blurb": "Wroshyr forest: groves, clearings and a village. 220m",
+		"scene": preload("res://scenes/levels/kashyyyk.tscn")},
+	{"name": "SENATE DISTRICT", "blurb": "City grid at night: long avenues, a central plaza. 240m",
+		"scene": preload("res://scenes/levels/senate.tscn")},
+	{"name": "BONEYARD", "blurb": "Ship graveyard: vast hulls and the chokes between them. 260m",
+		"scene": preload("res://scenes/levels/boneyard.tscn")},
 ]
 ## A team is just an index now, 0 .. active_teams()-1. Two is the classic
 ## Republic/Separatist match; three or four makes it a free-for-all between
@@ -184,10 +190,39 @@ var combatants: Array[Node3D] = []
 var _spawns: Dictionary = {}  # Team -> Array[Node3D]
 
 
+## DEBUG MODE: put player 1 on the keyboard and mouse instead of a joypad.
+##
+##   godot --path godot -- --debug
+##
+## The game is pad-first — Main hands every player a joypad, P1..P4 = pads 0..3 —
+## which makes it impossible to try anything at a desk without a controller
+## plugged in. This flag is the desk answer: one player, keyboard and mouse, no
+## other behaviour changed, so what you are testing is still the real game.
+##
+## The flag is read from the USER args (everything after the bare `--`), because
+## `--debug` on its own is Godot's own engine switch and never reaches us.
+## `--kbm` is accepted in either position for the same reason.
+var debug_kbm := false
+
+
 func _init() -> void:
 	# Bindings (the kb_* InputMap actions and every pad profile) live in Controls
 	# and are read back from user://controls.cfg here, before anything can ask.
 	Controls.ensure_loaded()
+	_read_cmdline()
+
+
+func _read_cmdline() -> void:
+	var args := OS.get_cmdline_user_args() + OS.get_cmdline_args()
+	for a in args:
+		if a == "--debug" or a == "--kbm" or a == "--debug-kbm":
+			debug_kbm = true
+	if debug_kbm:
+		# A sensible desk default, and still overridable on the menu: four
+		# viewports with three idle pad players is not what anyone testing alone
+		# wants to look at.
+		human_players = 1
+		print("[debug] keyboard + mouse: player 1 is on the keyboard, solo split")
 
 
 func score_limit() -> int:
@@ -283,6 +318,26 @@ func register_combatant(body: Node3D) -> void:
 
 func unregister_combatant(body: Node3D) -> void:
 	combatants.erase(body)
+	cloaked.erase(body)
+
+
+## Combatants currently invisible to AI (the Trandoshan's cloak). A set kept
+## here rather than a flag on the body so every AI vision check can consult it
+## the same way it consults `smokes`, without duck-typing a method onto Player,
+## Bot and Turret. Only Player ever adds to it today.
+var cloaked: Array[Node3D] = []
+
+
+func set_cloaked(body: Node3D, on: bool) -> void:
+	if on:
+		if not cloaked.has(body):
+			cloaked.append(body)
+	else:
+		cloaked.erase(body)
+
+
+func is_cloaked(body: Node3D) -> bool:
+	return not cloaked.is_empty() and cloaked.has(body)
 
 
 ## Smoke clouds currently on the field. They have no collider on purpose (that
