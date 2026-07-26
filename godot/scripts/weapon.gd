@@ -22,6 +22,8 @@ enum Class {
 	DH17, BRYAR,                     # sidearms
 	SABER,                           # the Force adept's melee primary
 	BOWCASTER,                       # the Wookiee's sidearm, and only theirs
+	WRIST_CANNON,                    # the Super Battle Droid's arm gun (Conquest)
+	STAFF,                           # the Magna Guard's electrostaff (Conquest)
 }
 enum FireMode { AUTO, SEMI, BURST }
 
@@ -212,6 +214,28 @@ const PROFILES := {
 		"recoil": 1.5, "cam_recoil": 0.19, "kick_back": 2.6,
 		"mode": FireMode.SEMI, "pellets": 3,
 	},
+	# The Super Battle Droid's arm gun (Conquest): an HMG's weight of fire on an
+	# AR's frame. It fires nearly as fast as the T-21 and hits between a rifle and
+	# that HMG, but its bloom is TIGHT — a low hip_spread, which is what bloom
+	# derives from — so unlike the spray-heavy heavies it stays accurate in
+	# sustained fire. It is arm-mounted, so no stock and no grip in the silhouette.
+	Class.WRIST_CANNON: {
+		"name": "Wrist Cannon", "fire_interval": 0.09, "damage": 16.0,
+		"range": 115.0, "hip_spread": 1.8, "ads_spread": 0.5, "zoom_fov": 54.0,
+		"heat_per_shot": 0.06, "cool_rate": 0.24, "scope": false,
+		"recoil": 0.38, "cam_recoil": 0.03,
+	},
+	# The Magna Guard's ELECTROSTAFF (Conquest): a melee weapon like the saber —
+	# hitscan with a `melee` flag that simply cannot reach past its range, so it
+	# needs no new code path — but with more REACH (a two-ended pole) and heavier,
+	# slower strikes. `staff` flags the pole-and-shield viewmodel; aim raises the
+	# same GUARD the saber does, drawn as a shield in the off hand.
+	Class.STAFF: {
+		"name": "Electrostaff", "fire_interval": 0.45, "damage": 78.0,
+		"range": 4.3, "hip_spread": 0.0, "ads_spread": 0.0, "zoom_fov": 75.0,
+		"heat_per_shot": 0.0, "cool_rate": 1.0, "scope": false,
+		"recoil": 1.1, "cam_recoil": 0.02, "melee": true, "staff": true,
+	},
 }
 
 # Purchased upgrades (Loadout.SIGHTS / UPGRADES) as multipliers on the base
@@ -364,10 +388,32 @@ func is_melee() -> bool:
 	return _profile.get("melee", false)
 
 
+## A staff rather than the saber: the viewmodel and the third-person model draw a
+## two-ended electro-pole and a shield-on-guard instead of a single blade. Purely
+## which melee LOOK to build — the block mechanic is the same for both.
+func is_staff() -> bool:
+	return _profile.get("staff", false)
+
+
 ## How far this weapon can actually reach. Bots read it so they never sit at
 ## their preferred stand-off range holding a weapon that cannot get there.
 func max_range() -> float:
 	return _profile["range"]
+
+
+## The cone (deg) a shot leaves with in each stance, with no live bloom or
+## stance penalty in it — what this gun is CAPABLE of, rather than what it would
+## do this frame. A bot works its engagement range out of these: how far away it
+## can still hit is its own aim wobble plus the cone it will shoot through, and
+## nothing else. `current_spread_deg` is the live number and stays the one the
+## HUD and the shot itself read.
+func aimed_spread_deg() -> float:
+	# A scope is pinpoint, the same absolute rule current_spread_deg keeps.
+	return 0.0 if has_scope() else _profile["ads_spread"]
+
+
+func hip_spread_deg() -> float:
+	return _profile["hip_spread"]
 
 
 ## The spread cone half-angle (deg) a shot would use right now — hip fire adds
@@ -485,23 +531,68 @@ func _fire_shot() -> void:
 ## and would also let a single pellet's headshot flag decide the whole shot. A
 ## pellet that lands on a head still counts double, but the target is told once.
 func _fire_hitscan() -> void:
-	var from := global_position
-	var muzzle := from - global_transform.basis.y * 0.12
-	var pellets: int = _profile.get("pellets", 1)
-	var damage: float = _profile["damage"]
 	var pooled := {}   # target -> [damage, any_headshot]
-	for i in pellets:
-		var end := _trace_pellet(from, pooled, damage)
-		# A blade fires no bolt: the swing is the viewmodel's, and a tracer three
-		# metres long reads as a misfire rather than a strike.
-		if is_melee():
-			continue
-		var bolt := BOLT_SCENE.instantiate()
-		get_tree().current_scene.add_child(bolt)
-		bolt.launch(muzzle, end)
+	if is_melee():
+		# A swing connects on a forward ARC, not a pinpoint ray — see _melee_strike.
+		_melee_strike(pooled)
+	else:
+		var from := global_position
+		var muzzle := from - global_transform.basis.y * 0.12
+		var pellets: int = _profile.get("pellets", 1)
+		var damage: float = _profile["damage"]
+		for i in pellets:
+			var end := _trace_pellet(from, pooled, damage)
+			var bolt := BOLT_SCENE.instantiate()
+			get_tree().current_scene.add_child(bolt)
+			bolt.launch(muzzle, end)
 	for target in pooled:
 		var entry: Array = pooled[target]
 		target.take_damage(entry[0], shooter, entry[1])
+
+
+## The half-angle (deg) a melee swing covers. Wide on purpose: a blade or staff
+## fights at point-blank where a single centre ray whiffs the moment the target
+## drifts off the crosshair, so "within reach and roughly in front" is a hit.
+const MELEE_ARC := 50.0
+
+
+## Resolve a melee swing. Hits the NEAREST enemy inside reach and inside the
+## forward arc that a wall is not between — reliable at the close range melee has
+## to earn, without the pixel-perfect aim a hitscan ray demanded. No headshots:
+## a sweep does not care where on the body it lands.
+func _melee_strike(pooled: Dictionary) -> void:
+	if shooter == null or not is_instance_valid(shooter):
+		return
+	var origin := global_position
+	var forward := -global_transform.basis.z
+	var reach: float = _profile["range"]
+	var cos_arc := cos(deg_to_rad(MELEE_ARC))
+	var my_team = shooter.team if "team" in shooter else -99
+	var space := get_world_3d().direct_space_state
+	var best: Node = null
+	var best_gap := INF
+	for c in GameState.combatants:
+		if c == shooter or not is_instance_valid(c) or not c.is_alive() or c.team == my_team:
+			continue
+		var chest: Vector3 = c.global_position + Vector3.UP * 1.0
+		var to := chest - origin
+		var gap := to.length()
+		if gap > reach or gap < 0.05:
+			continue
+		if forward.dot(to / gap) < cos_arc:
+			continue
+		# A swing does not reach THROUGH a wall. World layer (1) only — bodies don't
+		# block it, so a target pressed against you still gets hit.
+		var q := PhysicsRayQueryParameters3D.create(origin, chest)
+		q.collision_mask = 1
+		q.exclude = [shooter.get_rid()]
+		if not space.intersect_ray(q).is_empty():
+			continue
+		if gap < best_gap:
+			best = c
+			best_gap = gap
+	if best != null:
+		pooled[best] = [_profile["damage"], false]
 
 
 ## Trace one pellet, banking any damage it deals into `pooled`. Returns where it

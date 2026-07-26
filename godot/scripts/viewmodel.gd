@@ -62,7 +62,16 @@ var _player: CharacterBody3D
 var _scope: MeshInstance3D
 var _holo: Node3D
 var _flash: MeshInstance3D
-var _saber: Node3D           # the saber's own pivot, when a blade is in hand
+var _saber: Node3D           # the saber's own pivot, when a blade or staff is in hand
+var _shield: Node3D          # the staff's off-hand guard shield, raised on the block
+var _shield_mats: Array[StandardMaterial3D] = []  # every shield part, faded together
+var _shield_alpha: Array[float] = []              # each part's full alpha
+var _staff_cores: Array[StandardMaterial3D] = []  # the electrostaff's charged tips...
+var _staff_glows: Array[StandardMaterial3D] = []  # ...and their auras, for the crackle
+var _staff_bolts: Array = []  # small electric arcs at each tip: [{base, reach, segs}]
+var _staff_arc_mat: StandardMaterial3D            # the shared bolt material
+var _arc_box: BoxMesh        # one unit box, scaled per arc segment (no per-frame alloc)
+var _crackle_t := 0.0        # phase of the electro flicker
 var _swing := 0.0            # 1 at the start of a swing, decaying to 0
 var _swing_side := 1.0       # alternates, so consecutive strikes cross over
 var _parry := 0.0            # 1 the frame a hit is stopped, decaying to 0
@@ -178,6 +187,17 @@ const SHAPES := {
 		"receiver": Vector3(0.042, 0.042, 0.24), "barrel": Vector3(0.03, 0.03, 0.0),
 		"stock": false, "grip": false, "saber": true,
 	},
+	Weapon.Class.WRIST_CANNON: {  # SBD arm gun: chunky forearm block, stubby bore, no stock/grip
+		"receiver": Vector3(0.062, 0.078, 0.22), "barrel": Vector3(0.046, 0.046, 0.26),
+		"stock": false, "grip": false, "drum": 0.04, "muzzle": 0.075,
+	},
+	# Built by _build_staff, not from these fields (like the saber): a pole and two
+	# electro-tips share nothing with a receiver. The entry exists so the class is
+	# present and `staff` flags the branch.
+	Weapon.Class.STAFF: {
+		"receiver": Vector3(0.03, 0.03, 0.4), "barrel": Vector3(0.02, 0.02, 0.0),
+		"stock": false, "grip": false, "staff": true,
+	},
 }
 
 ## Blade dimensions and colour. The blade is drawn a good deal SHORTER than the
@@ -246,10 +266,21 @@ func _build(class_id: int, scoped: bool, holo: bool) -> void:
 	_holo = null
 	_flash = null
 	_saber = null
+	_shield = null
+	_shield_mats.clear()
+	_shield_alpha.clear()
+	_staff_cores.clear()
+	_staff_glows.clear()
+	_staff_bolts.clear()
+	_staff_arc_mat = null
+	_arc_box = null
 	_blade_core = null
 	_blade_glow = null
 
 	var shape: Dictionary = SHAPES.get(class_id, SHAPES[Weapon.Class.SOLDIER])
+	if shape.get("staff", false):
+		_build_staff()
+		return
 	if shape.get("saber", false):
 		_build_saber()
 		return
@@ -458,6 +489,222 @@ func _build_saber() -> void:
 	_ads_pos = Vector3(-0.05, 0.02, 0.02)
 
 
+## Where the off-hand shield sits, stowed low-left at rest and raised across the
+## LEFT of the view when the guard is up — never over the crosshair (same rule the
+## saber blade follows), so you can still see to fight.
+const SHIELD_STOW := Vector3(-0.34, -0.46, 0.04)
+const SHIELD_GUARD := Vector3(-0.26, -0.05, -0.34)
+# The BX commando-droid shield: an elongated, pointed hexagon — yellow panels in a
+# grey frame with radiating ribs and a small central emitter hub.
+const SHIELD_W := 0.13   # half-width
+const SHIELD_H := 0.25   # half-height (taller than wide: the pointed lozenge shape)
+const SHIELD_YELLOW := Color(0.93, 0.75, 0.16)
+const SHIELD_FRAME := Color(0.30, 0.31, 0.34)
+const SHIELD_RIB := Color(0.20, 0.21, 0.24)
+const SHIELD_HUB := Color(0.14, 0.15, 0.17)
+const SHIELD_HUB_BAR := Color(0.62, 0.64, 0.68)
+# The electrostaff's charge is VIOLET, not the saber's blue — the IG-100 look.
+const STAFF_CORE := Color(0.86, 0.62, 1.0)   # violet-white charged core
+const STAFF_GLOW := Color(0.58, 0.16, 0.98)  # purple aura around it
+const STAFF_ARC := Color(0.78, 0.42, 1.0)    # the crackling lightning at the tips
+const STAFF_ARC_BOLTS := 3       # little bolts spitting off each emitter
+const STAFF_ARC_SEGS := 4        # jagged pieces per bolt
+const STAFF_ARC_JITTER := 0.02   # how far a joint kicks off line, in m
+const STAFF_ARC_WIDTH := 0.006
+
+
+## The electrostaff: a metal pole through the hand with an electro-tip at each
+## end, built under the same pivot the saber uses so the swing/guard/parry
+## animation drives it unchanged. The off-hand SHIELD is a separate node on the
+## viewmodel root (it is the other hand, not part of the swinging weapon) that
+## _animate_saber raises with the guard.
+func _build_staff() -> void:
+	_saber = Node3D.new()
+	_saber.name = "Staff"
+	add_child(_saber)
+	_saber.position = SABER_AT
+	_saber.rotation = SABER_REST
+
+	var pole_mat := StandardMaterial3D.new()
+	pole_mat.albedo_color = Color(0.11, 0.12, 0.14)
+	pole_mat.metallic = 0.2    # keep low: a near-black sky reflects into metal
+	pole_mat.roughness = 0.3
+	var band_mat := StandardMaterial3D.new()   # brushed-metal segment rings
+	band_mat.albedo_color = Color(0.34, 0.35, 0.38)
+	band_mat.metallic = 0.2
+	band_mat.roughness = 0.35
+
+	# A long dark pole down -Z through the grip, more of it forward than back so it
+	# reads as a reaching weapon; a few segment rings break up its length.
+	_cyl(0.015, 1.02, Vector3(0, -0.015, -0.14), pole_mat, _saber)
+	for z in [-0.02, 0.12, -0.30, 0.24]:
+		_cyl(0.019, 0.022, Vector3(0, -0.015, z), band_mat, _saber)
+
+	# One shared material and unit box for every tip's crackling arcs, allocated
+	# once here and only repositioned each frame (the lightning_arc rule).
+	_arc_box = BoxMesh.new()
+	_arc_box.size = Vector3.ONE
+	_staff_arc_mat = StandardMaterial3D.new()
+	_staff_arc_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	_staff_arc_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	_staff_arc_mat.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+	_staff_arc_mat.albedo_color = STAFF_ARC
+	_staff_arc_mat.emission_enabled = true
+	_staff_arc_mat.emission = STAFF_ARC
+	_staff_arc_mat.emission_energy_multiplier = 4.0
+
+	# The two charged emitter heads. The FRONT one is the business end a parry
+	# flares, so it owns _blade_core/_blade_glow; both crackle (see _animate_saber).
+	var front_end := -0.14 - 0.51
+	var back_end := -0.14 + 0.51
+	_blade_core = _staff_emitter(front_end, -1.0, pole_mat, band_mat)
+	_blade_glow = _staff_glows[0]
+	_staff_emitter(back_end, 1.0, pole_mat, band_mat)
+
+	# The off-hand BX shield, hidden at rest and faded up with the guard.
+	_build_shield()
+
+	_ads_pos = Vector3(-0.05, 0.02, 0.02)
+
+
+## One charged emitter head at the end of the staff, IG-100 style: a metal collar,
+## a splayed fork of METAL prongs, a slim violet core between them and a TIGHT halo
+## (not a fat glow bulb), and a set of small purple arcs crackling across the fork
+## (laid out each frame in _crackle_staff). `outward` is -1 for the front end
+## (extends -Z) or +1 for the back (+Z). Returns the core material; registers the
+## core, halo and arcs for the crackle.
+func _staff_emitter(base_z: float, outward: float,
+		collar_mat: StandardMaterial3D, prong_mat: StandardMaterial3D) -> StandardMaterial3D:
+	var y := -0.015
+	var core_mat := StandardMaterial3D.new()
+	core_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	core_mat.albedo_color = STAFF_CORE
+	core_mat.emission_enabled = true
+	core_mat.emission = STAFF_CORE
+	core_mat.emission_energy_multiplier = BLADE_ENERGY
+	var glow_mat := StandardMaterial3D.new()
+	glow_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	glow_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	glow_mat.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+	glow_mat.albedo_color = Color(STAFF_GLOW.r, STAFF_GLOW.g, STAFF_GLOW.b, 0.5)
+	glow_mat.emission_enabled = true
+	glow_mat.emission = STAFF_GLOW
+	glow_mat.emission_energy_multiplier = 2.4
+	# A metal collar where the pole meets the head, and a slightly flared cap.
+	_cyl(0.024, 0.06, Vector3(0, y, base_z), collar_mat, _saber)
+	_cyl(0.03, 0.02, Vector3(0, y, base_z + outward * 0.04), collar_mat, _saber)
+	# A fork of three METAL prongs splaying outward past the core, so the head reads
+	# as an emitter rather than a glowing blob.
+	var prong_end := base_z + outward * 0.15
+	for k in 3:
+		var a := TAU * float(k) / 3.0
+		var off := Vector2(cos(a), sin(a))
+		var p := _cyl(0.007, 0.17, Vector3(off.x * 0.03, y + off.y * 0.03, prong_end),
+			prong_mat, _saber)
+		# Splay the prong so it opens away from the axis toward its tip.
+		p.rotation = Vector3(off.y * 0.28, -off.x * 0.28, 0.0)
+	# The slim charged core and a TIGHT halo — the crackle, not the bulb, is the tell.
+	var mid := base_z + outward * 0.09
+	_cyl(0.008, 0.20, Vector3(0, y, mid), core_mat, _saber)
+	_cyl(0.022, 0.16, Vector3(0, y, mid), glow_mat, _saber)
+	# The crackling arcs: bolts from just inside the head out past the fork.
+	for _b in STAFF_ARC_BOLTS:
+		var segs: Array[MeshInstance3D] = []
+		for _s in STAFF_ARC_SEGS:
+			var mi := MeshInstance3D.new()
+			mi.mesh = _arc_box
+			mi.material_override = _staff_arc_mat
+			mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			_saber.add_child(mi)
+			segs.append(mi)
+		_staff_bolts.append({
+			"base": Vector3(0, y, base_z + outward * 0.06),
+			"reach": outward * 0.16, "segs": segs})
+	_staff_cores.append(core_mat)
+	_staff_glows.append(glow_mat)
+	return core_mat
+
+
+## The BX commando-droid shield the Magna Guard blocks with: an elongated pointed
+## hexagon of yellow panels in a grey frame, ribs radiating to the corners, and a
+## small emitter hub. Every part is an unshaded, cull-disabled flat mesh (so it
+## reads on the dark maps and winding never matters) faded together with the guard
+## via _shield_mats / _shield_alpha.
+func _build_shield() -> void:
+	_shield = Node3D.new()
+	_shield.name = "GuardShield"
+	add_child(_shield)
+	_shield.position = SHIELD_STOW
+	var w := SHIELD_W
+	var h := SHIELD_H
+	# Layered front-to-back by local z (higher z = nearer the camera) AND by
+	# render_priority, so the transparent panels sort deterministically: grey frame
+	# at the back showing as a border, the yellow fill over it, then the ribs and
+	# the hub on top.
+	_shield_hex(w + 0.024, h + 0.028, 0.0, _shield_mat(SHIELD_FRAME, 1.0))
+	_shield_hex(w, h, 0.006, _shield_mat(SHIELD_YELLOW, 0.95))
+	# Ribs: a vertical spine top-to-bottom and four spokes out to the side corners,
+	# splitting the yellow into panels the way the reference does.
+	var rib := _shield_mat(SHIELD_RIB, 1.0)
+	_shield_rib(Vector2(0, h), Vector2(0, -h), 0.012, rib)
+	for v in [Vector2(w, 0.42 * h), Vector2(w, -0.42 * h),
+			Vector2(-w, -0.42 * h), Vector2(-w, 0.42 * h)]:
+		_shield_rib(Vector2.ZERO, v, 0.010, rib)
+	# The central emitter hub: a small dark hexagon with three light bars across.
+	_shield_hex(0.05, 0.062, 0.014, _shield_mat(SHIELD_HUB, 1.0))
+	var bar := _shield_mat(SHIELD_HUB_BAR, 1.0)
+	for oy in [-0.022, 0.0, 0.022]:
+		_box(Vector3(0.062, 0.006, 0.006), Vector3(0, oy, 0.018), bar, _shield)
+	_shield.visible = false
+
+
+## A tracked shield material: unshaded and cull-disabled, starting fully
+## transparent (the guard fades it in). Registered so _animate_saber fades and
+## flares every part of the shield as one.
+func _shield_mat(color: Color, alpha: float) -> StandardMaterial3D:
+	var m := StandardMaterial3D.new()
+	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	m.cull_mode = BaseMaterial3D.CULL_DISABLED
+	m.albedo_color = Color(color, 0.0)
+	# Draw order = build order (frame, fill, ribs, hub, bars), so the layers never
+	# fight over which transparent quad is in front.
+	m.render_priority = _shield_mats.size()
+	_shield_mats.append(m)
+	_shield_alpha.append(alpha)
+	return m
+
+
+## A flat elongated hexagon in the XY plane (pointed top and bottom), triangle-fan
+## from the centre. Winding is irrelevant — the material is cull-disabled.
+func _shield_hex(w: float, h: float, z: float, mat: StandardMaterial3D) -> void:
+	var pts := [Vector2(0, h), Vector2(w, 0.42 * h), Vector2(w, -0.42 * h),
+		Vector2(0, -h), Vector2(-w, -0.42 * h), Vector2(-w, 0.42 * h)]
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	st.set_normal(Vector3(0, 0, 1))
+	for i in 6:
+		var a: Vector2 = pts[i]
+		var b: Vector2 = pts[(i + 1) % 6]
+		st.add_vertex(Vector3(0, 0, z))
+		st.add_vertex(Vector3(a.x, a.y, z))
+		st.add_vertex(Vector3(b.x, b.y, z))
+	var mi := MeshInstance3D.new()
+	mi.mesh = st.commit()
+	mi.material_override = mat
+	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	_shield.add_child(mi)
+
+
+## A thin rib from `a` to `b` in the panel plane, drawn just in front of the fill.
+func _shield_rib(a: Vector2, b: Vector2, thick: float, mat: StandardMaterial3D) -> void:
+	var d := b - a
+	var mid := (a + b) * 0.5
+	var mi := _box(Vector3(thick, d.length(), 0.006),
+		Vector3(mid.x, mid.y, 0.011), mat, _shield)
+	mi.rotation.z = atan2(d.y, d.x) - PI / 2.0
+
+
 func _build_flash(tip_z: float) -> void:
 	# Muzzle flash: a small additive glow at the barrel tip, flicked on for a
 	# couple of frames per shot (additive so it reads as light, not a solid
@@ -588,8 +835,68 @@ func _animate_saber(delta: float, bob: Vector3) -> void:
 
 	_saber.rotation = pose
 	_saber.position = at
-	_flare_blade()
+	# The off-hand shield rides up into the block with the guard and fades away
+	# again as it drops — the visible half of "shield as blocker in the other
+	# hand", where the pool and the arc are just numbers.
+	if _shield != null:
+		_shield.visible = _aim_t > 0.02
+		_shield.position = SHIELD_STOW.lerp(SHIELD_GUARD, _aim_t) + bob * 0.5
+		var flare := _parry * 0.25   # a bright flash across the whole shield on a block
+		for i in _shield_mats.size():
+			_shield_mats[i].albedo_color.a = clampf(_shield_alpha[i] * _aim_t + flare, 0.0, 1.0)
+	# The saber flares its single blade on a parry; the staff crackles both tips.
+	if _staff_glows.is_empty():
+		_flare_blade()
+	else:
+		_crackle_staff(delta)
 	visible = true
+
+
+## The electrostaff's tips crackle: a fast irregular flicker on the core/halo
+## emission, and the little arcs re-jag every frame — laid down a jagged line from
+## just inside each head out past the fork. A parry surges all of it.
+func _crackle_staff(delta: float) -> void:
+	_crackle_t += delta * 20.0
+	var crk := 0.65 + 0.45 * absf(sin(_crackle_t)) + 0.3 * absf(sin(_crackle_t * 2.7))
+	var flare := PARRY_FLARE * _parry
+	for m in _staff_cores:
+		m.emission_energy_multiplier = (BLADE_ENERGY + flare) * crk
+	for m in _staff_glows:
+		m.emission_energy_multiplier = (2.4 + flare * 0.6) * crk
+	_staff_arc_mat.emission_energy_multiplier = (3.5 + flare) * crk
+	var j := STAFF_ARC_JITTER
+	for bolt in _staff_bolts:
+		var a: Vector3 = bolt["base"]
+		# The bolt's far end dances past the fork each frame.
+		var b: Vector3 = a + Vector3(randf_range(-j, j), randf_range(-j, j),
+			bolt["reach"] + randf_range(-j, j))
+		var segs: Array = bolt["segs"]
+		var n := segs.size()
+		var prev := a
+		for i in n:
+			var t := float(i + 1) / float(n)
+			var pt := a.lerp(b, t)
+			if i < n - 1:   # the last joint lands on the end; the rest jag
+				pt += Vector3(randf_range(-j, j), randf_range(-j, j), randf_range(-j, j))
+			_place_seg(segs[i], prev, pt)
+			prev = pt
+
+
+## Stretch one arc segment between two points in the STAFF's local space (the
+## segments are children of the swing pivot, so they ride the swing). The unit box
+## is scaled to the gap and its -Z aimed down the run.
+func _place_seg(mi: MeshInstance3D, a: Vector3, b: Vector3) -> void:
+	var span := b - a
+	var length := span.length()
+	if length < 0.0005:
+		mi.visible = false
+		return
+	mi.visible = true
+	var up := Vector3.UP
+	if absf(span.normalized().dot(up)) > 0.99:
+		up = Vector3.RIGHT
+	mi.transform = Transform3D(Basis.looking_at(span, up), (a + b) * 0.5)
+	mi.scale = Vector3(STAFF_ARC_WIDTH, STAFF_ARC_WIDTH, length)
 
 
 ## Push the parry's brightness onto the blade. The flare is on the EMISSION

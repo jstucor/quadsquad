@@ -22,6 +22,11 @@ func _ready() -> void:
 	}
 	var gun: Node3D = c.get_node("Hips/Spine/HeldGun")
 	var reach := CharacterModel.LOWER_ARM + CharacterModel.HAND_REACH
+	# Probe the hand and the ankle along the rig's OWN bone directions, which is
+	# where _build_body puts the meshes. Measuring straight down -Y instead asks
+	# the pose the same question the solver asked itself, so it agreed with the
+	# solver at 0.0 mm while the actual hands hung 8-14 cm off the weapon.
+	var at: Dictionary = c._joint_offsets()
 	var feet := {
 		"L": c.get_node("Hips/HipL/KneeL"),
 		"R": c.get_node("Hips/HipR/KneeR"),
@@ -41,15 +46,16 @@ func _ready() -> void:
 			# Where each hand lands: the wrist is HAND_REACH down the forearm.
 			for side in ["R", "L"]:
 				var el: Node3D = hands[side]
-				var hand: Vector3 = el.global_transform * Vector3(0.0, -reach, 0.0)
+				var hand: Vector3 = el.global_transform * (
+					at["e" + side].normalized() * reach)
 				var grip: Vector3 = gun.global_transform * (
 					CharacterModel.GRIP_REAR if side == "R" else CharacterModel.GRIP_FORE)
 				clip_grip = maxf(clip_grip, hand.distance_to(grip))
 			# Ankle = LOWER_LEG down from the knee. Below y=0 is through the floor.
 			for side in ["L", "R"]:
 				var kn: Node3D = feet[side]
-				var ankle: Vector3 = kn.global_transform * Vector3(
-					0.0, -CharacterModel.LOWER_LEG, 0.0)
+				var ankle: Vector3 = kn.global_transform * (
+					at["k" + side].normalized() * CharacterModel.LOWER_LEG)
 				clip_foot = minf(clip_foot, ankle.y)
 		print("%-13s hand-to-grip max %6.2f mm   lowest ankle %7.2f mm" % [
 			name, clip_grip * 1000.0, clip_foot * 1000.0])

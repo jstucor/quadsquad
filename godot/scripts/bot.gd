@@ -27,7 +27,17 @@ const ROCKET_SCENE := preload("res://scenes/fx/rocket.tscn")
 # One row per Loadout.SQUAD_SKILLS tier, same order.
 # aim_error = degrees of aim wobble (the bot's "spread" on top of the weapon's);
 # reaction = seconds staring at a new target before it opens fire;
-# sight = metres it can acquire from; hold = metres it tries to fight at.
+# sight = metres it can acquire from; hold = the CLOSEST it will settle to fight
+#   at — a floor, not the answer, since _hold_range works the real stand-off out
+#   of the gun in its hands (see _hit_reach).
+# ads = whether it aims down sights, trading nothing (a bot has no camera to
+#   zoom) for the weapon's tight ads_spread instead of its hip cone — the same
+#   accuracy a human buys by aiming. Only the top tiers know to do it.
+# lead = whether it compensates for its own aim lag against a moving target.
+#   Fire is hitscan, so this is not projectile lead: the head LERPS toward where
+#   the target is, so against anything strafing it is always shooting a fraction
+#   of a second behind. Harmless at ten metres, a clean miss at fifty, which is
+#   why it belongs to the tiers that fight at fifty.
 #
 # Skill is intelligence, NOT gear: two bots on the same preset differ only in
 # how well they fight it. The gun, armour and gadget come from a Loadout preset
@@ -36,14 +46,41 @@ const ROCKET_SCENE := preload("res://scenes/fx/rocket.tscn")
 # whatever the preset's armour gives.
 const SKILLS: Array[Dictionary] = [
 	{"aim_error": 7.0, "reaction": 0.7, "sight": 45.0, "hold": 14.0,
-		"health": 0.85, "speed": 0.92, "turn": 2.8},
+		"health": 0.85, "speed": 0.92, "turn": 2.8, "ads": false, "lead": false},
 	{"aim_error": 3.6, "reaction": 0.45, "sight": 62.0, "hold": 16.0,
-		"health": 1.0, "speed": 1.0, "turn": 3.8},
+		"health": 1.0, "speed": 1.0, "turn": 3.8, "ads": false, "lead": false},
 	{"aim_error": 1.8, "reaction": 0.26, "sight": 80.0, "hold": 20.0,
-		"health": 1.1, "speed": 1.08, "turn": 5.0},
+		"health": 1.1, "speed": 1.08, "turn": 5.0, "ads": true, "lead": true},
 	{"aim_error": 0.7, "reaction": 0.12, "sight": 105.0, "hold": 24.0,
-		"health": 1.25, "speed": 1.15, "turn": 6.4},
+		"health": 1.25, "speed": 1.15, "turn": 6.4, "ads": true, "lead": true},
 ]
+# --- shooting at distance ------------------------------------------------------
+#
+# How wide a target is worth aiming at: half a body, so a shot inside this many
+# metres of centre at the target's range is a hit. It is the one number the
+# engagement-range arithmetic needs (see _hit_reach).
+const TARGET_HALF_WIDTH := 0.45
+# A cap on the derived stand-off. Past this the sight lines on these maps are
+# the limit anyway, and a bot that parks at 120 m stops taking part in the match.
+const HOLD_RANGE_MAX := 70.0
+# How far past its reliable reach a bot will still take the shot. Fire out there
+# is not free damage, it is pressure — and a marksman who refuses every shot it
+# is not certain of never fires at all.
+const LONG_SHOT_SLACK := 1.5
+# Optics spot further, and only the tiers that know to raise them get it.
+const SCOPE_SIGHT_MULT := 1.35
+# Roughly the lag in _aim_head's lerp, which is what `lead` compensates for.
+const AIM_LAG := 0.14
+# Raising the sights steadies the bot's own wobble, not just the gun's cone.
+# Without it "aiming" bought an AI nothing but a narrower spread around an
+# aim that was still 1.8 degrees off, which at forty metres is over a metre
+# wide on its own — the tighter cone had nothing to be tight about.
+const ADS_STEADY := 0.7
+# Beyond this, a bot fighting at range stops circling and takes the shot from a
+# stop. Strafing is what stops it being a free headshot at ten metres; at fifty
+# it only costs accuracy, and there is nothing to dodge that far out.
+const LONG_RANGE_STILL := 28.0
+const LONG_RANGE_STRAFE := 0.25   # share of the usual circling kept out there
 const BASE_SPEED := 4.0        # walking pace before armour and skill scale it
 # Gadget habits. Kept deliberately simple: a bot uses what it bought when the
 # obvious moment arrives, rather than planning.
@@ -153,6 +190,7 @@ var _grenade_cd := 0.0
 var _cable_cd := 0.0
 var _cable_left := 0.0
 var _cable_anchor := Vector3.ZERO
+var _cable_wire: Node3D      # the visible line, while one is out
 var _turret: Node3D
 var _mortar: Node3D
 var _mortar_reaim := 0.0   # seconds until it may move its barrage again
@@ -203,7 +241,16 @@ func setup(owner: Node3D, bot_team: int, skill_index: int, build := -1) -> void:
 	owner_player = owner
 	team = bot_team
 	_skill = SKILLS[clampi(skill_index, 0, SKILLS.size() - 1)]
-	loadout = Loadout.bot_build(build if build >= 0 else randi())
+	# On FACTION classes a bot fields its SIDE's roster rather than the generic
+	# trooper presets: Republic bots are clones, Separatist bots are droids.
+	# `build` is the class slot (team_build wraps it into the team's four), so
+	# Main dealing the counter out in order still fields a mix of the faction's
+	# classes. Keyed to the class SETTING, not to Conquest, so faction bots turn
+	# up wherever faction humans do.
+	if GameState.faction_classes():
+		loadout = Loadout.team_build(bot_team, build if build >= 0 else randi())
+	else:
+		loadout = Loadout.bot_build(build if build >= 0 else randi())
 	var armor := loadout.armor_stats()
 	health = loadout.max_health() * float(_skill["health"])
 	# The class multiplies the frame here exactly as it does on a Player, so an
@@ -211,11 +258,12 @@ func setup(owner: Node3D, bot_team: int, skill_index: int, build := -1) -> void:
 	_speed = BASE_SPEED * float(armor["speed"]) * float(_skill["speed"]) \
 		* loadout.kit_speed()
 	_since_damage = 0.0
+	model.set_style(loadout.character_style())   # clone, droid, Wookiee... per build
 	model.set_team_color(GameState.TEAM_COLORS[team])
 	weapon.set_class(loadout.deploy_class(), loadout.primary_mods())
 	# Show the blade on the body, not just in the hitscan: a saber bot that walks
 	# in holding a blaster gives no warning at all that it intends to reach you.
-	model.set_melee(weapon.is_melee())
+	model.set_melee(weapon.is_melee(), weapon.is_staff())
 	if loadout.gadget == Loadout.Gadget.SHIELD:
 		_raise_shield()
 	# The bot's gun is a world object, not a viewmodel: everyone should see it.
@@ -253,13 +301,15 @@ func _die(attacker: Node) -> void:
 		GameState.add_frag(attacker.team)
 		if attacker.has_method("credit_kill"):
 			attacker.credit_kill()
+	GameState.report_death(team)  # CONQUEST: an AI death spends a reinforcement too
 	var corpse := CORPSE_SCENE.instantiate()
 	get_tree().current_scene.add_child(corpse)
 	var push := Vector3.ZERO
 	if attacker is Node3D:
 		push = global_position - (attacker as Node3D).global_position
 	corpse.launch(Transform3D(Basis(Vector3.UP, rotation.y), global_position),
-		GameState.TEAM_COLORS[team], push)
+		GameState.TEAM_COLORS[team], push,
+		loadout.character_style() if loadout != null else -1)
 	if is_instance_valid(_turret):
 		_turret.queue_free()  # the engineer's turret dies with the engineer
 	if is_instance_valid(_mortar):
@@ -292,6 +342,7 @@ func _physics_process(delta: float) -> void:
 	else:
 		_target = null
 		_state = State.HOLD
+		weapon.aiming = false  # lower the sights when there's nothing to shoot
 		_patrol(delta)
 
 	if not is_on_floor():
@@ -300,8 +351,15 @@ func _physics_process(delta: float) -> void:
 		# Being reeled in by our own grapple: that overrides normal steering.
 		_cable_left -= delta
 		var to_anchor := _cable_anchor - global_position
-		if to_anchor.length() <= 2.5:
+		# Reel the wire back in the moment the pull ends — on arrival OR when the
+		# timer runs out — or the cosmetic line hangs in the world forever. Player
+		# does the same in _apply_gadget_motion; a Bot never released it, so a bot
+		# that ever grappled left a permanent wire stuck across the map.
+		if to_anchor.length() <= 2.5 or _cable_left <= 0.0:
 			_cable_left = 0.0
+			if is_instance_valid(_cable_wire):
+				_cable_wire.release()
+			_cable_wire = null
 		else:
 			velocity = to_anchor.normalized() * CABLE_SPEED
 	# An outside shove (a Force push or pull) rides its own decaying velocity and
@@ -323,7 +381,7 @@ func _physics_process(delta: float) -> void:
 ## anything behind cover, so they don't shoot through the map.
 func _acquire_target() -> void:
 	var best: Node3D = null
-	var best_gap: float = _skill["sight"]
+	var best_gap := _sight_range()
 	for c in GameState.combatants:
 		if c == self or not c.is_alive() or c.team == team:
 			continue
@@ -348,6 +406,55 @@ func _acquire_target() -> void:
 	# Only a genuinely NEW target costs reaction time; re-spotting the one we
 	# were already fighting does not.
 	_reaction_left = _skill["reaction"]
+
+
+## How far this bot picks targets up from. A scope is magnification, so a bot
+## that knows to raise one spots further through it — which is what stops a
+## sniper bot standing at the stand-off its own rifle earned it (see
+## _hold_range) with nothing acquired to shoot at.
+func _sight_range() -> float:
+	var see := float(_skill["sight"])
+	if _skill["ads"] and weapon.has_scope():
+		see *= SCOPE_SIGHT_MULT
+	return see
+
+
+## How far away this bot can shoot and still expect to land it.
+##
+## Derived, not tabled, because it is the same arithmetic for every gun and
+## every tier: a shot connects while the total angular error keeps it inside a
+## body's width at that range. The error is the tier's own wobble — a HELD
+## offset drawn uniformly across +/- aim_error, so half of it on average — plus
+## whatever cone the gun leaves with in the stance this bot will actually shoot
+## from.
+##
+## The point of computing it is that RANGE then falls out of SKILL instead of
+## being a flat number per tier: an elite behind a scoped rifle works out a
+## stand-off around seventy metres, the same elite holding a scattergun works out
+## eleven, and a recruit spraying a repeater works out ten and has to walk in.
+func _hit_reach() -> float:
+	var wobble := _aim_error_deg(_skill["ads"]) * 0.5
+	var cone: float = weapon.aimed_spread_deg() if _skill["ads"] else weapon.hip_spread_deg()
+	return TARGET_HALF_WIDTH / tan(deg_to_rad(maxf(wobble + cone, 0.02)))
+
+
+## The tier's aim wobble, steadied while the sights are up. Both _hit_reach and
+## _aim_head go through this, so the range a bot works out for itself and the
+## aim it actually shoots with can never drift apart.
+func _aim_error_deg(aimed: bool) -> float:
+	return float(_skill["aim_error"]) * (ADS_STEADY if aimed else 1.0)
+
+
+## The distance this bot tries to fight at.
+##
+## The tier's own `hold` is a FLOOR: nothing closes further than it used to, but
+## a bot carrying a weapon it can hit with from further out now backs that and
+## stays there rather than walking into everyone else's effective range. Still
+## capped by what the weapon can physically reach, which is what keeps a saber
+## bot closing to arm's length.
+func _hold_range() -> float:
+	return minf(maxf(float(_skill["hold"]), _hit_reach()),
+		minf(weapon.max_range() * 0.8, HOLD_RANGE_MAX))
 
 
 func _can_see(other: Node3D) -> bool:
@@ -375,11 +482,11 @@ func _fight(delta: float) -> void:
 	_face(flat, delta)
 	_aim_head(delta)
 
-	# Never hold at a range the weapon cannot reach. Every blaster outranges the
-	# skill tier's stand-off so this changes nothing for them, but a lightsaber
-	# reaches 3.4 m: without this a saber bot would stop at twenty metres and
-	# swing at the air for the rest of the match.
-	var hold: float = minf(_skill["hold"], weapon.max_range() * 0.8)
+	# Where this bot wants to stand: what its own aim and its own gun can hit
+	# from, floored by the tier's stand-off and capped by the weapon's reach —
+	# without that cap a lightsaber bot would stop at twenty metres and swing at
+	# the air for the rest of the match.
+	var hold := _hold_range()
 	_state = State.ENGAGE if gap <= hold else State.ADVANCE
 	var speed := _speed
 	if _state == State.ADVANCE:
@@ -401,9 +508,14 @@ func _fight(delta: float) -> void:
 		_watch_for_snag(want, delta)
 	else:
 		# In range: circle rather than stand still, so it isn't a free headshot.
+		# A shot taken from fifty metres is steadier from a stop, and there is
+		# nothing to dodge that far out, so the circling fades with distance.
 		var side := flat.normalized().cross(Vector3.UP) * _strafe_dir
-		velocity.x = side.x * speed * STRAFE_SPEED
-		velocity.z = side.z * speed * STRAFE_SPEED
+		var circle := STRAFE_SPEED
+		if gap > LONG_RANGE_STILL:
+			circle *= LONG_RANGE_STRAFE
+		velocity.x = side.x * speed * circle
+		velocity.z = side.z * speed * circle
 	_apply_unstick()
 
 	_place_turret_if_ready(false)  # in contact: dig in where we stand
@@ -415,7 +527,18 @@ func _fight(delta: float) -> void:
 	_reaction_left = maxf(_reaction_left - delta, 0.0)
 	var facing := Vector3.FORWARD.rotated(Vector3.UP, rotation.y)
 	var on_aim := rad_to_deg(facing.angle_to(flat.normalized())) <= FIRE_CONE_DEG
-	var may_fire := _state == State.ENGAGE and on_aim and _reaction_left <= 0.0 \
+	# A bot fires when it is settled at its stand-off, OR when the target is
+	# still inside the range its own aim can reach — the long shot on the way in.
+	# That second branch is what stopped a marksman walking thirty metres with a
+	# target in its sights and its finger off the trigger: it used to require
+	# ENGAGE, which by definition is "already close enough to stop".
+	var shot := minf(_hit_reach() * LONG_SHOT_SLACK, weapon.max_range() * 0.9)
+	var in_range := _state == State.ENGAGE or gap <= shot
+	# Aiming down sights follows the same rule. It used to be gated on ENGAGE to
+	# mirror the human "no ADS while running" — but a bot has no sprint, so what
+	# that actually did was deny the sights to exactly the shot they are for.
+	weapon.aiming = _skill["ads"] and in_range and on_aim
+	var may_fire := in_range and on_aim and _reaction_left <= 0.0 \
 		and weapon.heat() < FIRE_HEAT_CEILING
 	weapon.update_fire(may_fire, may_fire)
 	_throw_grenade_if_useful(gap)
@@ -486,10 +609,17 @@ func _route(goal: Vector3, delta: float) -> Vector3:
 	_repath_cd -= delta
 	if _path.is_empty() or _repath_cd <= 0.0 \
 			or goal.distance_to(_path_goal) > GOAL_DRIFT:
-		_repath_cd = REPATH_INTERVAL
 		_path_goal = goal
-		_path = nav.path(global_position, goal)
-		_path_i = 0
+		# The search itself is RATE LIMITED across the whole AI (see
+		# NavGrid.PLANS_PER_FRAME): a plan costs 2 ms on the big maps, bots
+		# re-plan on their own timers, and several landing on one frame is what
+		# produced stutter with no visible cause. Refused means keep following
+		# the route we already have and ask again next frame, so the cooldown is
+		# only reset when a plan actually ran.
+		if nav.may_plan():
+			_repath_cd = REPATH_INTERVAL
+			_path = nav.path(global_position, goal)
+			_path_i = 0
 
 	# Drop waypoints already reached.
 	var here := Vector2(global_position.x, global_position.z)
@@ -670,9 +800,9 @@ func _try_cable(goal: Vector3) -> void:
 	_cable_cd = CABLE_COOLDOWN
 	_cable_anchor = hit["position"]
 	_cable_left = CABLE_PULL_TIME
-	var wire := CABLE_WIRE_SCENE.instantiate()
-	get_parent().add_child(wire)
-	wire.launch(self, weapon, _cable_anchor, 0.12)
+	_cable_wire = CABLE_WIRE_SCENE.instantiate()
+	get_parent().add_child(_cable_wire)
+	_cable_wire.launch(self, weapon, _cable_anchor, 0.12)
 
 
 ## A Force adept shoves whatever has closed on it. The gate is the same idea as
@@ -825,10 +955,18 @@ func _aim_head(delta: float) -> void:
 	_aim_reroll_in -= delta
 	if _aim_reroll_in <= 0.0:
 		_aim_reroll_in = AIM_REROLL
-		var wobble := deg_to_rad(float(_skill["aim_error"]))
+		var wobble := deg_to_rad(_aim_error_deg(weapon.aiming))
 		_aim_offset = Vector2(randf_range(-wobble, wobble), randf_range(-wobble, wobble))
 	var muzzle := head.global_position
 	var aim_at: Vector3 = _target.global_position + Vector3.UP * TARGET_AIM_HEIGHT
+	# Fire is hitscan, so this is NOT projectile lead — it is the bot's own lag.
+	# The head lerps toward where the target is, so against anything strafing it
+	# permanently shoots a fraction of a second behind: nothing at ten metres, a
+	# clean miss at fifty, which is why only the tiers that fight at fifty do it.
+	if _skill["lead"] and _target is CharacterBody3D:
+		var drift: Vector3 = (_target as CharacterBody3D).velocity * AIM_LAG
+		drift.y = 0.0   # only the sideways lag matters; vertical is gravity noise
+		aim_at += drift
 	var to_aim := aim_at - muzzle
 	var flat := Vector3(to_aim.x, 0.0, to_aim.z).length()
 	var pitch := atan2(to_aim.y, maxf(flat, 0.01))

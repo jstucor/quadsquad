@@ -14,6 +14,9 @@ const ZONE_SCENE := preload("res://scenes/fx/zone.tscn")
 const HIT_MARKER := preload("res://scripts/hit_marker.gd")
 const HIT_TICK := preload("res://scripts/hit_tick.gd")
 const MAP_VIEW := preload("res://scripts/map_view.gd")
+const SETTINGS_OVERLAY := preload("res://scripts/settings_overlay.gd")
+const SPAWN_SCREEN := preload("res://scripts/spawn_screen.gd")
+const CONQUEST := preload("res://scripts/conquest.gd")
 const STORM := preload("res://scripts/storm.gd")
 const PICKUP := preload("res://scripts/pickup.gd")
 # Battle royale. You deploy with a sidearm and nothing else, and everything
@@ -127,6 +130,16 @@ func _ready() -> void:
 		var zone := ZONE_SCENE.instantiate()
 		zone.setup(level)
 		level.add_child(zone)  # placed after the map, so its ground rays hit
+	if GameState.mode == GameState.Mode.CONQUEST:
+		var cq := CONQUEST.new()
+		cq.name = "Conquest"
+		cq.setup(level)
+		level.add_child(cq)   # lays the command posts on its first physics frame
+		GameState.conquest = cq
+	# One tick for every viewport's overlays. A METHOD of this node, like the
+	# score/victory wiring below, so the connection dies with the map instead of
+	# outliving it the way a lambda would.
+	get_tree().process_frame.connect(_tick_overlays)
 	GameState.match_countdown.connect(_show_countdown)
 	GameState.zone_state.connect(_refresh_zone)
 	GameState.zone_moved.connect(_announce_zone_move)
@@ -300,11 +313,24 @@ func _build_hud(player: Player) -> Control:
 		_add_storm_readout(hud, player)
 		_add_pickup_prompt(hud, player)
 	_add_map(hud, player)
-	hud.add_child(_build_buy_screen(player, color))
+	_add_scan(hud, player)
+	# Which deploy screen this match uses is the CLASS SETTING's call, not the
+	# mode's: faction rosters are pickable in deathmatch and the buy screen works
+	# in Conquest. Both are the same box mechanic (see BoxScreen).
+	if GameState.faction_classes():
+		var spawn: Control = SPAWN_SCREEN.new()
+		spawn.setup(player, color)
+		hud.add_child(spawn)
+	else:
+		hud.add_child(_build_buy_screen(player, color))
 	_add_victory_banner(hud)
 	_add_countdown(hud)
 	if GameState.mode == GameState.Mode.ZONES:
 		_add_zone_readout(hud)
+	# The in-game START overlay goes on last so it draws over the rest of the HUD.
+	var settings: Control = SETTINGS_OVERLAY.new()
+	settings.setup(player)
+	hud.add_child(settings)
 	return hud
 
 
@@ -339,7 +365,9 @@ func _add_storm_readout(hud: Control, player: Player) -> void:
 		else:
 			label.text = "STORM MOVES IN  %ds" % storm.seconds_left()
 			label.add_theme_color_override("font_color", Color(0.7, 0.8, 1.0)))
-	get_tree().process_frame.connect(label.queue_redraw)
+	# Everything it prints is a whole second or a rounded rate, so it rides the
+	# slow group rather than rebuilding the same string sixty times a second.
+	_slow_labels.append({"label": label})
 
 
 ## "PRESS E TO TAKE WEAPON", shown only while a crate is actually in reach. The
@@ -356,7 +384,9 @@ func _add_pickup_prompt(hud: Control, player: Player) -> void:
 			return
 		label.text = "%s  to take  %s" % [
 			Controls.label(player.input_device, "interact"), crate.label()])
-	get_tree().process_frame.connect(label.queue_redraw)
+	# Same: whether a crate is in reach changes as you walk, not per frame, and
+	# the prompt builds a string and a control label every time it draws.
+	_slow_labels.append({"label": label})
 
 
 ## The map screen: hidden until this player opens it, and drawn over the rest of
@@ -377,7 +407,11 @@ func _add_reticle(hud: Control, player: Player) -> void:
 	crosshair.set_anchors_preset(Control.PRESET_FULL_RECT)
 	crosshair.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	crosshair.draw.connect(_draw_bloom.bind(crosshair, player))
-	get_tree().process_frame.connect(crosshair.queue_redraw)
+	# Redrawn only when the cone it draws has actually MOVED, not every frame.
+	# The crosshair is four ticks and a dot; re-recording it 60 times a second
+	# for all four viewports to draw the identical picture is the cost, and a
+	# settled spread is the normal case — you are not firing most of the time.
+	_bloom_ticks.append({"c": crosshair, "player": player, "at": -1.0})
 	hud.add_child(crosshair)
 
 	var scope := Control.new()
@@ -414,7 +448,12 @@ func _add_reticle(hud: Control, player: Player) -> void:
 	thermal.set_anchors_preset(Control.PRESET_FULL_RECT)
 	thermal.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	thermal.draw.connect(_draw_thermal.bind(thermal, player))
-	get_tree().process_frame.connect(thermal.queue_redraw)
+	# Only while somebody is actually looking through a heat sight, plus the one
+	# frame after they lower it so what was drawn gets cleared — the same rule
+	# the scan overlay follows (see _tick_overlays). One class in the game has
+	# this sight, so left on process_frame it re-recorded four canvas items a
+	# frame, all match, to draw nothing at all.
+	_thermal_overlays.append({"c": thermal, "player": player})
 	hud.add_child(thermal)
 
 	# Added LAST so it draws over every reticle — it has to show through the
@@ -705,14 +744,10 @@ func _show_victory(team: int) -> void:
 ## layout now (the selector moves box to box, and entering one scopes the rows
 ## you can edit), so it belongs with the catalogue rather than with the screen
 ## that happens to draw it.
+## The box furniture — metrics, panel style, the cursor and its arena — is
+## BoxScreen's, shared with the character-select screen so the two cannot drift
+## apart.
 const BUY_COLUMNS := Player.BUY_GRID_COLUMNS
-## The boxes have to fit whatever slice of the screen this player owns. At four
-## players a viewport is a quarter of the window, and the full-size layout runs
-## off both edges of it, so the whole screen is measured off the player count.
-const BUY_WIDE := {"name": 150, "value": 150, "text": 14, "head": 12, "title": 22}
-const BUY_TIGHT := {"name": 104, "value": 96, "text": 11, "head": 9, "title": 16}
-const BUY_BOX_EDGE := Color(0.26, 0.30, 0.36)
-const BUY_BOX_BG := Color(0.07, 0.08, 0.11, 0.92)
 
 
 ## The buy screen for one viewport: a grid of category boxes, the budget above
@@ -740,7 +775,7 @@ func _build_buy_screen(player: Player, color: Color) -> Control:
 	column.add_theme_constant_override("separation", 4)
 	panel.add_child(column)
 
-	var m: Dictionary = BUY_WIDE if GameState.human_players == 1 else BUY_TIGHT
+	var m := BoxScreen.metrics()
 	var title := _centred_label("ELIMINATED", m["title"], ELIMINATED_COLOR)
 	column.add_child(title)
 	var budget := _centred_label("", m["head"] + 2, Color(1, 1, 1, 0.9))
@@ -765,7 +800,7 @@ func _build_buy_screen(player: Player, color: Color) -> Control:
 	values.resize(Loadout.Row.size())
 	for box in Loadout.BUY_BOXES:
 		var frame := PanelContainer.new()
-		frame.add_theme_stylebox_override("panel", _buy_panel(BUY_BOX_EDGE))
+		frame.add_theme_stylebox_override("panel", BoxScreen.panel(BoxScreen.EDGE))
 		grid.add_child(frame)
 		boxes.append(frame)
 		var inner := VBoxContainer.new()
@@ -793,11 +828,24 @@ func _build_buy_screen(player: Player, color: Color) -> Control:
 	# so the ordinary respawn is still one press.
 	column.add_child(_spacer(4))
 	var spawn_frame := PanelContainer.new()
-	spawn_frame.add_theme_stylebox_override("panel", _buy_panel(BUY_BOX_EDGE))
+	spawn_frame.add_theme_stylebox_override("panel", BoxScreen.panel(BoxScreen.EDGE))
 	column.add_child(spawn_frame)
 	boxes.append(spawn_frame)
 	var spawn_label := _centred_label("", m["head"] + 4, Color(0.85, 0.95, 0.8))
 	spawn_frame.add_child(spawn_label)
+
+	# THE DEPLOY POST BOX, Conquest only (hidden everywhere else, which also
+	# takes it out of the cursor's reach). Choosing where you come back in is a
+	# Conquest rule rather than a shopping one, so it belongs on this screen too
+	# and not only on the character select — otherwise picking CUSTOM classes in
+	# Conquest would quietly take the mode's own mechanic away from you.
+	var post_frame := PanelContainer.new()
+	post_frame.add_theme_stylebox_override("panel", BoxScreen.panel(BoxScreen.EDGE))
+	post_frame.visible = GameState.mode == GameState.Mode.CONQUEST
+	column.add_child(post_frame)
+	boxes.append(post_frame)
+	var post_label := _centred_label("", m["head"], Color(1, 1, 1, 0.8))
+	post_frame.add_child(post_label)
 
 	column.add_child(_spacer(4))
 	var blurb := _centred_label("", m["head"] + 1, Color(0.7, 0.74, 0.8))
@@ -809,16 +857,17 @@ func _build_buy_screen(player: Player, color: Color) -> Control:
 	# resolver that turns the player's normalised cursor into "which box is it
 	# over" and writes that back. It has to read the REAL box rects (hidden boxes
 	# reflow the grid, so nothing analytic can know where a box actually landed),
-	# which is why this lives here in Main and not in Player.
+	# which is why it takes them as an argument.
 	var cursor := Control.new()
 	cursor.set_anchors_preset(Control.PRESET_FULL_RECT)
 	cursor.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	cursor.draw.connect(_draw_buy_cursor.bind(cursor, player, boxes, color))
+	cursor.draw.connect(func() -> void:
+		BoxScreen.draw_cursor(cursor, player, boxes, color))
 	panel.add_child(cursor)
 
 	var refresh := func() -> void:
 		_refresh_buy_screen(player, color, names, values, boxes, budget, blurb,
-			prompt, spawn_label)
+			prompt, spawn_label, post_label)
 	# Resolve the cursor -> box every frame while the screen is up, and redraw the
 	# reticle. Only re-runs the text refresh when the box under the cursor
 	# actually changes, so a still cursor costs one has_point sweep and no more.
@@ -826,7 +875,7 @@ func _build_buy_screen(player: Player, color: Color) -> Control:
 		if not panel.visible:
 			return
 		cursor.queue_redraw()
-		if _resolve_buy_box(player, boxes):
+		if BoxScreen.resolve(player, boxes):
 			refresh.call())
 	player.buy_changed.connect(func(_row: int) -> void: refresh.call())
 	player.deploy_ready.connect(func() -> void: refresh.call())
@@ -840,81 +889,6 @@ func _build_buy_screen(player: Player, color: Color) -> Control:
 	player.respawned.connect(func() -> void: panel.visible = false)
 	refresh.call()
 	return panel
-
-
-## The cursor's arena: the union of every VISIBLE box rect. The normalised
-## cursor maps across this, so it can reach every box and nothing off the panel.
-func _buy_arena(boxes: Array[PanelContainer]) -> Rect2:
-	var arena := Rect2()
-	var first := true
-	for b in boxes:
-		if b == null or not b.visible:
-			continue
-		var r := b.get_global_rect()
-		if first:
-			arena = r
-			first = false
-		else:
-			arena = arena.merge(r)
-	return arena
-
-
-func _buy_cursor_pixel(player: Player, boxes: Array[PanelContainer]) -> Vector2:
-	var arena := _buy_arena(boxes)
-	return arena.position + Vector2(
-		player.buy_cursor.x * arena.size.x, player.buy_cursor.y * arena.size.y)
-
-
-## Set player.buy_box to whichever visible box the cursor is over — the one that
-## contains it, else the nearest by centre so there is always a live target.
-## Returns true when the box changed, so the caller redraws the text. Frozen
-## while a box is open: the cursor does not roam while you are editing.
-func _resolve_buy_box(player: Player, boxes: Array[PanelContainer]) -> bool:
-	if player.buy_inside:
-		return false
-	var px := _buy_cursor_pixel(player, boxes)
-	var best := player.buy_box
-	var best_d := INF
-	for i in boxes.size():
-		var b := boxes[i]
-		if b == null or not b.visible:
-			continue
-		var r := b.get_global_rect()
-		if r.has_point(px):
-			best = i
-			break
-		var d := r.get_center().distance_squared_to(px)
-		if d < best_d:
-			best_d = d
-			best = i
-	if best == player.buy_box:
-		return false
-	player.buy_box = best
-	return true
-
-
-## The reticle: a ring with a centre dot in the player's colour, at the cursor.
-## Hidden while a box is open — there is no cursor to steer then.
-func _draw_buy_cursor(c: Control, player: Player, boxes: Array[PanelContainer],
-		color: Color) -> void:
-	if player.buy_inside or c.size.y <= 0.0:
-		return
-	var local := _buy_cursor_pixel(player, boxes) - c.global_position
-	c.draw_arc(local, 9.0, 0.0, TAU, 24, Color(color, 0.95), 2.5, true)
-	c.draw_circle(local, 2.5, Color(color, 1.0))
-
-
-## One box's frame. `fill` tints the panel when the box is OPEN — the border
-## alone says "the selector is here", and open needs to read differently from
-## merely highlighted or the two states are the same picture.
-func _buy_panel(edge: Color, fill := Color(0, 0, 0, 0)) -> StyleBoxFlat:
-	var sb := StyleBoxFlat.new()
-	sb.bg_color = BUY_BOX_BG if fill.a <= 0.0 else BUY_BOX_BG.blend(Color(fill, 0.22))
-	sb.border_color = edge
-	sb.set_border_width_all(2 if fill.a > 0.0 else 1)
-	sb.set_corner_radius_all(4)
-	sb.set_content_margin_all(6)
-	return sb
 
 
 ## Rewrite the buy screen for the player's current pending build.
@@ -931,7 +905,8 @@ func _buy_panel(edge: Color, fill := Color(0, 0, 0, 0)) -> StyleBoxFlat:
 ## on a line you cannot currently change is exactly the lie the old screen told.
 func _refresh_buy_screen(player: Player, color: Color, names: Array[Label],
 		values: Array[Label], boxes: Array[PanelContainer],
-		budget: Label, blurb: Label, prompt: Label, spawn: Label) -> void:
+		budget: Label, blurb: Label, prompt: Label, spawn: Label,
+		post: Label) -> void:
 	var build := player.pending
 	budget.text = "TOKENS  %d spent   %d left of %d" % [
 		build.cost(), build.remaining(), Loadout.BUDGET]
@@ -954,21 +929,29 @@ func _refresh_buy_screen(player: Player, color: Color, names: Array[Label],
 		values[i].add_theme_color_override("font_color", tint)
 
 	for bi in boxes.size():
-		var frame := boxes[bi]
 		# A box with nothing left in it goes, so a Mandalorian's screen has no
-		# empty GRENADES panel sitting on it. SPAWN is always there.
-		frame.visible = bi == Player.SPAWN_BOX or build.box_available(bi)
-		var here := bi == player.buy_box
-		var open := here and player.buy_inside
-		frame.add_theme_stylebox_override("panel",
-			_buy_panel(color if here else BUY_BOX_EDGE, color if open else Color(0, 0, 0, 0)))
+		# empty GRENADES panel sitting on it. SPAWN is always there, and the post
+		# box only in Conquest.
+		if bi == Player.SPAWN_BOX:
+			boxes[bi].visible = true
+		elif bi == Player.POST_BOX:
+			boxes[bi].visible = GameState.mode == GameState.Mode.CONQUEST
+		else:
+			boxes[bi].visible = build.box_available(bi)
+	BoxScreen.paint(boxes, player.buy_box, player.buy_inside, color)
+
+	post.text = _deploy_post_line(player)
 
 	# The blurb explains whatever the selector is pointing at: the open row, or
 	# the box you are about to open.
-	if player.buy_inside:
+	if player.buy_inside and player.buy_box == Player.POST_BOX:
+		blurb.text = "up / down to choose where you come back in"
+	elif player.buy_inside:
 		blurb.text = build.row_blurb(player.buy_row, player.input_device)
 	elif player.buy_box == Player.SPAWN_BOX:
 		blurb.text = "Everything above is what you will deploy with"
+	elif player.buy_box == Player.POST_BOX:
+		blurb.text = "Where you come back in"
 	else:
 		blurb.text = str(Loadout.BUY_BOXES[player.buy_box]["name"])
 
@@ -988,6 +971,20 @@ func _refresh_buy_screen(player: Player, color: Color, names: Array[Label],
 		prompt.text = "%s change     %s back" % [a, player.buy_back_name()]
 	else:
 		prompt.text = "move the cursor     %s to modify" % a
+
+
+## The Conquest deploy-post box's one line: which post you will come back in on,
+## out of the ones your side still holds. One line rather than the select
+## screen's list, because this box sits under a full buy grid and has no room.
+func _deploy_post_line(player: Player) -> String:
+	if GameState.mode != GameState.Mode.CONQUEST:
+		return ""
+	var owned := GameState.owned_posts(player.team)
+	if owned.is_empty():
+		return "DEPLOY POST     — none held, deploying at base —"
+	var sel := clampi(player.spawn_post, 0, owned.size() - 1)
+	return "DEPLOY POST     ◂ %s ▸     (%d of %d)" % [
+		owned[sel].post_name, sel + 1, owned.size()]
 
 
 ## Bloom crosshair: four ticks at a radius that maps the weapon's current
@@ -1022,6 +1019,132 @@ func _draw_bloom(c: Control, player: Player) -> void:
 ## can see.
 const THERMAL_RANGE := 90.0
 const THERMAL_HEAT := Color(1.0, 0.45, 0.15)
+
+
+## The scan-dart reveal: a marker over every enemy currently pinged to this
+## player's team, drawn THROUGH walls (that is the recon value) as long as it is
+## roughly in front. A per-viewport overlay like the thermal read, so it is not a
+## shared tracker — each player sees their own side's scans.
+const SCAN_MARK := Color(0.55, 0.9, 1.0)
+
+
+## The scan overlay is empty for almost the whole match — a dart has to be in the
+## air and biting for it to draw anything — so it is redrawn only while a scan is
+## live, plus the one frame after the last mark expires so what was drawn gets
+## cleared. Left on `process_frame` it re-recorded a canvas item per viewport per
+## frame, four times over, to draw nothing.
+##
+## Ticked once for all viewports (see _tick_scans) rather than per overlay: the
+## "is anything live" answer is global, so a per-overlay check would let the
+## first viewport flip the flag and the other three miss their clearing redraw.
+func _add_scan(hud: Control, player: Player) -> void:
+	var scan := Control.new()
+	scan.set_anchors_preset(Control.PRESET_FULL_RECT)
+	scan.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	scan.draw.connect(_draw_scan.bind(scan, player))
+	_scan_overlays.append(scan)
+	hud.add_child(scan)
+
+
+var _scan_overlays: Array[Control] = []
+var _scan_was_live := false
+## Overlays and readouts that would otherwise sit on process_frame redrawing
+## themselves sixty times a second to produce the same picture. See _tick_overlays.
+var _thermal_overlays: Array = []      # [{c: Control, player: Player}]
+var _thermal_was_live := false
+var _bloom_ticks: Array = []           # [{c: Control, player: Player, at: float}]
+var _slow_labels: Array = []           # [{label: Label, at: int}] — royale readouts
+## How often the slow group refreshes. They print whole seconds and a rounded
+## damage figure, so sixty times a second was fifty-four wasted string builds.
+const SLOW_TICK := 6                   # every 6th frame — 10 Hz at 60 fps
+
+
+## ONE per-frame tick for every viewport's overlays, rather than a connection
+## each. Two reasons it is shared: "is anything live" is a GLOBAL answer, so a
+## per-overlay check would let the first viewport flip the flag and the other
+## three miss their clearing redraw; and this is the only place in the HUD that
+## runs every frame regardless, so keeping it in one function makes the cost
+## visible instead of scattered across six closures.
+func _tick_overlays() -> void:
+	_tick_scans()
+	_tick_thermal()
+	_tick_bloom()
+	if Engine.get_process_frames() % SLOW_TICK == 0:
+		for entry in _slow_labels:
+			var label: Label = entry["label"]
+			if is_instance_valid(label):
+				label.queue_redraw()
+
+
+func _tick_scans() -> void:
+	var live := not GameState.scanned.is_empty()
+	if not live and not _scan_was_live:
+		return
+	_scan_was_live = live
+	for c in _scan_overlays:
+		if is_instance_valid(c):
+			c.queue_redraw()
+
+
+func _tick_thermal() -> void:
+	var live := false
+	for entry in _thermal_overlays:
+		var player: Player = entry["player"]
+		if is_instance_valid(player) and player.thermal_active():
+			live = true
+			break
+	if not live and not _thermal_was_live:
+		return
+	_thermal_was_live = live
+	for entry in _thermal_overlays:
+		var c: Control = entry["c"]
+		if is_instance_valid(c):
+			c.queue_redraw()
+
+
+## The bloom crosshair, redrawn per viewport only when that player's own cone has
+## moved. Per viewport rather than globally because the cone is personal — one
+## player spraying must not cost the other three a redraw.
+func _tick_bloom() -> void:
+	for entry in _bloom_ticks:
+		var c: Control = entry["c"]
+		if not is_instance_valid(c) or not c.visible:
+			continue
+		var player: Player = entry["player"]
+		var now: float = player.weapon.current_spread_deg()
+		if absf(now - float(entry["at"])) < 0.005:
+			continue
+		entry["at"] = now
+		c.queue_redraw()
+
+
+func _draw_scan(c: Control, player: Player) -> void:
+	if c.size.y <= 0.0 or GameState.scanned.is_empty() or player.camera() == null:
+		return
+	var cam := player.camera()
+	for body in GameState.combatants:
+		if not is_instance_valid(body) or body == player:
+			continue
+		if not ("team" in body and body.team != player.team):
+			continue
+		if body.has_method("is_alive") and not body.is_alive():
+			continue
+		if not GameState.is_scanned_for(body, player.team):
+			continue
+		var chest: Vector3 = body.global_position + Vector3.UP * 1.0
+		if cam.is_position_behind(chest):
+			continue
+		# Through walls on purpose — a scan is a ping, not a line of sight.
+		var head := cam.unproject_position(body.global_position + Vector3.UP * 1.8)
+		var feet := cam.unproject_position(body.global_position)
+		var h := absf(feet.y - head.y)
+		var w := maxf(h * 0.5, 6.0)
+		var rect := Rect2(Vector2(head.x - w * 0.5, head.y), Vector2(w, maxf(h, 8.0)))
+		c.draw_rect(rect, SCAN_MARK, false, 2.0)
+		# A caret above the head, so a scanned enemy reads even at a glance.
+		var tip := Vector2(head.x, head.y - 8.0)
+		c.draw_colored_polygon(PackedVector2Array([
+			tip, tip + Vector2(-5, -8), tip + Vector2(5, -8)]), SCAN_MARK)
 
 
 func _draw_thermal(c: Control, player: Player) -> void:

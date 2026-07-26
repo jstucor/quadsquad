@@ -36,6 +36,7 @@ const MORTAR_SCENE := preload("res://scenes/actors/mortar.tscn")
 const CABLE_WIRE_SCENE := preload("res://scenes/fx/cable_wire.tscn")
 const LIGHTNING_SCENE := preload("res://scenes/fx/lightning_arc.tscn")
 const ROCKET_SCENE := preload("res://scenes/fx/rocket.tscn")
+const SCAN_DART_SCENE := preload("res://scripts/scan_dart.gd")
 
 # Gadgets. The jetpack burns a 0..1 fuel pool and refills on the ground; the
 # cable yanks you toward whatever you grappled for a fixed pull; the rotary
@@ -87,6 +88,19 @@ const BUY_CURSOR_SPEED := 1.9
 ## GDScript will not accept in a constant expression. Derived rather than
 ## written out so it cannot drift when a box is added to the table.
 static var SPAWN_BOX := Loadout.BUY_BOXES.size()
+## ...and the DEPLOY POST box after it, shown only in Conquest. Picking where you
+## come back in is a Conquest rule, not a buy-screen one, so it has to exist on
+## BOTH deploy screens — the buy screen when you are shopping and the character
+## select when you are on faction classes.
+static var POST_BOX := Loadout.BUY_BOXES.size() + 1
+## The CHARACTER SELECT screen's own boxes (faction classes). It is a different
+## screen with a different box list, so these index the same `buy_box` field
+## from a different table — the two screens are never up at the same time, and
+## each input handler only ever uses its own set.
+const PICK_CLASS_BOX := 0
+const PICK_POST_BOX := 1
+const PICK_SPAWN_BOX := 2
+const PICK_BOXES := 3
 
 const BLOCK_COST := 0.009
 const BLOCK_REGEN := 0.28        # pool per second once lowered
@@ -209,13 +223,18 @@ var buy_cursor := Vector2(0.5, 1.0)
 var buy_box := 0
 var buy_inside := false
 var buy_row := 0
+## CONQUEST spawn screen: which owned command post you deploy on (index into
+## GameState.owned_posts(team)) and which of your side's four fixed classes you
+## deploy as. The class persists across deaths (you tend to keep playing one),
+## the post is re-clamped each frame because posts change hands while you're dead.
+var spawn_post := 0
+var spawn_class := 0
 ## Kills on the CURRENT life. Reset on every deploy, so it reads as a streak
 ## rather than a running total.
 var kills_this_life := 0
 var squad: Array[Bot] = []  # the AI squadmates currently alive under this player
 var gadget := Loadout.Gadget.NONE
-## The Mandalorian's second gadget, driven by the GRENADE control. See
-## Loadout.gadget2 for why that button rather than a new binding.
+## The second gadget slot, driven by the GADGET 2 (`grenade`) control.
 var gadget2 := Loadout.Gadget.NONE
 var jet_fuel := 1.0
 
@@ -227,7 +246,6 @@ var _base_fov := 75.0
 var _look_scale := 1.0
 var _prev_aim := false
 var _downs := {}             # control id -> was it down last frame (joypad edges)
-var _slot1_down := false     # previous state of the LB+RB slot-1 chord, for its edge
 ## Seconds since the last damage taken. Passive regen (there are no health kits)
 ## kicks in once this passes REGEN_DELAY, healing REGEN_RATE per second to full.
 var _since_damage := 0.0
@@ -249,6 +267,10 @@ var _mortar: Mortar          # placed mortar tube, if any
 ## not something you do mid-firefight.
 var map_open := false
 var map_cursor := Vector2.ZERO  # world XZ the cursor is over
+## The in-game START overlay: while it is up you stand still (like the map),
+## because reading and rebinding your controls is a commitment, not a glance.
+## Per player — one player opening it does not stop the other three.
+var settings_open := false
 ## Set once per physics frame from the interact control, and cleared by the
 ## Pickup that acts on it, so one press collects exactly one crate.
 var pickup_pressed := false
@@ -284,6 +306,12 @@ var _dash_cd := 0.0
 var _dash_shown := 0   # last whole second pushed to the HUD
 var _jet_thrusting := false
 var _jet_pct := 20  # last fuel level pushed to the HUD, in 5% steps
+## Per-player feel, from Controls (the START overlay edits them). Cached rather
+## than looked up every frame, and refreshed by refresh_settings() when the
+## overlay changes them. _sens_mult scales look speed; _assist_mult scales the
+## aim assist's pull and slowdown (0 turns assist off for this player alone).
+var _sens_mult := 1.0
+var _assist_mult := 1.0
 var _look_pitch := 0.0     # head pitch from look input (recoil is added on top)
 var _recoil_pitch := 0.0   # transient camera kick, settles back to 0
 var _recoil_yaw := 0.0
@@ -314,8 +342,7 @@ var _corpse: Node3D        # the flop spawned on death, freed on respawn
 func _ready() -> void:
 	GameState.register_combatant(self)  # spawn picking skips the markers we occupy
 	_anim = model.find_child("AnimationPlayer", true, false)
-	for mi in model.find_children("*", "MeshInstance3D", true, false):
-		mi.layers = 1 << (1 + player_index)
+	_stamp_model_layers()
 	# Put this player's viewmodel on its private layer (owner-only). Told to the
 	# WEAPON rather than stamped on the meshes here: there are none yet, and the
 	# gun is rebuilt by _apply_loadout below and again on every swap. Stamping
@@ -330,6 +357,7 @@ func _ready() -> void:
 	weapon_off.shooter = self
 	weapon_off.fired.connect(_on_weapon_fired)
 	weapon_off.visible = false
+	refresh_settings()
 	_apply_loadout()
 
 
@@ -348,6 +376,21 @@ func begin_deploy() -> void:
 		_respawn()
 		return
 	_enter_buy_screen(DEPLOY_FLOOR, false)
+
+
+## Re-read this player's feel settings from Controls. Called on spawn and by the
+## START overlay whenever it changes the sliders, so a change takes effect the
+## moment you close the overlay (or live, while it is open).
+func refresh_settings() -> void:
+	_sens_mult = Controls.sensitivity(input_device)
+	_assist_mult = Controls.aim_assist_strength(input_device)
+
+
+## Put every mesh of the (re)built body on this player's own render layer, so
+## the owner's camera culls it (first person) while everyone else sees it.
+func _stamp_model_layers() -> void:
+	for mi in model.find_children("*", "MeshInstance3D", true, false):
+		mi.layers = 1 << (1 + player_index)
 
 
 func bind_camera(cam: Camera3D) -> void:
@@ -429,7 +472,7 @@ func air_jump_allowance() -> int:
 ## the exhaustion pool not spent. Nothing else can block — a raised guard is the
 ## Force adept's answer to having no gun, not a general-purpose defence.
 func guard_up() -> bool:
-	return not _dead and not map_open and weapon.is_melee() \
+	return not _dead and not map_open and not settings_open and weapon.is_melee() \
 		and _ads_held() and not _block_broken and _block > 0.0
 
 
@@ -589,6 +632,11 @@ func _buy_back_held() -> bool:
 ## a fresh set of consumables. Called on every deploy, never mid-life.
 func _apply_loadout() -> void:
 	loadout = pending.duplicate_loadout()
+	# Build the body this class wears. set_style rebuilds the model meshes, so the
+	# per-player render layer has to go back on afterwards (same reason the
+	# viewmodel re-stamps itself) or the owner's camera would see its own body.
+	model.set_style(loadout.character_style())
+	_stamp_model_layers()
 	var armor := loadout.armor_stats()
 	# The class multiplies the frame, rather than replacing it: a Force adept in
 	# a light frame is quick and tough for both reasons, which is the point of
@@ -664,6 +712,114 @@ func _spawn_bot() -> Bot:
 	return bot
 
 
+## --- character select (faction classes) --------------------------------------
+##
+## Pick one of your side's four fixed classes and — in Conquest — the command
+## post you come back in on, then deploy. It is the SAME mechanic as the buy
+## screen and deliberately so: a free cursor over boxes, accept to open a box,
+## up/down inside it, back to close, accept on SPAWN to deploy. Only the boxes
+## differ, so a player who has learned one screen has learned both.
+##
+## That also keeps the safety property the buy screen was rebuilt for: the
+## cursor opens on SPAWN, closed, so a stick still held on the frame you died
+## drifts a pointer and never re-rolls the class you are about to deploy as.
+func _update_pick_input(delta: float) -> void:
+	var accept := _deploy_held()          # A, the same button as JUMP/DEPLOY
+	var back := _buy_back_held()          # B, fixed — see buy_back_name()
+	var accept_edge := accept and not _accept_latch
+	var back_edge := back and not _back_latch
+	_accept_latch = accept
+	_back_latch = back
+	_deploy_latch = accept  # kept in step: a held A must never deploy on respawn
+
+	if buy_inside:
+		apply_pick_input(_buy_axis(), accept_edge, back_edge)
+		return
+	var raw := _move_input()
+	if raw != Vector2.ZERO:
+		buy_cursor.x = clampf(buy_cursor.x + raw.x * BUY_CURSOR_SPEED * delta, 0.0, 1.0)
+		buy_cursor.y = clampf(buy_cursor.y + raw.y * BUY_CURSOR_SPEED * delta, 0.0, 1.0)
+	apply_pick_input(Vector2i.ZERO, accept_edge, back_edge)
+
+
+## The character select's decisions, split from reading the device the same way
+## apply_buy_input is: the input path polls and this decides, so a test can
+## drive the screen without a pad.
+func apply_pick_input(move: Vector2i, accept_edge: bool, back_edge: bool) -> void:
+	if buy_inside:
+		_update_pick_open(move, back_edge)
+		return
+	if not accept_edge:
+		return
+	match buy_box:
+		PICK_SPAWN_BOX:
+			if _deploy_armed:
+				pending = Loadout.team_build(team, spawn_class)
+				_respawn()
+		PICK_POST_BOX:
+			if _post_choice_live():
+				buy_inside = true
+				buy_changed.emit(buy_row)
+		_:
+			buy_inside = true
+			buy_changed.emit(buy_row)
+
+
+## Inside an open box on the character select: up/down walks it, B comes out.
+func _update_pick_open(move: Vector2i, back_edge: bool) -> void:
+	if back_edge:
+		buy_inside = false
+		buy_changed.emit(buy_row)
+		return
+	if move.y == 0:
+		return
+	if buy_box == PICK_POST_BOX:
+		_step_spawn_post(move.y)
+	else:
+		var classes := Loadout.faction_classes(team)
+		spawn_class = wrapi(spawn_class + move.y, 0, classes.size())
+	buy_changed.emit(buy_row)
+
+
+## Walk the owned command posts. Shared by both deploy screens, because the post
+## box is on both — in Conquest you choose where you come back in whether or not
+## you are also choosing what to come back as.
+func _step_spawn_post(step: int) -> void:
+	var posts := GameState.owned_posts(team)
+	if posts.size() > 1:
+		spawn_post = wrapi(spawn_post + step, 0, posts.size())
+
+
+## Is there a post choice to make at all? Conquest only, and only while your
+## side actually holds something — pushed off every post, you deploy at base and
+## the box is dead.
+func _post_choice_live() -> bool:
+	return GameState.mode == GameState.Mode.CONQUEST \
+		and not GameState.owned_posts(team).is_empty()
+
+
+## Where a Conquest deploy actually lands: the chosen owned post, or a home
+## marker as a last resort if the side has just been pushed off every post.
+func _conquest_spawn_transform() -> Transform3D:
+	var posts := GameState.owned_posts(team)
+	if not posts.is_empty():
+		var post: CommandPost = posts[clampi(spawn_post, 0, posts.size() - 1)]
+		return GameState.clear_of_bodies(post.spawn_transform())
+	var m := GameState.get_spawn_point(team)
+	return GameState.clear_of_bodies(m.global_transform) if m else global_transform
+
+
+## The name of the class currently selected on the character select, for the HUD.
+func faction_class_name() -> String:
+	return str(Loadout.FACTION_BUILDS[faction_class_index()]["name"])
+
+
+## Which FACTION_BUILDS row this player is about to deploy as.
+func faction_class_index() -> int:
+	var classes := Loadout.faction_classes(team)
+	return classes[clampi(spawn_class, 0, classes.size() - 1)]
+
+
 ## Buy-screen input while dead. TWO MODES, and which one you are in is the
 ## whole design:
 ##
@@ -712,6 +868,13 @@ func apply_buy_input(move: Vector2i, accept_edge: bool, back_edge: bool) -> void
 		if _deploy_armed:
 			_respawn()
 		return
+	if buy_box == POST_BOX:
+		# Conquest while shopping: you still choose which post you come back in
+		# on, so the box opens and walks like any other.
+		if _post_choice_live():
+			buy_inside = true
+			buy_changed.emit(buy_row)
+		return
 	# Opening a box parks the row cursor on its first real line, so the caret
 	# never starts on something this kit does not have.
 	var first := pending.first_row_in(buy_box)
@@ -727,6 +890,13 @@ func _update_buy_open(move: Vector2i, back_edge: bool) -> void:
 	if back_edge:
 		buy_inside = false
 		buy_changed.emit(buy_row)
+		return
+	if buy_box == POST_BOX:
+		# The post box holds no Loadout rows — it walks the command posts, and
+		# nothing about the build can change from inside it.
+		if move.y != 0:
+			_step_spawn_post(move.y)
+			buy_changed.emit(buy_row)
 		return
 	if move.y != 0:
 		buy_row = pending.step_row_in(buy_box, buy_row, move.y)
@@ -807,6 +977,7 @@ func _die(attacker: Node = null) -> void:
 	if attacker is Player and attacker != self and attacker.team != team:
 		GameState.add_frag(attacker.team)
 		attacker.credit_kill()
+	GameState.report_death(team)  # CONQUEST: a death is a reinforcement spent
 	_spawn_corpse(attacker)
 	_enter_buy_screen(RESPAWN_FLOOR, true)
 	GameState.check_last_standing()
@@ -843,7 +1014,10 @@ func _enter_buy_screen(floor_secs: float, eliminated: bool) -> void:
 	# a nudge re-rolled the entire build. From here a stray shove moves a
 	# highlight and nothing else, and the common case — respawn with what you
 	# had — is still one press of the same button it always was.
-	buy_box = SPAWN_BOX
+	# Both deploy screens open on their own SPAWN box (they are separate box
+	# lists indexing the same field — see PICK_SPAWN_BOX), so whichever one this
+	# match uses, the ordinary respawn is one press of accept.
+	buy_box = PICK_SPAWN_BOX if GameState.faction_classes() else SPAWN_BOX
 	buy_inside = false
 	# The cursor opens ON the spawn box, so a straight respawn is still: wait out
 	# the floor, press accept. Moving the cursor never touches the build, so a
@@ -859,6 +1033,9 @@ func _enter_buy_screen(floor_secs: float, eliminated: bool) -> void:
 	_downs.clear()
 	_deploy_wait = floor_secs
 	_deploy_armed = false
+	# CONQUEST offers a post to come back in on, on whichever screen is up. Open
+	# on the first one your side holds; the class carries over from the last life.
+	spawn_post = 0
 	died.emit(eliminated)
 	buy_changed.emit(buy_row)
 
@@ -870,7 +1047,9 @@ func _spawn_corpse(attacker: Node) -> void:
 	if attacker is Node3D and attacker != self:
 		push = global_position - (attacker as Node3D).global_position
 	var xform := Transform3D(Basis(Vector3.UP, rotation.y), global_position)
-	_corpse.launch(xform, GameState.TEAM_COLORS[team], push)
+	# The corpse wears the body you deployed as, not a generic trooper.
+	_corpse.launch(xform, GameState.TEAM_COLORS[team], push,
+		loadout.character_style())
 
 
 func _process_dead(delta: float) -> void:
@@ -886,16 +1065,24 @@ func _process_dead(delta: float) -> void:
 			deploy_ready.emit()
 		elif ceili(_deploy_wait) != whole_before:
 			buy_changed.emit(buy_row)  # so the "ready in N" line actually counts
-	_update_buy_input(delta)
+	# Which deploy screen is up follows the CLASS SETTING, not the mode: faction
+	# classes are pickable in deathmatch and the buy screen works in Conquest.
+	if GameState.faction_classes():
+		_update_pick_input(delta)
+	else:
+		_update_buy_input(delta)
 
 
 func _respawn() -> void:
 	# Place the body BEFORE clearing _dead: while we still read as dead, the
 	# spawn picker skips us, so we don't treat the body we just left as an
 	# obstacle and shove ourselves off our own marker.
-	var spawn := GameState.get_spawn_point(team)
-	if spawn:
-		global_transform = GameState.clear_of_bodies(spawn.global_transform)
+	if GameState.mode == GameState.Mode.CONQUEST:
+		global_transform = _conquest_spawn_transform()
+	else:
+		var spawn := GameState.get_spawn_point(team)
+		if spawn:
+			global_transform = GameState.clear_of_bodies(spawn.global_transform)
 	_dead = false
 	model.visible = true
 	weapon.visible = true
@@ -917,8 +1104,10 @@ func _respawn() -> void:
 func _unhandled_input(event: InputEvent) -> void:
 	if input_device >= 0:
 		return
+	if settings_open:
+		return  # the START overlay owns the keyboard and mouse while it is up
 	if event is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
-		_apply_look(Vector2(-event.relative.x, -event.relative.y) * MOUSE_SENS)
+		_apply_look(Vector2(-event.relative.x, -event.relative.y) * MOUSE_SENS * _sens_mult)
 	elif event.is_action_pressed("ui_cancel"):
 		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	elif event is InputEventMouseButton and event.pressed \
@@ -954,6 +1143,17 @@ func _physics_process(delta: float) -> void:
 		move_and_slide()
 		_update_anim(Vector2.ZERO, false)
 		return
+	# The START overlay holds you still while it is open, like the map. It owns its
+	# own input (the overlay Control polls this player's device); here we only stop
+	# moving and firing. Gravity still applies so opening it midair doesn't hang you.
+	if settings_open:
+		velocity.x = 0.0
+		velocity.z = 0.0
+		if not is_on_floor():
+			velocity.y -= _gravity * delta
+		move_and_slide()
+		_update_anim(Vector2.ZERO, false)
+		return
 	if _map_pressed():
 		_toggle_map()
 	if map_open:
@@ -976,7 +1176,7 @@ func _physics_process(delta: float) -> void:
 		var look := _stick(JOY_AXIS_RIGHT_X, JOY_AXIS_RIGHT_Y)
 		var mark := _assist_target()
 		# Slowdown first, so the stick eases off as the crosshair crosses a body.
-		_apply_look(-look * STICK_LOOK_SPEED * _assist_slowdown(mark) * delta)
+		_apply_look(-look * STICK_LOOK_SPEED * _sens_mult * _assist_slowdown(mark) * delta)
 		_assist_pull(mark, look, delta)
 
 	var move := _move_input()
@@ -1166,7 +1366,9 @@ func _assist_closeness(target: Node3D) -> float:
 ## Look-speed multiplier. Sweeping across someone drags, which is what stops the
 ## crosshair skating past a body at full stick speed.
 func _assist_slowdown(target: Node3D) -> float:
-	return lerpf(1.0, ASSIST_SLOW, _assist_closeness(target))
+	# Per-player strength scales the drag; at strength 0 there is none (mult
+	# clamps the interpolation weight back to 0, i.e. full stick speed).
+	return lerpf(1.0, ASSIST_SLOW, clampf(_assist_closeness(target) * _assist_mult, 0.0, 1.0))
 
 
 ## Nudge the view toward the target, in proportion to how centred it already is
@@ -1178,7 +1380,7 @@ func _assist_pull(target: Node3D, stick: Vector2, delta: float) -> void:
 		return
 	var eye := head.global_position
 	var to: Vector3 = target.global_position + Vector3.UP * ASSIST_AIM_HEIGHT - eye
-	var step := ASSIST_PULL * _assist_closeness(target) * delta
+	var step := ASSIST_PULL * _assist_closeness(target) * delta * _assist_mult
 	if weapon.aiming:
 		step *= ASSIST_ADS_MULT
 	var want_yaw := atan2(-to.x, -to.z)
@@ -1317,7 +1519,7 @@ func _hand_name() -> String:
 ## read, so a blade stowed on the wrong body is a lie about who can block.
 func _announce_hand() -> void:
 	weapon_changed.emit(_hand_name())
-	model.set_melee(weapon.is_melee())
+	model.set_melee(weapon.is_melee(), weapon.is_staff())
 
 
 ## The gadget button. Toggles (shield, rotary) and one-shots (cable, turret) act
@@ -1370,6 +1572,9 @@ func _use_gadget(slot: int) -> void:
 		Loadout.Gadget.CLOAK:
 			_begin_cloak()
 			_start_gadget_cd(slot, cd)
+		Loadout.Gadget.SCAN_DART:
+			_fire_scan_dart()
+			_start_gadget_cd(slot, cd)
 		Loadout.Gadget.DASH:
 			# The same lunge the Force adept has, offered here as a gadget. It runs
 			# on its OWN cooldown timer (_dash_cd) already, so the gadget cooldown
@@ -1404,31 +1609,23 @@ func slot_of(id: int) -> int:
 	return 1 if gadget2 == id else -1
 
 
-## Is the button for this slot down right now? Slot 0 is the gadget control;
-## slot 1 is the SLOT-1 chord (keyboard G / pad LB+RB together).
+## Is the button for this slot down right now? Slot 0 is the GADGET 1 control,
+## slot 1 the GADGET 2 control — both ordinary rebindable bindings now.
 func _slot_held(slot: int) -> bool:
 	return _gadget_held() if slot == 0 else _slot1_held()
 
 
-## The second gadget slot's control. On the keyboard it is the `grenade`
-## binding (G by default). On a pad it is BOTH shoulders at once — a fixed
-## chord, not a rebindable single button, because that is what the design calls
-## for and the binding model holds one button per action. LB+RB together is
-## awkward to fire by accident, which suits a slot you commit a gadget to.
+## The second gadget slot's control (the `grenade` binding: G on the keyboard,
+## LB on a pad by default). An ordinary rebindable control like slot 0 now — the
+## old fixed LB+RB chord is gone, so each slot has its own independent binding.
 func _slot1_held() -> bool:
-	if input_device < 0:
-		return Controls.held(-1, "grenade")
-	return Input.is_joy_button_pressed(input_device, JOY_BUTTON_LEFT_SHOULDER) \
-		and Input.is_joy_button_pressed(input_device, JOY_BUTTON_RIGHT_SHOULDER)
+	return Controls.held(input_device, "grenade")
 
 
-## The rising edge of the slot-1 control, tracked per player like the other pad
-## edges (an InputMap action can't be scoped to one device).
+## The rising edge of the slot-1 control. Uses the same per-device _edge helper
+## as the other pad controls now that it is a normal binding.
 func _slot1_pressed() -> bool:
-	var down := _slot1_held()
-	var was: bool = _slot1_down
-	_slot1_down = down
-	return down and not was
+	return _edge("grenade")
 
 
 func _start_gadget_cd(slot: int, seconds: float) -> void:
@@ -1603,6 +1800,16 @@ func _fire_wrist_rocket() -> void:
 	_on_weapon_fired(0.09, 1.6)
 
 
+## The Clone ARC's scan dart: fires from the head like the wrist rocket, so it
+## goes exactly where the crosshair points. It reveals for the whole team, so it
+## carries the team rather than the body.
+func _fire_scan_dart() -> void:
+	var dart := SCAN_DART_SCENE.new()
+	get_tree().current_scene.add_child(dart)
+	var dir := -head.global_transform.basis.z
+	dart.launch(head.global_position + dir * 0.6, dir, self, team)
+
+
 ## How long a cloak lasts, and how faint you go. Not fully invisible to a HUMAN
 ## opponent — a faint shimmer is still there to spot if they are looking — but
 ## AI cannot see you at all (GameState.cloaked). That split is deliberate: an
@@ -1772,7 +1979,7 @@ func _update_gear() -> void:
 		_swap_weapon()
 	if _gadget_pressed():
 		_use_gadget(0)
-	# The SLOT-1 control (keyboard G, pad LB+RB together) fires the second gadget.
+	# The GADGET 2 control (keyboard G, pad LB by default) fires the second gadget.
 	# If the slot is empty and the class can dash, that button is the dash — the
 	# Force adept's dash costs no new binding, exactly as before.
 	if _slot1_pressed():

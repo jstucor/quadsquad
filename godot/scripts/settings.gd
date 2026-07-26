@@ -31,6 +31,7 @@ var _rows_box: VBoxContainer
 var _profile_button: Button
 var _hint: Label
 var _rows := {}              # control id -> the button showing it
+var _death_button: Button    # the DEATH STYLE toggle (a game option, not a binding)
 
 
 func _ready() -> void:
@@ -73,6 +74,18 @@ func _build() -> void:
 	_hint = _label("", 15, FAINT)
 	column.add_child(_hint)
 	column.add_child(_spacer(6))
+
+	# GAME OPTIONS. Not bindings, and they know it — this screen is the only
+	# options screen the game has, so they are parked at the bottom of it rather
+	# than not existing. When there are more than a couple of these they want a
+	# SETTINGS screen of their own off the menu; Controls._options is already
+	# separate from the bindings so moving them is a screen, not a migration.
+	column.add_child(_spacer(6))
+	_death_button = _button("")
+	_death_button.pressed.connect(func() -> void:
+		Controls.set_option(Controls.OPT_CLASSIC_DEATH, not Controls.classic_death())
+		_refresh())
+	column.add_child(_death_button)
 
 	var reset := _button("RESET TO DEFAULTS")
 	reset.pressed.connect(func() -> void:
@@ -121,6 +134,9 @@ func _rebuild_rows() -> void:
 
 func _refresh() -> void:
 	_profile_button.text = "DEVICE  %s" % _profile_name()
+	if _death_button:
+		_death_button.text = "DEATH STYLE  %s" % ("CLASSIC (T-POSE)"
+			if Controls.classic_death() else "COLLAPSE")
 	for id in _rows:
 		var button: Button = _rows[id]
 		if id == _listening:

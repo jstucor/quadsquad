@@ -35,8 +35,8 @@ const ACTIONS: Array[Dictionary] = [
 	{"id": "sprint", "name": "SPRINT", "pad": true},
 	{"id": "crouch", "name": "CROUCH", "pad": true},
 	{"id": "switch", "name": "SWAP WEAPON", "pad": true},
-	{"id": "gadget", "name": "GADGET", "pad": true},
-	{"id": "grenade", "name": "GADGET 2 (kb)", "pad": false},
+	{"id": "gadget", "name": "GADGET 1", "pad": true},
+	{"id": "grenade", "name": "GADGET 2", "pad": true},
 	{"id": "map", "name": "MAP / STRIKE", "pad": true},
 	{"id": "interact", "name": "PICK UP", "pad": true},
 	{"id": "forward", "name": "MOVE FORWARD", "pad": false},
@@ -69,10 +69,10 @@ const DEFAULT_KEYS := {
 # Fire and aim are the TRIGGERS alone. They used to also carry the shoulder
 # above them, which spent both bumpers on a duplicate of a control the player
 # already has under a finger; the bumpers are where a shooter expects its two
-# throwables, so gadget owns X and keeps a d-pad button as a second way in. The
-# SECOND gadget slot is the LB+RB CHORD — read directly in Player, not bound here
-# — so both shoulders are left FREE of any single-button action, or holding the
-# chord would also fire whatever one shoulder was bound to.
+# throwables, so the two GADGET slots own them. GADGET 1 sits on X (with a d-pad
+# button as a second way in) and GADGET 2 on LB — each slot is now its OWN
+# rebindable single-button control, not the old LB+RB chord, so the settings
+# screen can give slots 1 and 2 independent bindings per pad.
 const DEFAULT_PAD := {
 	"fire": [{"kind": Kind.AXIS, "index": JOY_AXIS_TRIGGER_RIGHT, "dir": 1}],
 	"ads": [{"kind": Kind.AXIS, "index": JOY_AXIS_TRIGGER_LEFT, "dir": 1}],
@@ -82,6 +82,8 @@ const DEFAULT_PAD := {
 	"switch": [{"kind": Kind.BUTTON, "index": JOY_BUTTON_Y}],
 	"gadget": [{"kind": Kind.BUTTON, "index": JOY_BUTTON_X},
 		{"kind": Kind.BUTTON, "index": JOY_BUTTON_DPAD_UP}],
+	"grenade": [{"kind": Kind.BUTTON, "index": JOY_BUTTON_LEFT_SHOULDER},
+		{"kind": Kind.BUTTON, "index": JOY_BUTTON_DPAD_DOWN}],
 	"map": [{"kind": Kind.BUTTON, "index": JOY_BUTTON_BACK}],
 	"interact": [{"kind": Kind.BUTTON, "index": JOY_BUTTON_DPAD_LEFT}],
 }
@@ -118,8 +120,22 @@ const UNBOUND_LABEL := "—"  # em dash: this action has nothing on it
 ## Returned for an unbound control, so the per-frame lookup never builds one.
 const EMPTY_BINDS: Array = []
 
+# Per-player feel settings, edited from the in-game START overlay and stored
+# per device the same way bindings are. A look-speed multiplier and an aim-assist
+# strength multiplier, both 1.0 by default. The assist multiplier scales the pull
+# the aim assist already applies (0 turns it off for that player even while the
+# match has assist on); the sensitivity multiplies mouse and stick look speed.
+const DEFAULT_SENS := 1.0
+const DEFAULT_ASSIST := 1.0
+const SENS_MIN := 0.2
+const SENS_MAX := 3.0
+const ASSIST_MIN := 0.0
+const ASSIST_MAX := 2.0
+
 static var _keys := {}    # id -> {"key": kc} / {"mouse": idx} / {} when unbound
 static var _pads := {}    # device -> {id -> Array of bindings}
+static var _settings := {}   # device -> {"sensitivity": f, "aim_assist": f}
+static var _profiles := {}   # name -> a captured device config (see save_profile)
 static var _loaded := false
 
 
@@ -130,6 +146,9 @@ static func ensure_loaded() -> void:
 		return
 	_loaded = true
 	_reset_tables()
+	# Named profiles survive a "reset to defaults" (which only calls _reset_tables),
+	# so they are cleared here, at first load, and never by the reset.
+	_profiles = {}
 	_load()
 	apply_keyboard()
 	apply_ui_pad()
@@ -264,12 +283,12 @@ static func label(device: int, id: String) -> String:
 	return key_label(id) if device < 0 else pad_label(device, id)
 
 
-## The second gadget slot's control, for buy-screen prompts. It is the one
-## control that is NOT a normal binding: a keyboard key (the `grenade` action)
-## for the keyboard player, and the fixed LB+RB chord on a pad (read directly in
-## Player, so there is no binding to look up).
+## The second gadget slot's control, for buy-screen prompts. It is now an
+## ordinary rebindable binding on both halves — the `grenade` action — so this is
+## just the usual player-facing label, kept as a named helper for the callers
+## that speak of "slot 2" rather than of the `grenade` id.
 static func slot2_label(device: int) -> String:
-	return key_label("grenade") if device < 0 else "LB+RB"
+	return label(device, "grenade")
 
 
 static func pad_label(device: int, id: String) -> String:
@@ -406,6 +425,144 @@ static func _same_bind(a: Dictionary, b: Dictionary) -> bool:
 static func _reset_tables() -> void:
 	_keys = DEFAULT_KEYS.duplicate(true)
 	_pads = {ALL_PADS: DEFAULT_PAD.duplicate(true)}
+	_settings = {}
+
+
+# --- per-player feel settings -------------------------------------------------
+#
+# Kept per device, keyed exactly like a pad's bindings (device index, or -1 for
+# the keyboard player). No ALL_PADS fallback: these are personal, so an unset
+# device just answers the default rather than inheriting somebody else's.
+
+static func sensitivity(device: int) -> float:
+	ensure_loaded()
+	var s = _settings.get(device)
+	return s["sensitivity"] if s != null and s.has("sensitivity") else DEFAULT_SENS
+
+
+static func aim_assist_strength(device: int) -> float:
+	ensure_loaded()
+	var s = _settings.get(device)
+	return s["aim_assist"] if s != null and s.has("aim_assist") else DEFAULT_ASSIST
+
+
+static func set_sensitivity(device: int, value: float) -> void:
+	ensure_loaded()
+	_settings.get_or_add(device, {})["sensitivity"] = clampf(value, SENS_MIN, SENS_MAX)
+	save()
+
+
+static func set_aim_assist(device: int, value: float) -> void:
+	ensure_loaded()
+	_settings.get_or_add(device, {})["aim_assist"] = clampf(value, ASSIST_MIN, ASSIST_MAX)
+	save()
+
+
+# --- game options -------------------------------------------------------------
+#
+# Settings that belong to the MACHINE rather than to a device or a match: they
+# are the same for all four players at the couch and they outlive a match, so
+# they cannot live on GameState (reset every map) or in _settings (per device).
+#
+# They are here because Controls already owns user://controls.cfg and the
+# CONTROLS screen is the only options screen the game has. That is a stopgap:
+# these are not bindings, and the moment there are more than a couple of them
+# they want a SETTINGS screen of their own off the menu, with this section moved
+# behind it unchanged.
+static var _options := {}
+
+## Death style. The corpse normally wears the dead unit's own body, collapsed;
+## turning this on brings back the original stiff arms-out flop, which is the
+## look the game shipped with and is funnier.
+const OPT_CLASSIC_DEATH := "classic_death"
+
+
+static func option(name: String, fallback := false) -> bool:
+	ensure_loaded()
+	return bool(_options.get(name, fallback))
+
+
+static func set_option(name: String, value: bool) -> void:
+	ensure_loaded()
+	_options[name] = value
+	save()
+
+
+static func classic_death() -> bool:
+	return option(OPT_CLASSIC_DEATH)
+
+
+# --- named profiles -----------------------------------------------------------
+#
+# A profile is a snapshot of ONE device's whole config: its feel settings plus
+# its bindings. A player builds theirs once and loads it onto whatever device
+# they are on at the start of a match. Bindings are captured for the device's
+# KIND (keyboard keys, or pad bindings) and only re-applied to a matching kind;
+# the feel settings apply either way.
+
+static func profile_names() -> Array:
+	ensure_loaded()
+	var names: Array = _profiles.keys()
+	names.sort()
+	return names
+
+
+static func has_profile(name: String) -> bool:
+	ensure_loaded()
+	return _profiles.has(name)
+
+
+## Capture `device`'s current config under `name`, overwriting any profile of
+## that name. Empty names are refused so the save button can't make a nameless
+## row that nothing can address.
+static func save_profile(name: String, device: int) -> bool:
+	ensure_loaded()
+	name = name.strip_edges()
+	if name.is_empty():
+		return false
+	var p := {
+		"sensitivity": sensitivity(device),
+		"aim_assist": aim_assist_strength(device),
+	}
+	if device < 0:
+		p["keys"] = _keys.duplicate(true)
+	else:
+		var binds := {}
+		for entry in ACTIONS:
+			if entry["pad"]:
+				binds[entry["id"]] = bindings_for(device, entry["id"]).duplicate(true)
+		p["pads"] = binds
+	_profiles[name] = p
+	save()
+	return true
+
+
+## Apply a saved profile onto `device`. The feel settings always take; bindings
+## take only when the profile's kind matches the target (pad→pad, keyboard→keys).
+static func load_profile(name: String, device: int) -> bool:
+	ensure_loaded()
+	var p = _profiles.get(name)
+	if p == null:
+		return false
+	_settings.get_or_add(device, {})["sensitivity"] = \
+		clampf(p.get("sensitivity", DEFAULT_SENS), SENS_MIN, SENS_MAX)
+	_settings[device]["aim_assist"] = \
+		clampf(p.get("aim_assist", DEFAULT_ASSIST), ASSIST_MIN, ASSIST_MAX)
+	if device < 0 and p.has("keys"):
+		_keys = (p["keys"] as Dictionary).duplicate(true)
+		apply_keyboard()
+	elif device >= 0 and p.has("pads"):
+		var profile: Dictionary = _pads.get_or_add(device, {})
+		for id in p["pads"]:
+			profile[id] = (p["pads"][id] as Array).duplicate(true)
+	save()
+	return true
+
+
+static func delete_profile(name: String) -> void:
+	ensure_loaded()
+	if _profiles.erase(name):
+		save()
 
 
 # --- persistence --------------------------------------------------------------
@@ -417,6 +574,12 @@ static func save() -> void:
 	for device in _pads:
 		for id in _pads[device]:
 			cfg.set_value("pad_%d" % device, id, _pads[device][id])
+	for device in _settings:
+		cfg.set_value("settings", str(device), _settings[device])
+	if not _profiles.is_empty():
+		cfg.set_value("profiles", "data", _profiles)
+	for name in _options:
+		cfg.set_value("options", name, _options[name])
 	cfg.save(CONFIG_PATH)
 
 
@@ -428,6 +591,17 @@ static func _load() -> void:
 		if section == "keyboard":
 			for id in cfg.get_section_keys(section):
 				_keys[id] = cfg.get_value(section, id)
+			continue
+		if section == "settings":
+			for key in cfg.get_section_keys(section):
+				_settings[int(key)] = cfg.get_value(section, key)
+			continue
+		if section == "profiles":
+			_profiles = cfg.get_value(section, "data", {})
+			continue
+		if section == "options":
+			for name in cfg.get_section_keys(section):
+				_options[name] = cfg.get_value(section, name)
 			continue
 		if not section.begins_with("pad_"):
 			continue

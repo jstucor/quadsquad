@@ -87,6 +87,11 @@ func _build() -> void:
 	var victory_dd := _dropdown(settings, "VICTORY")
 	var skill_dd := _dropdown(settings, "AI SKILL")
 	var assist_dd := _dropdown(settings, "AIM ASSIST")
+	# CLASSES is where the gear comes from, and it is deliberately independent of
+	# the mode: faction rosters in deathmatch and the buy screen in Conquest are
+	# both perfectly good matches. Selecting a mode SEEDS it (Conquest opens on
+	# faction, everything else on custom) and you are free to change it after.
+	var classes_dd := _dropdown(settings, "CLASSES")
 
 	_summary = _label("", 17, Color(0.68, 0.72, 0.78))
 	column.add_child(_summary)
@@ -111,6 +116,7 @@ func _build() -> void:
 		[map_dd, mode_dd],
 		[players_dd, teams_dd, size_dd],
 		[victory_dd, skill_dd, assist_dd],
+		[classes_dd],
 		[start],
 		[rotate_btn, controls_btn, quit_btn],
 	])
@@ -126,6 +132,11 @@ func _build() -> void:
 		_fill(mode_dd, _mode_items(), GameState.mode)
 		blurb.text = "%s   —   %s" % [
 			GameState.MAPS[GameState.map_index]["blurb"], GameState.mode_blurb()]
+		# CONQUEST is Republic vs Separatist: exactly two sides, never a free-for-all.
+		var conquest: bool = GameState.mode == GameState.Mode.CONQUEST
+		if conquest:
+			GameState.free_for_all = false
+			GameState.team_count = 2
 		# Every dropdown is REBUILT here rather than just re-selected, because
 		# what is legal changes as you go: team size cannot drop below the humans
 		# already standing in a team, and free-for-all needs a second player.
@@ -133,6 +144,7 @@ func _build() -> void:
 		_fill(players_dd, _player_items(), GameState.human_players - GameState.MIN_HUMANS)
 		_fill(teams_dd, _team_items(), _team_choice())
 		teams_dd.set_item_disabled(_FREE_FOR_ALL_ITEM, GameState.human_players < 2)
+		teams_dd.disabled = conquest   # locked to two sides in Conquest
 		var sizes := _size_items()
 		_fill(size_dd, sizes, sizes.find(_size_label(GameState.team_size)))
 		size_dd.disabled = GameState.free_for_all   # every side is one player
@@ -143,6 +155,11 @@ func _build() -> void:
 		victory_dd.disabled = GameState.mode == GameState.Mode.ROYALE
 		_fill(skill_dd, _skill_items(), GameState.ai_skill)
 		_fill(assist_dd, _assist_items(), GameState.aim_assist)
+		# ROYALE is neither a shop nor a roster — everything you fight with is
+		# scavenged — so the row is disabled rather than hidden, the same rule
+		# VICTORY follows: an option that vanishes is one nobody learns exists.
+		_fill(classes_dd, _classes_items(), GameState.class_mode)
+		classes_dd.disabled = GameState.mode == GameState.Mode.ROYALE
 		_summary.text = _describe()
 
 	map_dd.item_selected.connect(func(i: int) -> void:
@@ -150,6 +167,13 @@ func _build() -> void:
 		_refresh_all.call())
 	mode_dd.item_selected.connect(func(i: int) -> void:
 		GameState.mode = i
+		# A mode SEEDS the class source rather than owning it: Conquest opens on
+		# its faction rosters, everything else on the buy screen, and the CLASSES
+		# row below is free to say otherwise.
+		GameState.class_mode = GameState.default_class_mode(i)
+		_refresh_all.call())
+	classes_dd.item_selected.connect(func(i: int) -> void:
+		GameState.class_mode = i
 		_refresh_all.call())
 	victory_dd.item_selected.connect(func(i: int) -> void:
 		GameState.score_targets[GameState.mode] = _victory_values()[i]
@@ -271,6 +295,7 @@ func _mode_items() -> PackedStringArray:
 const SCORE_CHOICES := {
 	GameState.Mode.DEATHMATCH: [10, 25, 50, 75, 100],
 	GameState.Mode.ZONES: [60, 120, 200, 300],
+	GameState.Mode.CONQUEST: [75, 150, 250, 400],   # starting reinforcements per side
 }
 
 
@@ -280,7 +305,11 @@ func _victory_values() -> Array:
 
 func _victory_items() -> PackedStringArray:
 	var out := PackedStringArray()
-	var unit := "SECONDS" if GameState.mode == GameState.Mode.ZONES else "KILLS"
+	var unit := "KILLS"
+	if GameState.mode == GameState.Mode.ZONES:
+		unit = "SECONDS"
+	elif GameState.mode == GameState.Mode.CONQUEST:
+		unit = "REINFORCEMENTS"
 	for v in _victory_values():
 		out.append("%d %s" % [v, unit])
 	return out
@@ -313,6 +342,13 @@ func _assist_items() -> PackedStringArray:
 	return out
 
 
+func _classes_items() -> PackedStringArray:
+	var out := PackedStringArray()
+	for i in GameState.CLASS_MODE_NAMES.size():
+		out.append(str(GameState.CLASS_MODE_NAMES[i]))
+	return out
+
+
 ## The smallest team size this setup allows: a team can never be smaller than
 ## the humans already standing in it.
 func _smallest_team_size() -> int:
@@ -335,16 +371,21 @@ func _fix_setup() -> void:
 ## Spell out what you'll actually get, since "3 humans across 2 teams at team
 ## size 3" is not obviously a 3v3 with three bots in it.
 func _describe() -> String:
+	var gear := "   ·   %s" % ("faction classes" if GameState.faction_classes()
+		else "custom loadouts")
+	if GameState.mode == GameState.Mode.ROYALE:
+		gear = "   ·   everything scavenged"
 	if GameState.free_for_all:
-		return "%d players, every one for themselves — no AI" % GameState.human_players
+		return "%d players, every one for themselves — no AI%s" % [
+			GameState.human_players, gear]
 	var ai := 0
 	var sides := PackedStringArray()
 	for t in GameState.active_teams():
 		ai += GameState.ai_needed(t)
 		sides.append(str(GameState.team_size))
-	return "%d human%s + %d AI     %s" % [
+	return "%d human%s + %d AI     %s%s" % [
 		GameState.human_players, "" if GameState.human_players == 1 else "s",
-		ai, " v ".join(sides)]
+		ai, " v ".join(sides), gear]
 
 
 ## START goes to the TEAM-SELECT screen first, where each player picks a side —

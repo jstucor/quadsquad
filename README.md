@@ -214,6 +214,55 @@ tools/animate_trooper.py    — retired Blender rig/animation pipeline (unused)
 - Conquest mode: command posts, spawn-point capture, ticket bleed
 - Game-over flow and a lobby (map select is in — see Current State)
 - Particles (impact sparks, explosions) — instanced, Pi-friendly
+- **A SETTINGS SCREEN.** There is a CONTROLS screen and nowhere else for a game
+  option to live, so `DEATH STYLE` is currently parked at the bottom of it.
+  Options are already stored separately from bindings (`Controls._options`, its
+  own `[options]` section in `user://controls.cfg`), so this is a screen to
+  write, not a migration.
+- **HOST / JOIN over the local network.** See the notes below before starting.
+
+## Networking notes (for the local-network host/join mode)
+
+Nothing here is networked yet, and this section is what a future implementation
+should read first. Godot's `MultiplayerAPI` (ENet) is the intended transport;
+what matters is what the existing design already got right and what it did not.
+
+**What is already in the right shape.** Every combatant is duck-typed behind
+`is_alive()` / `team` / `take_damage()`, so a remote body only has to answer the
+same four questions. `GameState` is a single autoload holding the whole match
+state (scores, tickets, posts, spawns) — one authority object, not state
+scattered through the scene. Match setup is a handful of scalars chosen on the
+menu, which is exactly what a lobby has to ship to a client. And the game is
+already built for N viewports per machine, so "four players at one couch" and
+"four machines with one player each" differ only in how many local players a
+peer has, not in how the match works.
+
+**What will fight it.**
+
+- **Everything is authoritative-by-accident.** Bots, turrets, mortars and the
+  storm all act on their own in `_physics_process`, and damage is applied by
+  the shooter calling `take_damage` on the victim directly. That has to become
+  server-authoritative: the host simulates AI and resolves hits, clients send
+  input and receive results. `Weapon._fire_hitscan` is the single choke point
+  for gunfire, which helps.
+- **Hitscan plus latency needs lag compensation.** The guard (`Player.guard_up`)
+  and the block arc make "was this shot stopped" a question about the victim's
+  state at the time of firing, so the host has to rewind, not just check now.
+- **Nothing is seeded or deterministic.** The storm, pickup scatter, spawn
+  picking and the bot aim wobble all call `randf()` freely. Anything that must
+  agree across machines needs a shared seed sent at match start;
+  `Storm.setup(seed)` is already written that way and is the pattern to follow.
+- **RNG that must NOT be shared:** the AI's aim error is cosmetic on a client
+  and should stay host-side only.
+- **The HUD is per viewport and reads other bodies directly** (the map screen,
+  the thermal read, the scan overlay all walk `GameState.combatants`). Each is
+  already restricted to teammates or to what that player has earned the right to
+  see, so the rule to keep is: a client is only ever SENT what its own side may
+  see, rather than being sent everything and asked not to draw it.
+- **Input is polled per device, not evented** (`Controls.held(device, id)`).
+  A networked client sends its own input state; the polling model maps onto that
+  cleanly, but `Player._physics_process` reads the device inline in a dozen
+  places and would want one "input snapshot" struct per player per tick.
 
 ## Performance rules (Pi 5 target)
 

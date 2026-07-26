@@ -45,7 +45,38 @@ const MAX_SIDE := 220
 ## is inside the crate's inflated footprint.
 const OPEN_SEARCH := 6
 
+## HOW MANY A* SEARCHES MAY RUN IN ONE PHYSICS FRAME, across every bot on the
+## map.
+##
+## What one search costs, timed directly (tests/perf.tscn): 2.0 ms on Kashyyyk,
+## 1.7 ms on Geonosis, 0.10 ms on a small arena. What a loaded match asks for:
+## about 16 searches a second across the whole AI. On AVERAGE that is half a
+## millisecond a frame and perfectly affordable — the problem was never the
+## average.
+##
+## The problem is that bots re-plan on their own timers, so nothing stopped
+## several landing on the SAME frame: at eight bots the worst frame was eight
+## searches, ~16 ms of A* on a 16.7 ms budget, for a stutter with no cause
+## visible anywhere in the game. It is not hypothetical — with the budget at 2,
+## a 1.4 s sample deferred 12 requests, meaning a dozen frames genuinely had
+## three or more bots wanting a route at once.
+##
+## Bots that are refused simply keep following the path they already have (or
+## walk straight at the goal, which is the no-path fallback) and ask again next
+## frame. That is invisible: a plan is a few seconds of walking, and one frame
+## late is nothing.
+const PLANS_PER_FRAME := 2
+
 var ready := false
+
+## Running totals, for the perf harness. A* is the AI's expensive answer, so how
+## OFTEN it is asked for is the number worth watching — frame-time averages on a
+## capped loop are far too noisy to see a routing change in.
+var plans_run := 0
+var plans_refused := 0
+
+var _plan_frame := -1
+var _plans_this_frame := 0
 
 var _grid: AStarGrid2D
 var _origin := Vector2.ZERO   # world XZ of the grid's lower corner
@@ -114,6 +145,22 @@ func _stamp(shape: Dictionary) -> void:
 			var d := p - at
 			if absf(d.dot(ex)) <= grown.x and absf(d.dot(ez)) <= grown.y:
 				_grid.set_point_solid(Vector2i(cx, cy), true)
+
+
+## May a search run this physics frame? Ask BEFORE calling `path`, and if the
+## answer is no, keep whatever route you already had and ask again next frame.
+## See PLANS_PER_FRAME for why the budget exists.
+func may_plan() -> bool:
+	var frame := Engine.get_physics_frames()
+	if frame != _plan_frame:
+		_plan_frame = frame
+		_plans_this_frame = 0
+	if _plans_this_frame >= PLANS_PER_FRAME:
+		plans_refused += 1
+		return false
+	_plans_this_frame += 1
+	plans_run += 1
+	return true
 
 
 ## A route from one world point to another, as world XZ waypoints. Empty when

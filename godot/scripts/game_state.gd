@@ -21,20 +21,28 @@ enum Team { REPUBLIC, CIS }
 ## ROYALE is the odd one out: it is not scored at all. Nobody respawns, you
 ## start with a sidearm and scavenge the rest off the ground, a shrinking storm
 ## herds everyone together, and the last side still standing wins.
-enum Mode { DEATHMATCH, ZONES, ROYALE }
+## CONQUEST is the Battlefront mode: two sides fight over CAPTURE POSTS spread
+## across the map. Holding more posts than the enemy bleeds their shared
+## REINFORCEMENT tickets, and each death spends one; the side that runs its
+## tickets to zero loses. You deploy AT a post your side holds, chosen on the
+## spawn screen — so losing your posts is losing your footholds on the map.
+enum Mode { DEATHMATCH, ZONES, ROYALE, CONQUEST }
 const MODE_NAMES := {
 	Mode.DEATHMATCH: "DEATHMATCH", Mode.ZONES: "ZONES", Mode.ROYALE: "BATTLE ROYALE",
+	Mode.CONQUEST: "CONQUEST",
 }
 const MODE_BLURBS := {
 	Mode.DEATHMATCH: "First to %d kills",
 	Mode.ZONES: "Hold the area. A point a second, new area every %ds, first to %d",
 	Mode.ROYALE: "No respawns. Scavenge your gear, outlast the storm, last side wins",
+	Mode.CONQUEST: "Capture command posts to spawn on. Hold more to bleed the enemy's %d reinforcements to zero",
 }
 
-# DEFAULT victory threshold per mode: kills, seconds of control, or simply being
-# the last side left (one "point", awarded once). The menu lets you raise or
-# lower the first two — score_targets holds the chosen values, seeded from here.
-const SCORE_LIMITS := {Mode.DEATHMATCH: 25, Mode.ZONES: 60, Mode.ROYALE: 1}
+# DEFAULT victory threshold per mode: kills, seconds of control, being the last
+# side left (one "point", awarded once), or the reinforcement pool each side
+# starts Conquest with. The menu lets you raise or lower all but royale's —
+# score_targets holds the chosen values, seeded from here.
+const SCORE_LIMITS := {Mode.DEATHMATCH: 25, Mode.ZONES: 60, Mode.ROYALE: 1, Mode.CONQUEST: 150}
 ## The victory thresholds actually in force, chosen on the menu. Seeded from the
 ## defaults; ROYALE's is fixed (last side standing is not a number you tune).
 ## The offered choices live on the menu (SCORE_CHOICES there), not here.
@@ -118,6 +126,14 @@ var mode := Mode.DEATHMATCH
 var zone_point := Vector3.ZERO
 var zone_active := false
 
+## CONQUEST: the shared reinforcement pool per team (seeded to score_limit()),
+## the live command posts (each a CommandPost that reports its own owner), and
+## the manager that runs the bleed. `scores` mirrors `tickets` in this mode so
+## the scoreboard and victory banner show the count with no special-casing.
+var tickets := {}
+var conquest_posts: Array[Node3D] = []
+var conquest: Node = null
+
 ## What the map screen draws. `map_extents` is the playable half-size on XZ;
 ## `map_shapes` are top-down footprints of the solid geometry, scanned once at
 ## match start (see scan_map_geometry).
@@ -143,6 +159,28 @@ const AIM_ASSIST_NAMES := {
 	AimAssist.OFF: "OFF", AimAssist.PADS: "PADS", AimAssist.EVERYONE: "EVERYONE",
 }
 var aim_assist := AimAssist.PADS
+
+## HOW A PLAYER GETS THE GEAR THEY DEPLOY WITH, chosen on the menu and
+## deliberately INDEPENDENT of the mode.
+##
+##   CUSTOM   the buy screen: spend the budget across the catalogue.
+##   FACTION  your side's fixed roster: pick one of four authored classes off
+##            the character-select screen. No budget, nothing to spend.
+##
+## Conquest was written as "the mode with no buy screen" and deathmatch as "the
+## mode with one", which meant the two were welded to the rules they shipped
+## with. They are not the same choice: a Battlefront-style roster is just as
+## playable in deathmatch, and shopping is just as playable while fighting over
+## command posts. So this is its own setting, `default_class_mode` only seeds it
+## from the mode, and both screens work in every mode.
+##
+## ROYALE is the one exception and always ignores it: there is nothing to pick
+## because everything you fight with is scavenged off the ground.
+enum ClassMode { CUSTOM, FACTION }
+const CLASS_MODE_NAMES := {
+	ClassMode.CUSTOM: "CUSTOM (BUY SCREEN)", ClassMode.FACTION: "FACTION ROSTERS",
+}
+var class_mode := ClassMode.CUSTOM
 
 var human_players := 4
 var team_size := 2
@@ -245,6 +283,21 @@ func score_limit() -> int:
 	return int(score_targets[mode])
 
 
+## Does this match deploy off the faction rosters rather than the buy screen?
+## Every screen and every AI asks THIS rather than testing the mode, which is
+## what lets faction classes turn up in deathmatch and the buy screen turn up in
+## Conquest. Royale is not a shop and not a roster — it is scavenging — so it
+## answers false whatever the setting says.
+func faction_classes() -> bool:
+	return mode != Mode.ROYALE and class_mode == ClassMode.FACTION
+
+
+## What a mode expects when you first select it. Only a seed: the menu writes it
+## into class_mode on a mode change and the player is free to change it after.
+func default_class_mode(for_mode: int) -> int:
+	return ClassMode.FACTION if for_mode == Mode.CONQUEST else ClassMode.CUSTOM
+
+
 ## The current mode's blurb with its own numbers already in it.
 ##
 ## How many arguments a blurb takes is part of the blurb, and only this file
@@ -259,6 +312,8 @@ func mode_blurb() -> String:
 			return MODE_BLURBS[mode] % score_limit()
 		Mode.ZONES:
 			return MODE_BLURBS[mode] % [int(Zone.RELOCATE_EVERY), score_limit()]
+		Mode.CONQUEST:
+			return MODE_BLURBS[mode] % score_limit()
 		_:
 			return MODE_BLURBS[mode]
 
@@ -274,8 +329,17 @@ func reset_match() -> void:
 	nav = NavGrid.new()
 	map_bounds_known = false
 	smokes.clear()
+	scanned.clear()
 	_spawns.clear()
 	combatants.clear()
+	# CONQUEST: seed each side's reinforcements and mirror them into the score.
+	tickets.clear()
+	conquest_posts.clear()
+	conquest = null
+	if mode == Mode.CONQUEST:
+		for t in active_teams():
+			tickets[t] = score_limit()
+			scores[t] = tickets[t]
 
 
 ## A map declares its playable area. Arena does this for every procedural map;
@@ -335,6 +399,47 @@ func register_combatant(body: Node3D) -> void:
 func unregister_combatant(body: Node3D) -> void:
 	combatants.erase(body)
 	cloaked.erase(body)
+	scanned.erase(body)
+
+
+## --- per-frame combatant snapshot --------------------------------------------
+##
+## The four reads a head count needs — validity, is_alive(), global_position and
+## team — taken ONCE per physics frame and shared by everything that counts
+## bodies in an area that frame. Read `live_n` and index `live_points`/
+## `live_teams` together; do not hold the arrays across frames.
+##
+## This exists because Conquest asks for a capture read on EVERY command post on
+## EVERY physics frame, where Zones asks once a second for one area. Each post
+## re-walked `combatants` and re-took all four reads per body, so the scan was
+## multiplied by the number of posts on the map — five posts against a full
+## lobby measured 0.4 ms a frame doing the identical work five times. Sampling
+## once is not an approximation: within a single physics frame every post saw
+## the same unmoved bodies anyway.
+var live_points := PackedVector3Array()
+var live_teams := PackedInt32Array()
+var live_n := 0
+var _live_frame := -1
+## Grown in blocks and never shrunk, so a settled match stops reallocating.
+const _LIVE_GROW := 8
+
+
+func sample_combatants() -> void:
+	var frame := Engine.get_physics_frames()
+	if frame == _live_frame:
+		return
+	_live_frame = frame
+	var n := 0
+	for c in combatants:
+		if not is_instance_valid(c) or not c.is_alive():
+			continue
+		if live_points.size() <= n:
+			live_points.resize(n + _LIVE_GROW)
+			live_teams.resize(n + _LIVE_GROW)
+		live_points[n] = c.global_position
+		live_teams[n] = c.team
+		n += 1
+	live_n = n
 
 
 ## Combatants currently invisible to AI (the Trandoshan's cloak). A set kept
@@ -354,6 +459,27 @@ func set_cloaked(body: Node3D, on: bool) -> void:
 
 func is_cloaked(body: Node3D) -> bool:
 	return not cloaked.is_empty() and cloaked.has(body)
+
+
+## Enemies currently REVEALED by a scan dart, body -> {"team", "until" (msec)}.
+## The reveal is team-wide (whoever threw the dart shows it to their whole side)
+## and time-limited, and it draws THROUGH walls — that is the recon value. Read by
+## the per-viewport scan overlay in Main.
+var scanned := {}
+
+
+func mark_scanned(body: Node3D, team: int, duration: float) -> void:
+	scanned[body] = {"team": team, "until": Time.get_ticks_msec() + int(duration * 1000.0)}
+
+
+func is_scanned_for(body: Node3D, team: int) -> bool:
+	var e = scanned.get(body)
+	if e == null:
+		return false
+	if e["until"] < Time.get_ticks_msec():
+		scanned.erase(body)
+		return false
+	return e["team"] == team
 
 
 ## Smoke clouds currently on the field. They have no collider on purpose (that
@@ -539,6 +665,81 @@ func check_last_standing() -> void:
 func add_zone_tick(team: int) -> void:
 	if mode == Mode.ZONES:
 		_award(team)
+
+
+## --- Conquest ----------------------------------------------------------------
+
+func register_conquest_post(post: Node3D) -> void:
+	if not conquest_posts.has(post):
+		conquest_posts.append(post)
+
+
+## The posts a team currently holds — the spots it may deploy on. `owner_team`
+## rather than the built-in Node.owner, which is the scene owner and unrelated.
+func owned_posts(team: int) -> Array[Node3D]:
+	var out: Array[Node3D] = []
+	for p in conquest_posts:
+		if is_instance_valid(p) and p.owner_team == team:
+			out.append(p)
+	return out
+
+
+## Counts in place. `owned_posts().size()` allocated an array to throw it away,
+## which the reinforcement bleed and every deploy screen ask for repeatedly.
+func posts_held(team: int) -> int:
+	var n := 0
+	for p in conquest_posts:
+		if is_instance_valid(p) and p.owner_team == team:
+			n += 1
+	return n
+
+
+## Bumped every time a post changes hands. A screen showing the front line can
+## compare this in O(1) to tell whether anything it drew has moved, instead of
+## rebuilding the whole read every frame to find out it has not.
+var posts_revision := 0
+
+
+## A body on `team` went down. In Conquest that is a reinforcement spent.
+func report_death(team: int) -> void:
+	if mode == Mode.CONQUEST:
+		_spend_ticket(team, 1)
+
+
+## Passive reinforcement bleed from holding fewer posts than the enemy (the
+## Conquest manager drives this on its own clock).
+func conquest_bleed(team: int, amount: int) -> void:
+	if mode == Mode.CONQUEST:
+		_spend_ticket(team, amount)
+
+
+func _spend_ticket(team: int, amount: int) -> void:
+	if match_over or not tickets.has(team):
+		return
+	tickets[team] = maxi(int(tickets[team]) - amount, 0)
+	scores[team] = tickets[team]           # the scoreboard reads scores
+	score_changed.emit(team, scores[team])
+	if tickets[team] <= 0:
+		_conquest_defeat(team)
+
+
+## A side ran out of reinforcements: whoever still has some wins.
+func _conquest_defeat(loser: int) -> void:
+	if match_over:
+		return
+	var winner := -1
+	var best := -1
+	for t in active_teams():
+		if t == loser:
+			continue
+		var left := int(tickets.get(t, 0))
+		if left > best:
+			best = left
+			winner = t
+	if winner == -1:
+		winner = 0 if loser != 0 else 1
+	match_over = true
+	match_won.emit(winner)
 
 
 func _award(team: int) -> void:

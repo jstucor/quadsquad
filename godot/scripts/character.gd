@@ -19,16 +19,17 @@ var _suit_mat: StandardMaterial3D  # torso/upper-limb colour, tinted per team
 ## joint, and a rebuild mid-frame would race the AnimationPlayer for it.
 var _gun_parts: Array[MeshInstance3D] = []
 var _saber_parts: Array[MeshInstance3D] = []
+var _staff_parts: Array[MeshInstance3D] = []
 
 # Proportions in metres. Feet rest at y = 0 and the model faces -Z.
 #
-# These are the TROOPER's own bone lengths, measured off the model and scaled to
-# the 1.82 m the game is built around. Re-proportioning the rig rather than
-# stretching the mesh is what lets the trooper fit with no gaps at the joints,
-# and it costs the animation nothing: every clip is a set of joint ROTATIONS, so
-# changing a limb's length leaves the motion identical. (See TrooperParts, which
-# reads the same bones to cut the mesh up.)
-## Written out rather than computed from TrooperParts' bone table, because a
+# These are the retired trooper's own bone lengths, measured off the model and
+# scaled to the 1.82 m the game is built around, and kept because the animations
+# were tuned to them. Now the boxes are BUILT to fit the rig rather than the rig
+# fitted to a mesh, but the proportions stay so the gait, crouch and guard are
+# unchanged. It costs the animation nothing: every clip is a set of joint
+# ROTATIONS, so a limb length only changes where a box reaches, not how it moves.
+## Written out rather than computed, because a
 ## GDScript `const` cannot call a method — and these have to stay constants,
 ## since CROUCH_HIP_DROP is derived from them at parse time. The derivation is the
 ## bone spacing along the rig's own axis (the limbs here are purely vertical, so
@@ -63,6 +64,9 @@ const BLADE_LENGTH := 1.25
 const BLADE_WIDTH := 0.05
 const BLADE_CORE := Color(0.75, 0.92, 1.0)
 const BLADE_GLOW := Color(0.25, 0.65, 1.0)
+# The electrostaff's charge is violet, not the saber's blue (the IG-100 look).
+const STAFF_CORE := Color(0.86, 0.62, 1.0)
+const STAFF_GLOW := Color(0.58, 0.16, 0.98)
 
 const IDLE_LEN := 2.4
 const WALK_LEN := 1.0
@@ -133,9 +137,17 @@ const PATHS := {
 }
 
 
+## Build the rig but NOT the AnimationPlayer. A corpse wears one pose for the
+## few seconds it exists, and building eight clips (eleven tracks each, sampled
+## nine times, per death, four viewports deep) to hold one of them still is work
+## nobody sees. Set it before the model enters the tree.
+var static_pose := false
+
+
 func _ready() -> void:
 	_build_body()
-	_build_animations()
+	if not static_pose:
+		_build_animations()
 
 
 # --- rig construction ------------------------------------------------------
@@ -167,10 +179,48 @@ func _box(parent: Node3D, size: Vector3, center: Vector3, mat: Material) -> Mesh
 	return mi
 
 
-## Tint the suit (torso + upper limbs) so teams are readable at a glance.
+## Tint the team frame (torso, hips, upper limbs) so sides read at a glance.
+## Stored, so a set_style rebuild keeps the colour instead of reverting to grey.
 func set_team_color(c: Color) -> void:
+	_team_color = c
 	if _suit_mat:
 		_suit_mat.albedo_color = c
+
+
+# Skeleton offsets in metres, from the retired trooper's own bones (scaled to the
+# game's 1.82 m character). The MESH is procedural now, but keeping the exact RIG
+# proportions means every animation — foot placement, the solved carry pose, the
+# crouch and guard hip drops — lands precisely where it always did.
+const _SKEL := 1.82 / 2.055
+const _B_PELVIS := Vector3(0.0, 1.159, 0.0)
+const _B_NECK := Vector3(0.0, 1.716, 0.018)
+const _B_UPPERARM := Vector3(0.229, 1.649, 0.045)
+const _B_FOREARM := Vector3(0.462, 1.638, 0.100)
+const _B_THIGH := Vector3(0.094, 1.054, -0.009)
+const _B_CALF := Vector3(0.169, 0.581, -0.024)
+
+
+## Each joint's position RELATIVE TO ITS PARENT. The arms get a quarter-turn
+## correction that turns the T-pose bone into a hanging-arm offset — the same
+## correction the old trooper parts used, so the arms hang down, not out.
+func _joint_offsets() -> Dictionary:
+	var out := {}
+	out["head"] = (_B_NECK - _B_PELVIS) * _SKEL
+	for side in [-1.0, 1.0]:
+		var sn := "L" if side < 0.0 else "R"
+		var upper := Vector3(_B_UPPERARM.x * side, _B_UPPERARM.y, _B_UPPERARM.z)
+		var fore := Vector3(_B_FOREARM.x * side, _B_FOREARM.y, _B_FOREARM.z)
+		out["s" + sn] = (upper - _B_PELVIS) * _SKEL
+		out["e" + sn] = _arm_correction(sn) * ((fore - upper) * _SKEL)
+		var thigh := Vector3(_B_THIGH.x * side, _B_THIGH.y, _B_THIGH.z)
+		var calf := Vector3(_B_CALF.x * side, _B_CALF.y, _B_CALF.z)
+		out["h" + sn] = (thigh - _B_PELVIS) * _SKEL
+		out["k" + sn] = (calf - thigh) * _SKEL
+	return out
+
+
+func _arm_correction(sn: String) -> Basis:
+	return Basis(Vector3.BACK, PI * 0.5) if sn == "L" else Basis(Vector3.BACK, -PI * 0.5)
 
 
 ## Swap the held blaster for a lit lightsaber, or back. Everything about a Force
@@ -178,11 +228,16 @@ func set_team_color(c: Color) -> void:
 ## first-person guard pose and the swing are all private to the owner — and with
 ## a blaster in its hands the guard stance was a trooper standing oddly. A metre
 ## of glowing blade held across the chest is the tell.
-func set_melee(on: bool) -> void:
+## `staff` picks the electrostaff over the lightsaber; both are "melee" and both
+## get the guard, so a Magna Guard reads as a staff-carrier from across the map
+## while a Force adept reads as a blade-carrier.
+func set_melee(on: bool, staff := false) -> void:
 	for mi in _gun_parts:
 		mi.visible = not on
 	for mi in _saber_parts:
-		mi.visible = on
+		mi.visible = on and not staff
+	for mi in _staff_parts:
+		mi.visible = on and staff
 
 
 ## Fade the whole model to `alpha` (1.0 = solid) for the Trandoshan's cloak.
@@ -202,47 +257,152 @@ func set_cloak(alpha: float) -> void:
 			sm.albedo_color = c
 
 
+# --- character styles ------------------------------------------------------
+#
+# Each unit is its OWN procedural model now, not one imported trooper tinted per
+# team. A style is a colour scheme + a HEAD shape + a bulk multiplier + a set of
+# accessories; the skeleton (joint layout, from the same offsets) and every
+# animation are shared, so a new look costs a table row, not a rig. The class
+# `armor`/`dark` colours are the BODY (so a clone is white plate, a droid bronze),
+# and the TEAM colour rides the ACCENTS (`_suit_mat`: shoulder bells, chest vest,
+# belt, knee pads, helmet crest) — the way real armour markings read, and still a
+# clear team call at a glance.
+enum Style {
+	GENERIC, CLONE, CLONE_ENGINEER, CLONE_HEAVY, CLONE_ARC,
+	B1, B2, MAGNAGUARD, TACTICAL, MANDALORIAN, JEDI, WOOKIEE, TRANDOSHAN,
+}
+
+const STYLES := {
+	Style.GENERIC:        {"armor": Color(0.70, 0.72, 0.76), "dark": Color(0.16, 0.17, 0.20), "head": "bare"},
+	# Republic — white clone plate, team colour on the body suit, a helmet crest.
+	Style.CLONE:          {"armor": Color(0.86, 0.87, 0.90), "dark": Color(0.15, 0.16, 0.19), "head": "helmet"},
+	Style.CLONE_ENGINEER: {"armor": Color(0.86, 0.87, 0.90), "dark": Color(0.15, 0.16, 0.19), "head": "helmet", "acc": ["backpack"]},
+	Style.CLONE_HEAVY:    {"armor": Color(0.88, 0.89, 0.92), "dark": Color(0.15, 0.16, 0.19), "head": "helmet", "bulk": 1.28, "acc": ["pauldron"]},
+	Style.CLONE_ARC:      {"armor": Color(0.84, 0.85, 0.88), "dark": Color(0.14, 0.15, 0.18), "head": "helmet", "acc": ["antenna", "kama"]},
+	# Separatist — thin bronze B1, hulking B2, cloaked MagnaGuard, slim tactical.
+	Style.B1:             {"armor": Color(0.62, 0.50, 0.30), "dark": Color(0.30, 0.24, 0.14), "head": "b1", "bulk": 0.78},
+	Style.B2:             {"armor": Color(0.34, 0.36, 0.42), "dark": Color(0.14, 0.15, 0.18), "head": "b2", "bulk": 1.40},
+	Style.MAGNAGUARD:     {"armor": Color(0.30, 0.31, 0.34), "dark": Color(0.12, 0.13, 0.15), "head": "mask", "bulk": 0.96, "acc": ["cape"]},
+	Style.TACTICAL:       {"armor": Color(0.40, 0.46, 0.54), "dark": Color(0.16, 0.18, 0.22), "head": "b1", "bulk": 0.86},
+	# Base kits.
+	Style.MANDALORIAN:    {"armor": Color(0.55, 0.57, 0.62), "dark": Color(0.16, 0.17, 0.20), "head": "visor", "acc": ["jetpack"]},
+	Style.JEDI:           {"armor": Color(0.40, 0.31, 0.20), "dark": Color(0.22, 0.17, 0.11), "head": "hood", "acc": ["robe"]},
+	Style.WOOKIEE:        {"armor": Color(0.34, 0.23, 0.13), "dark": Color(0.22, 0.15, 0.09), "head": "furry", "bulk": 1.45, "acc": ["fur", "bandolier"]},
+	Style.TRANDOSHAN:     {"armor": Color(0.42, 0.47, 0.30), "dark": Color(0.24, 0.28, 0.18), "head": "bare", "bulk": 1.08, "acc": ["scales"]},
+}
+
+var _style_id := Style.GENERIC
+var _team_color := Color(0.72, 0.74, 0.78)
+var _built := false
+
+
+## Pick which unit this model looks like. Rebuilds the meshes in place — the
+## AnimationPlayer and its joint-name tracks survive, so the animation never
+## stops. Player/Bot call this from the loadout before the first frame.
+func set_style(id: int) -> void:
+	if id == _style_id and _built:
+		return
+	_style_id = id
+	if _built:
+		_build_body()
+
+
 func _build_body() -> void:
-	var suit := _mat(Color(0.72, 0.74, 0.78))   # trooper plate, tinted per team
-	_suit_mat = suit
-	var parts := TrooperParts.meshes()
-	# Joint placement comes from the model's own bones, not from nominal limb
-	# lengths, so every piece lands exactly where its geometry was cut from.
-	var at := TrooperParts.joint_offsets()
+	# Re-callable: free the old rig (the AnimationPlayer, a sibling, is untouched)
+	# and forget the held-weapon part lists before rebuilding for the new style.
+	if has_node("Hips"):
+		get_node("Hips").free()
+	_gun_parts.clear()
+	_saber_parts.clear()
+	_staff_parts.clear()
+	var style: Dictionary = STYLES.get(_style_id, STYLES[Style.GENERIC])
+	var bulk: float = style.get("bulk", 1.0)
+	var acc: Array = style.get("acc", [])
+	var at := _joint_offsets()   # our own skeleton math — the GLB is gone
+
+	# TEAM colour rides the ACCENTS (shoulder bells, chest vest, belt, helmet crest)
+	# rather than the whole body — so a clone reads as white plate with team markings
+	# the way real armour does, and the accents still call the side at a glance.
+	_suit_mat = _mat(_team_color)
+	var armor := _mat(style["armor"])         # the class's main plate colour
+	var dark := _mat(style["dark"])           # undersuit, joints, hands, boots
+	var furry: bool = acc.has("fur")
 
 	var hips := _joint(self, "Hips", Vector3(0.0, HIP_Y, 0.0))
-	_part(hips, parts, "hips", suit)
+	_box(hips, Vector3(0.27 * bulk, 0.15, 0.19 * bulk), Vector3(0, 0.03, 0), armor)        # pelvis
+	_box(hips, Vector3(0.29 * bulk, 0.055, 0.205 * bulk), Vector3(0, -0.035, 0), _suit_mat)  # team belt
+	_box(hips, Vector3(0.055, 0.06, 0.03), Vector3(0, -0.035, -0.105 * bulk), dark)        # buckle (front)
+	if acc.has("kama"):   # ARC skirt: plated flaps hanging front and back
+		for kz in [0.11, -0.11]:
+			_box(hips, Vector3(0.30, 0.26, 0.04), Vector3(0, -0.17, kz * bulk), armor)
+	if acc.has("robe"):   # Jedi tabard hanging from the waist, at the front
+		_box(hips, Vector3(0.24, 0.36, 0.05), Vector3(0, -0.20, -0.10), armor)
 
-	# Torso pivots at the hips so run/idle can lean from the waist.
+	# Torso pivots at the hips so run/idle can lean from the waist. The model faces
+	# -Z, so front detail is at NEGATIVE z and anything worn on the back at positive.
 	var spine := _joint(hips, "Spine", Vector3.ZERO)
-	_part(spine, parts, "spine", suit)
+	_box(spine, Vector3(0.30 * bulk, 0.36, 0.20 * bulk), Vector3(0, 0.24, 0), armor)       # torso
+	if furry:
+		_box(spine, Vector3(0.34 * bulk, 0.40, 0.24 * bulk), Vector3(0, 0.22, 0), dark)    # shaggy chest
+	else:
+		_box(spine, Vector3(0.28 * bulk, 0.26, 0.055), Vector3(0, 0.31, -0.105 * bulk), _suit_mat)  # team chest vest
+		_box(spine, Vector3(0.29 * bulk, 0.05, 0.062), Vector3(0, 0.18, -0.105 * bulk), dark)       # ab seam
+	_box(spine, Vector3(0.22 * bulk, 0.10, 0.19 * bulk), Vector3(0, 0.46, 0), armor)       # collar
+	if acc.has("backpack"):                   # on the back (+z)
+		_box(spine, Vector3(0.23, 0.28, 0.11), Vector3(0, 0.30, 0.15 * bulk), dark)
+		_box(spine, Vector3(0.05, 0.14, 0.05), Vector3(0.09, 0.44, 0.14 * bulk), _suit_mat)  # antenna
+	if acc.has("jetpack"):                     # on the back (+z)
+		_box(spine, Vector3(0.21, 0.30, 0.10), Vector3(0, 0.32, 0.15 * bulk), armor)
+		for jx in [-0.07, 0.07]:
+			_box(spine, Vector3(0.05, 0.07, 0.05), Vector3(jx, 0.14, 0.18), dark)      # nozzles
+	if acc.has("cape") or acc.has("robe"):    # cloth down the back (+z)
+		_box(spine, Vector3(0.32, 0.66, 0.03), Vector3(0, 0.15, 0.13 * bulk), armor)
+	if acc.has("bandolier"):                  # a team sash across a Wookiee's fur (front)
+		_box(spine, Vector3(0.085, 0.56, 0.04), Vector3(0.0, 0.24, -0.13 * bulk), _suit_mat).rotation.z = 0.34
+	if acc.has("antenna"):                    # ARC trooper's rangefinder stalk
+		_box(spine, Vector3(0.018, 0.22, 0.018), Vector3(0.10, 0.52, 0.0), dark)
 
 	var head := _joint(spine, "Head", at["head"])
-	_part(head, parts, "head", suit)
+	_build_head(style, head, armor, dark)
 
 	for side in [-1, 1]:
 		var sn := "L" if side < 0 else "R"
 		var sh := _joint(spine, "Shoulder" + sn, at["s" + sn])
-		_part(sh, parts, "s" + sn, suit)
+		_box(sh, Vector3(0.15 * bulk, 0.14 * bulk, 0.16 * bulk), Vector3(0, 0.02, 0), _suit_mat)  # team bell
+		_limb(sh, at["e" + sn], 0.085 * bulk, 0.085 * bulk, armor)                      # upper arm
+		if furry:
+			_limb(sh, at["e" + sn] * 1.06, 0.13 * bulk, 0.13 * bulk, dark)              # shaggy over-layer
+		if acc.has("pauldron"):                                                         # heavy's big plate
+			_box(sh, Vector3(0.20, 0.14, 0.22), Vector3(-0.05 * side, 0.05, 0), _suit_mat)
 		var el := _joint(sh, "Elbow" + sn, at["e" + sn])
-		_part(el, parts, "e" + sn, suit)
+		var handv: Vector3 = at["e" + sn].normalized() * LOWER_ARM
+		_limb(el, handv, 0.072 * bulk, 0.072 * bulk, armor)                             # forearm
+		_box(el, Vector3(0.085, 0.075, 0.05), (handv.normalized()) * 0.02, dark)        # wrist guard
+		_box(el, Vector3(0.075, 0.075, 0.075), handv + handv.normalized() * 0.045, dark)  # hand
 
-	# Third-person blaster, held two-handed in front. Other players see this;
-	# the owner sees only the first-person viewmodel. Parented to the spine so
-	# it leans with the torso and the CARRY arm pose keeps the hands on it.
+	# Third-person blaster, held two-handed in front. Other players see this; the
+	# owner sees only the first-person viewmodel. Parented to the spine so it leans
+	# with the torso and the CARRY arm pose keeps the hands on it.
 	var gunmetal := _mat(Color(0.10, 0.10, 0.12))
 	var held := _joint(spine, "HeldGun", GUN_POS)
 	_gun_parts.append(_box(held, Vector3(0.05, 0.06, 0.24), Vector3(0, 0, 0.01), gunmetal))
 	_gun_parts.append(_box(held, Vector3(0.028, 0.028, 0.30), Vector3(0, 0.012, -0.22), gunmetal))
 	_gun_parts.append(_box(held, Vector3(0.035, 0.10, 0.05), Vector3(0, -0.06, 0.075), gunmetal))
 	_build_held_saber(held, gunmetal)
+	_build_held_staff(held, gunmetal)
 
 	for side in [-1, 1]:
 		var ln := "L" if side < 0 else "R"
 		var hip := _joint(hips, "Hip" + ln, at["h" + ln])
-		_part(hip, parts, "h" + ln, suit)
+		_limb(hip, at["k" + ln], 0.125 * bulk, 0.135 * bulk, armor)                     # thigh
+		if furry:
+			_limb(hip, at["k" + ln] * 1.04, 0.17 * bulk, 0.17 * bulk, dark)
 		var knee := _joint(hip, "Knee" + ln, at["k" + ln])
-		_part(knee, parts, "k" + ln, suit)
+		_box(knee, Vector3(0.13 * bulk, 0.09, 0.14 * bulk), Vector3(0, 0.0, -0.02), _suit_mat)  # team knee pad (front)
+		var footv: Vector3 = at["k" + ln].normalized() * LOWER_LEG
+		_limb(knee, footv, 0.105 * bulk, 0.11 * bulk, armor)                            # shin
+		_box(knee, Vector3(0.115 * bulk, 0.10, 0.24 * bulk), footv + Vector3(0, 0.0, -0.05), dark)  # boot
+	_built = true
 
 
 ## The third-person lightsaber, on the same HeldGun joint as the blaster so the
@@ -289,15 +449,135 @@ func _build_held_saber(held: Node3D, hilt_mat: Material) -> void:
 		mi.visible = false   # a blaster until somebody says otherwise
 
 
-## Hang one cut-up piece of the trooper on a joint. Falls back to nothing if the
-## slice came out empty, so a bad cut leaves a gap rather than crashing.
-func _part(parent: Node3D, parts: Dictionary, key: String, mat: Material) -> void:
-	if not parts.has(key):
-		return
+## The third-person ELECTROSTAFF: a metal pole through the HeldGun joint with a
+## glowing electro-tip at each end, on the same joint as the saber so the solved
+## carry/guard hold is unchanged. Read from across the map like the blade, so it
+## is unshaded for the same reason — a lit pole goes black on its shadow side and
+## vanishes on the night maps.
+func _build_held_staff(held: Node3D, pole_mat: Material) -> void:
+	# The pole itself, longer than the blade and running both ways out of the grip.
+	_staff_parts.append(_box(held, Vector3(0.035, 0.035, 1.7),
+		Vector3(0, 0, -0.25), pole_mat))
+	# Violet electro-charge, not the saber's blue — the IG-100 look.
+	var core := _mat(STAFF_CORE)
+	core.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	core.emission_enabled = true
+	core.emission = STAFF_CORE
+	core.emission_energy_multiplier = 5.0
+	var glow := _mat(Color(STAFF_GLOW.r, STAFF_GLOW.g, STAFF_GLOW.b, 0.5))
+	glow.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	glow.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	glow.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+	glow.emission_enabled = true
+	glow.emission = STAFF_GLOW
+	glow.emission_energy_multiplier = 3.0
+	# A charged tip at each end of the pole, each wrapped in its aura.
+	for z in [-0.25 - 0.85, -0.25 + 0.85]:
+		_staff_parts.append(_box(held, Vector3(0.06, 0.06, 0.22), Vector3(0, 0, z), core))
+		_staff_parts.append(_box(held, Vector3(0.12, 0.12, 0.26), Vector3(0, 0, z), glow))
+	for mi in _staff_parts:
+		mi.visible = false
+
+
+## A limb box spanning from a joint's origin to `to` (its child joint, in local
+## space), so it always reaches exactly the next joint however the skeleton is
+## proportioned. The box's long axis (local Y) is rotated onto the direction.
+func _limb(parent: Node3D, to: Vector3, tx: float, tz: float, mat: Material) -> MeshInstance3D:
+	var length := to.length()
 	var mi := MeshInstance3D.new()
-	mi.mesh = parts[key]
+	var bm := BoxMesh.new()
+	bm.size = Vector3(tx, length, tz)
+	mi.mesh = bm
 	mi.material_override = mat
+	var dir := to.normalized()
+	if not dir.is_equal_approx(Vector3.UP):
+		mi.quaternion = Quaternion(Vector3.UP, dir)
+	mi.position = to * 0.5
 	parent.add_child(mi)
+	return mi
+
+
+## The per-unit head. The shape is the loudest part of the silhouette, so each
+## archetype gets its own — a crested clone helmet, a B1's photoreceptor stalk, a
+## B2's sunken block, the MagnaGuard's masked cowl, a Wookiee's muzzle, a hood.
+func _build_head(style: Dictionary, joint: Node3D, armor: Material, dark: Material) -> void:
+	# The model FACES -Z (the blaster points -Z), so all face detail sits at
+	# NEGATIVE z (the front) and anything on the back at positive z.
+	var kind: String = style.get("head", "bare")
+	_box(joint, Vector3(0.085, 0.06, 0.085), Vector3(0, 0.02, 0), dark)   # neck
+	match kind:
+		"helmet", "visor":
+			# Dome + a forward brow that overhangs a dark visor recess, plus side
+			# "ear" caps and a team crest — reads as a trooper helmet, not a box.
+			_box(joint, Vector3(0.18, 0.15, 0.185), Vector3(0, 0.17, 0), armor)          # dome
+			_box(joint, Vector3(0.17, 0.07, 0.115), Vector3(0, 0.11, -0.055), armor)     # lower face/jaw
+			_box(joint, Vector3(0.155, 0.055, 0.05), Vector3(0, 0.155, -0.10), dark)     # brow shadow
+			for ex in [-0.093, 0.093]:
+				_box(joint, Vector3(0.02, 0.10, 0.10), Vector3(ex, 0.15, 0.0), dark)     # ear caps
+			if kind == "visor":
+				_box(joint, Vector3(0.055, 0.13, 0.03), Vector3(0, 0.135, -0.115), dark) # T-visor stem
+				_box(joint, Vector3(0.15, 0.05, 0.03), Vector3(0, 0.185, -0.115), dark)  # T-visor bar
+			else:
+				_box(joint, Vector3(0.13, 0.045, 0.03), Vector3(0, 0.14, -0.115), dark)  # visor slit
+				_box(joint, Vector3(0.03, 0.055, 0.20), Vector3(0, 0.255, 0.01), _suit_mat)  # team crest fin
+		"b1":
+			# The B1's long, tapering skull on a thin neck, with two photoreceptors
+			# and a slit mouth.
+			_box(joint, Vector3(0.045, 0.11, 0.045), Vector3(0, 0.10, 0), dark)          # long neck
+			_box(joint, Vector3(0.10, 0.20, 0.12), Vector3(0, 0.25, -0.01), armor)       # elongated head
+			_box(joint, Vector3(0.115, 0.055, 0.03), Vector3(0, 0.24, -0.055), dark)     # brow
+			_box(joint, Vector3(0.06, 0.02, 0.02), Vector3(0, 0.17, -0.06), dark)        # mouth slit
+			var eye := _emit(Color(0.12, 0.12, 0.13))
+			for ex in [-0.027, 0.027]:
+				_box(joint, Vector3(0.022, 0.03, 0.02), Vector3(ex, 0.25, -0.065), eye)
+		"b2":
+			# The B2 has no neck: a low blocky head sunk between huge shoulders, one
+			# glowing photoreceptor visor.
+			_box(joint, Vector3(0.19, 0.14, 0.18), Vector3(0, 0.07, 0), armor)
+			_box(joint, Vector3(0.13, 0.05, 0.03), Vector3(0, 0.09, -0.095), dark)       # visor recess
+			var eye := _emit(Color(1.0, 0.35, 0.18))
+			_box(joint, Vector3(0.11, 0.02, 0.02), Vector3(0, 0.09, -0.10), eye)
+		"mask":
+			# The MagnaGuard's cowled head: a tall block with a raised centre mask
+			# ridge, side cheek plates and a photoreceptor slit.
+			_box(joint, Vector3(0.14, 0.23, 0.15), Vector3(0, 0.15, 0), armor)
+			_box(joint, Vector3(0.055, 0.25, 0.06), Vector3(0, 0.16, -0.06), dark)       # mask ridge
+			for ex in [-0.055, 0.055]:
+				_box(joint, Vector3(0.03, 0.20, 0.08), Vector3(ex, 0.15, -0.04), dark)   # cheek plates
+			var eye := _emit(Color(1.0, 0.55, 0.15))
+			_box(joint, Vector3(0.03, 0.035, 0.02), Vector3(0, 0.21, -0.085), eye)
+		"furry":
+			var fur := _mat(Color(style["dark"]))
+			_box(joint, Vector3(0.23, 0.22, 0.22), Vector3(0, 0.16, 0), fur)             # big shaggy head
+			_box(joint, Vector3(0.25, 0.09, 0.20), Vector3(0, 0.245, 0.01), fur)         # brow tuft
+			_box(joint, Vector3(0.13, 0.11, 0.11), Vector3(0, 0.12, -0.135), armor)      # muzzle
+			_box(joint, Vector3(0.05, 0.03, 0.03), Vector3(0, 0.10, -0.19), dark)        # nose
+			var eye := _emit(Color(0.85, 0.7, 0.35))
+			for ex in [-0.055, 0.055]:
+				_box(joint, Vector3(0.028, 0.028, 0.02), Vector3(ex, 0.185, -0.115), eye)
+		"hood":
+			_box(joint, Vector3(0.15, 0.17, 0.16), Vector3(0, 0.14, -0.01), _mat(Color(0.58, 0.5, 0.4)))  # face
+			_box(joint, Vector3(0.24, 0.24, 0.22), Vector3(0, 0.18, 0.04), armor)        # hood shell (behind)
+			_box(joint, Vector3(0.20, 0.09, 0.10), Vector3(0, 0.10, -0.09), armor)       # hood brim over the face
+		_:
+			# A bare head with a simple face band (Trandoshan and the generic trooper).
+			_box(joint, Vector3(0.17, 0.19, 0.18), Vector3(0, 0.14, 0), armor)
+			_box(joint, Vector3(0.16, 0.04, 0.03), Vector3(0, 0.145, -0.09), dark)       # eye band
+			if style.get("acc", []).has("scales"):
+				var eye := _emit(Color(0.9, 0.75, 0.2))
+				for ex in [-0.045, 0.045]:
+					_box(joint, Vector3(0.025, 0.02, 0.02), Vector3(ex, 0.15, -0.095), eye)
+
+
+## An unshaded emissive material for photoreceptor eyes and lenses.
+func _emit(color: Color) -> StandardMaterial3D:
+	var m := _mat(color)
+	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	if color.r + color.g + color.b > 0.8:   # only the bright ones actually glow
+		m.emission_enabled = true
+		m.emission = color
+		m.emission_energy_multiplier = 2.5
+	return m
 
 
 # --- animation clips (generated in code) -----------------------------------
@@ -398,8 +678,9 @@ func _hold(gun_pos: Vector3, gun_rot: Vector3) -> Dictionary:
 	var reach := LOWER_ARM + HAND_REACH
 	var rear := gun_pos + gun * GRIP_REAR
 	var fore := gun_pos + gun * GRIP_FORE
-	var right := _arm_ik(rear - Vector3(SHOULDER_X, SHOULDER_Y, 0.0), UPPER_ARM, reach)
-	var left := _arm_ik(fore - Vector3(-SHOULDER_X, SHOULDER_Y, 0.0), UPPER_ARM, reach)
+	var at := _joint_offsets()
+	var right := _arm_ik(rear - at["sR"], at["eR"], reach)
+	var left := _arm_ik(fore - at["sL"], at["eL"], reach)
 	return {
 		"sR": right[0], "eR": Vector3(right[1], 0.0, 0.0),
 		"sL": left[0], "eL": Vector3(left[1], 0.0, 0.0),
@@ -417,22 +698,38 @@ func _carry() -> Dictionary:
 
 
 ## Two-bone IK for one arm. `target` is where the hand must land, in SHOULDER
-## space; `a` and `b` are the upper and lower segment lengths. Returns
-## [shoulder euler, elbow flex].
+## space; `elbow` is that shoulder's ELBOW OFFSET (which carries both the upper
+## arm's length and the direction the arm rests along) and `b` is how far past
+## the elbow the hand closes. Returns [shoulder euler, elbow flex].
 ##
-## Solved in the order the rig applies it: pick the elbow flex first from the
-## law of cosines (that alone fixes how far the hand reaches), which puts the
-## hand at a known spot `h` with the arm still hanging in its rest plane, then
-## rotate the shoulder by the minimal rotation that carries `h` onto the target.
-## Nothing here assumes a particular arm length or gun position.
-func _arm_ik(target: Vector3, a: float, b: float) -> Array:
-	# A target further than the arm can stretch (or nearer than it can fold)
-	# has no solution; clamp so the arm reaches as far as it can instead.
-	var span := clampf(target.length(), absf(a - b) + 0.001, a + b - 0.001)
-	var cos_elbow := clampf((a * a + b * b - span * span) / (2.0 * a * b), -1.0, 1.0)
-	var flex := PI - acos(cos_elbow)   # 0 = straight; bends FORWARD, about +X
-	# Where the hand sits with only the elbow bent, arm still hanging down -Y.
-	var h := Vector3(0.0, -a - b * cos(flex), -b * sin(flex))
+## Solved in the order the rig applies it: pick the elbow flex first (that alone
+## fixes how far the hand reaches), which puts the hand at a known spot `h` with
+## the arm still in its rest plane, then rotate the shoulder by the minimal
+## rotation that carries `h` onto the target.
+##
+## It reads the rest direction out of `elbow` rather than assuming the arm hangs
+## down -Y, because on this rig it does NOT: the skeleton is the trooper's, whose
+## elbow offset is tilted ~13 degrees back off vertical, and the forearm and hand
+## are built along that same direction. Assuming -Y solved a DIFFERENT arm from
+## the one the model is made of and left every hand 8-14 cm off its grip — the
+## shoulders visibly rotated wrong on every character holding a gun.
+func _arm_ik(target: Vector3, elbow: Vector3, b: float) -> Array:
+	var a := elbow.length()
+	var rest := elbow / a          # the straight arm's direction, in shoulder space
+	if target.length_squared() < 0.000001:
+		return [Vector3.ZERO, 0.0]
+	# Law of cosines, taken about the rest direction instead of about -Y. The
+	# elbow bends about +X, so only the part of the arm PERPENDICULAR to X swings:
+	# |h|^2 = a^2 + b^2 + 2ab(rest.x^2 + (1 - rest.x^2) cos flex).
+	var fixed := rest.x * rest.x   # the share of the arm the elbow cannot swing
+	var span := target.length()
+	var reachable := (span * span - a * a - b * b) / (2.0 * a * b)
+	# A target further than the arm can stretch (or nearer than it can fold) has
+	# no solution; clamping leaves the arm reaching as far as it can toward it.
+	var cos_flex := clampf((reachable - fixed) / maxf(1.0 - fixed, 0.001), -1.0, 1.0)
+	var flex := acos(cos_flex)     # 0 = straight; bends FORWARD, about +X
+	# Where the hand sits with only the elbow bent, arm still in its rest plane.
+	var h := elbow + Basis(Vector3.RIGHT, flex) * (rest * b)
 	var swing := Quaternion(h.normalized(), target.normalized())
 	return [swing.get_euler(), flex]
 
@@ -610,6 +907,83 @@ func _guard_walk_pose(time: float) -> Dictionary:
 func _guard_walk_hips(time: float) -> Vector3:
 	var rock := 0.012 * absf(sin(time / GUARD_WALK_LEN * TAU))
 	return Vector3(0, GUARD_HIP_DROP + rock, 0)
+
+
+## --- death ---------------------------------------------------------------
+##
+## What a body looks like once nobody is holding it up: knees folded under, hips
+## dropped nearly to the floor, spine slumped forward and the head lolling, arms
+## hanging off the shoulders instead of held out in front of a gun.
+##
+## It is a POSE rather than a clip, and the corpse it goes on is a rigid body
+## that gets launched and tumbles (see corpse.gd). That split is deliberate: the
+## motion — the part the eye actually reads as "they went down" — is the physics,
+## which costs one body, and the pose only has to say the body is limp rather
+## than standing. A jointed ragdoll would be four viewports of solver per death
+## on a Pi to say the same thing.
+##
+## `spread` shakes the limbs apart a little, so two bodies that fall in the same
+## place do not land in identical poses.
+func collapse_pose(spread := 0.0) -> Dictionary:
+	var rng := func(scale: float) -> float:
+		return randf_range(-scale, scale) * spread
+	var hip := deg_to_rad(COLLAPSE_HIP_DEG)
+	var knee := deg_to_rad(COLLAPSE_HIP_DEG * 1.45)
+	var p := {}
+	p["spine"] = Vector3(-deg_to_rad(34.0 + rng.call(9.0)), rng.call(0.25), rng.call(0.2))
+	p["head"] = Vector3(deg_to_rad(10.0 + rng.call(8.0)), rng.call(0.5), rng.call(0.3))
+	# The arms are SOLVED to hang, not posed by hand — for exactly the reason
+	# _carry is (see _arm_ik): this rig's arms rest along a direction tilted back
+	# off vertical with a quarter turn baked into the mesh, so shoulder eulers
+	# written by eye do not do what they read as. Hand-written ones here put both
+	# arms up and out, which is the mannequin look the whole change is escaping.
+	# Solving to a target below the shoulder gives a limp arm on any proportions.
+	var at := _joint_offsets()
+	var reach := LOWER_ARM + HAND_REACH
+	for side in [-1.0, 1.0]:
+		var sn := "L" if side < 0.0 else "R"
+		var elbow: Vector3 = at["e" + sn]
+		var span := elbow.length() + reach
+		# Hands down by the hips, thrown a little out to the side and back.
+		var target := Vector3(side * (0.26 + rng.call(0.12)), -0.90 + rng.call(0.08),
+			0.30 + rng.call(0.15)).normalized() * span * 0.97
+		var solved := _arm_ik(target, elbow, reach)
+		p["s" + sn] = solved[0]
+		p["e" + sn] = Vector3(solved[1], 0.0, 0.0)
+	p["hL"] = Vector3(hip + rng.call(0.18), rng.call(0.14), 0.0)
+	p["hR"] = Vector3(hip + rng.call(0.18), rng.call(0.14), 0.0)
+	p["kL"] = Vector3(-knee + rng.call(0.2), 0.0, 0.0)
+	p["kR"] = Vector3(-knee + rng.call(0.2), 0.0, 0.0)
+	# The weapon drops with the hands. The barrel runs along -Z, and a NEGATIVE
+	# pitch is what points it at the floor — the positive one stands it up like a
+	# flagpole over the corpse, which is the same sign trap the saber blade hit.
+	p["gun"] = Vector3(-deg_to_rad(62.0), 0.0, deg_to_rad(18.0))
+	p["gun_pos"] = GUN_POS + Vector3(0.06, -0.22, 0.16)
+	return p
+
+
+## Write a pose (the same {joint: euler} dictionaries the clips are built from)
+## straight onto the joints. For a model with no AnimationPlayer to do it — a
+## corpse — since nothing would otherwise ever set these.
+func apply_pose(pose: Dictionary, hips_drop := 0.0) -> void:
+	for key in PATHS:
+		var joint := get_node_or_null(NodePath(PATHS[key])) as Node3D
+		if joint == null:
+			continue
+		joint.rotation = pose.get(key, Vector3.ZERO)
+	var hips := get_node_or_null("Hips") as Node3D
+	if hips != null:
+		hips.position = Vector3(0.0, HIP_Y + hips_drop, 0.0)
+	var gun := get_node_or_null(NodePath(PATHS["gun"])) as Node3D
+	if gun != null:
+		gun.position = pose.get("gun_pos", GUN_POS)
+
+
+## How far the legs fold under a body nobody is holding up, and how far the hips
+## therefore come down — by the same rule the crouch and the guard use: a
+## fraction of the LEG, never of HIP_Y (see CROUCH_HIP_DROP).
+const COLLAPSE_HIP_DEG := 72.0
+const COLLAPSE_HIP_DROP := LEG * (cos(deg_to_rad(COLLAPSE_HIP_DEG)) - 1.0)
 
 
 func _jump_pose(_time: float) -> Dictionary:

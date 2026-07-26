@@ -147,8 +147,11 @@ func _init() -> void:
 				fails.append("%s can fit the thermal holo; only the Trandoshan may" % name)
 			if "CLOAK" in gads:
 				fails.append("%s can cloak; that is the Trandoshan's" % name)
-			if "SPRINT DASH" in gads:
-				fails.append("%s can take the dash gadget; that is the Trandoshan's" % name)
+			# DASH is shared by the Trandoshan and the FORCE adept (k == 2), whose
+			# dash is part of the class — it may fit it as an explicit gadget as well
+			# as get it intrinsically from an empty slot. Nobody else may.
+			if k != 2 and "SPRINT DASH" in gads:
+				fails.append("%s can take the dash gadget; that is the Trandoshan's/adept's" % name)
 
 		# The cursor must never stop on a row this class does not have.
 		for r in L.Row.size():

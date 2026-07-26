@@ -163,7 +163,7 @@ enum GrenadeType { FRAG, SMOKE, STICKY }
 ## saved and preset gadget underneath it.
 enum Gadget { NONE, JETPACK, CABLE, SHIELD, ROTARY, TURRET, MORTAR,
 	FORCE_PUSH, FORCE_PULL, FORCE_LEAP, FORCE_LIGHTNING, WRIST_ROCKET,
-	CLOAK, DASH, GRENADE_FRAG, GRENADE_STICKY, GRENADE_SMOKE }
+	CLOAK, DASH, GRENADE_FRAG, GRENADE_STICKY, GRENADE_SMOKE, SCAN_DART }
 const GADGETS: Array[Dictionary] = [
 	{"name": "NONE", "cost": 0, "blurb": "No gadget"},
 	{"name": "JETPACK", "cost": 45,
@@ -221,6 +221,12 @@ const GADGETS: Array[Dictionary] = [
 		"blurb": "Lob a sticky: clings where it lands, people included, then blows. 6s"},
 	{"name": "SMOKE GRENADE", "cost": 20, "kit": Kit.TRANDOSHAN,
 		"blurb": "Lob smoke: blinds the area, nothing sees through it (you do, thermal). 7s"},
+	# The Clone ARC's recon tool: fire a dart that sticks and PINGS nearby enemies
+	# to your whole team for a few seconds, walls or no walls. No "kit" key — a
+	# scanner off the ground works for a plain trooper, and the allow-list keeps it
+	# ARC-only in the factions.
+	{"name": "SCAN DART", "cost": 30,
+		"blurb": "A dart that sticks and reveals enemies near it to your team through walls. 12s"},
 ]
 
 ## What a gadget costs to use again, in seconds. Only the force powers are on a
@@ -242,6 +248,7 @@ const GADGET_COOLDOWNS := {
 	Gadget.GRENADE_FRAG: 6.0,
 	Gadget.GRENADE_STICKY: 6.0,
 	Gadget.GRENADE_SMOKE: 7.0,
+	Gadget.SCAN_DART: 12.0,
 }
 
 ## The GrenadeType a grenade gadget throws, or -1 if the gadget is not a grenade.
@@ -280,8 +287,12 @@ const KITS: Array[Dictionary] = [
 	{
 		"name": "FORCE ADEPT",
 		"blurb": "Lightsaber or any gun, plus a Force power. Tough, fast, dashes and double jumps",
+		# DASH is offered as an explicit gadget as well as the intrinsic empty-slot
+		# dash: fitting it lets the adept keep the dash in one slot while spending
+		# the other on a Force power, rather than choosing between a power and the
+		# dash that only appears when a slot is left empty.
 		"gadgets": [Gadget.NONE, Gadget.FORCE_PUSH, Gadget.FORCE_PULL, Gadget.FORCE_LEAP,
-			Gadget.FORCE_LIGHTNING, Gadget.GRENADE_FRAG, Gadget.GRENADE_STICKY],
+			Gadget.FORCE_LIGHTNING, Gadget.DASH, Gadget.GRENADE_FRAG, Gadget.GRENADE_STICKY],
 		"gadget_slots": 2,
 		"secondary_mods": [SecondaryMod.NONE, SecondaryMod.SCOPE, SecondaryMod.COOLING],
 		"armor": [0, 1],
@@ -407,12 +418,18 @@ const BUY_BOXES: Array[Dictionary] = [
 
 var kit := Kit.CLONE   # index into KITS; picks what the rest of this may be
 var weapon := 0        # index into WEAPONS (NO_PRIMARY = sidearm only)
+## An explicit primary Weapon.Class that overrides the WEAPONS[weapon] lookup,
+## or -1 to use that lookup. This is how a FIXED faction preset (Conquest) can
+## deploy a gun the ORDINARY shop does not sell — the wrist cannon — without
+## adding it to WEAPONS and shifting every index the buy screen and BOT_BUILDS
+## rely on. Only faction builds set it; the buy screen never touches it.
+var primary_override := -1
 var secondary := 0     # index into SECONDARIES
 var secondary_mod := SecondaryMod.NONE
-var gadget := 0        # index into GADGETS, slot 0, on the gadget control
-## The second gadget slot, every class has one now: it is driven by the SLOT-1
-## control (keyboard G, pad LB+RB together). Grenades are gadgets, so this is
-## also where a grenade goes.
+var gadget := 0        # index into GADGETS, slot 0, on the GADGET 1 control
+## The second gadget slot, every class has one now: it is driven by the GADGET 2
+## control (keyboard G, pad LB by default), an ordinary rebindable binding like
+## slot 0. Grenades are gadgets, so this is also where a grenade goes.
 var gadget2 := 0
 ## Primary-only upgrades. The sidearm has its own slot and ignores these.
 var sight := Sight.NONE
@@ -422,6 +439,10 @@ var foregrip := false
 var armor := DEFAULT_ARMOR  # index into ARMOR
 var squad := 0        # how many AI squadmates
 var squad_skill := 1  # index into SQUAD_SKILLS, paid per squadmate
+## Which procedural body the character wears (a CharacterModel.Style), or -1 to
+## derive it from the kit. Faction (Conquest) builds set it explicitly, because a
+## Magna Guard is a FORCE kit but must look like a droid, not a Jedi.
+var style := -1
 
 
 # Ready-made builds the AI deploy with, so a firefight has snipers, gunners and
@@ -507,7 +528,83 @@ const BOT_BUILDS: Array[Dictionary] = [
 
 ## Build one of the AI presets. Anything the preset leaves out keeps its default.
 static func bot_build(index: int) -> Loadout:
-	var preset: Dictionary = BOT_BUILDS[wrapi(index, 0, BOT_BUILDS.size())]
+	return _build_from(BOT_BUILDS[wrapi(index, 0, BOT_BUILDS.size())])
+
+
+## --- faction rosters ---------------------------------------------------------
+##
+## The FACTION class mode (GameState.class_mode, any game mode — it was
+## Conquest's, but it is a setting now) has no buy screen: you pick your side and
+## then one of its four FIXED classes on the character-select screen. These are
+## those classes — authored loadouts, not shopped, so they ignore BUDGET and the
+## kit allow-lists (which only ever gate the buy screen). They reuse the ordinary
+## catalogue by index, plus the Super Battle Droid's `primary_override` for the
+## wrist cannon, which the shop does not sell.
+##
+## Order matters: the first four are REPUBLIC, the last four SEPARATIST;
+## FACTION_ROSTERS maps a team to its slice. `name` is shown on the select
+## screen. Some fields (smoke, the HMG, the shield) belong to another kit in the
+## SHOP — here they are just gear on a fixed build, which is exactly what a
+## preset is for.
+const FACTION_BUILDS: Array[Dictionary] = [
+	# REPUBLIC ---------------------------------------------------------------
+	{"name": "CLONE TROOPER", "weapon": 2, "sight": Sight.RED_DOT, "cooling": true,
+		"secondary": 0, "armor": 1, "gadget2": Gadget.GRENADE_FRAG,
+		"style": CharacterModel.Style.CLONE},
+	{"name": "CLONE ENGINEER", "weapon": 6, "grip": true, "secondary": 0,
+		"armor": 2, "gadget": Gadget.TURRET, "gadget2": Gadget.GRENADE_SMOKE,
+		"style": CharacterModel.Style.CLONE_ENGINEER},
+	{"name": "CLONE HEAVY", "weapon": 9, "foregrip": true, "sight": Sight.RED_DOT,
+		"secondary": 0, "armor": 3, "gadget": Gadget.SHIELD, "gadget2": Gadget.GRENADE_FRAG,
+		"style": CharacterModel.Style.CLONE_HEAVY},
+	{"name": "CLONE ARC", "weapon": 2, "sight": Sight.RED_DOT, "grip": true,
+		"secondary": 0, "secondary_mod": SecondaryMod.DUAL, "armor": 1,
+		"gadget": Gadget.SCAN_DART, "gadget2": Gadget.GRENADE_FRAG,
+		"style": CharacterModel.Style.CLONE_ARC},
+	# SEPARATIST -------------------------------------------------------------
+	{"name": "BATTLE DROID", "weapon": 2, "sight": Sight.HOLO, "foregrip": true,
+		"secondary": 0, "armor": 0, "gadget2": Gadget.GRENADE_FRAG,
+		"style": CharacterModel.Style.B1},
+	{"name": "SUPER BATTLE DROID", "primary_override": Weapon.Class.WRIST_CANNON,
+		"secondary": 0, "armor": 3, "gadget": Gadget.WRIST_ROCKET, "gadget2": Gadget.SHIELD,
+		"style": CharacterModel.Style.B2},
+	# A FORCE kit for the guard, the double-jump and the intrinsic dash; the
+	# electrostaff (primary_override, a melee weapon the shop does not sell) raises
+	# that same guard, drawn as a shield in the off hand.
+	{"name": "MAGNA GUARD", "kit": Kit.FORCE, "primary_override": Weapon.Class.STAFF,
+		"secondary": 0, "armor": 2, "gadget": Gadget.DASH, "gadget2": Gadget.GRENADE_SMOKE,
+		"style": CharacterModel.Style.MAGNAGUARD},
+	{"name": "TACTICAL DROID", "weapon": NO_PRIMARY, "secondary": 3,
+		"secondary_mod": SecondaryMod.SCOPE, "armor": 1,
+		"gadget": Gadget.MORTAR, "gadget2": Gadget.GRENADE_FRAG,
+		"style": CharacterModel.Style.TACTICAL},
+]
+
+## Which FACTION_BUILDS indices each team may pick from. Team 0 = Republic,
+## team 1 = Separatist. Faction classes are playable in every mode now, so a
+## three- or four-way match can ask for a roster nobody has authored yet: those
+## sides WRAP onto the two that exist rather than crashing or being locked out
+## of the setting. A third faction is a row here and nothing else.
+const FACTION_ROSTERS: Array = [[0, 1, 2, 3], [4, 5, 6, 7]]
+
+
+## The four class indices a team chooses between.
+static func faction_classes(team: int) -> Array:
+	return FACTION_ROSTERS[wrapi(maxi(team, 0), 0, FACTION_ROSTERS.size())]
+
+
+## Build a faction class by its GLOBAL index into FACTION_BUILDS.
+static func faction_build(index: int) -> Loadout:
+	return _build_from(FACTION_BUILDS[wrapi(index, 0, FACTION_BUILDS.size())])
+
+
+## A team's Nth class (0..3), built and ready to deploy.
+static func team_build(team: int, class_slot: int) -> Loadout:
+	var roster := faction_classes(team)
+	return faction_build(roster[wrapi(class_slot, 0, roster.size())])
+
+
+static func _build_from(preset: Dictionary) -> Loadout:
 	var built := Loadout.new()
 	for key in preset:
 		if key != "name":
@@ -782,13 +879,28 @@ func remaining() -> int:
 	return BUDGET - cost()
 
 
-## The primary gun, or -1 when you bought none.
+## The primary gun, or -1 when you bought none. A faction preset's explicit
+## override wins over the WEAPONS lookup (see primary_override).
+## Which procedural body to build: the explicit faction style if one was set,
+## otherwise mapped from the kit (a plain Clone, a Mandalorian, a Force adept in
+## robes, a Wookiee, a Trandoshan).
+func character_style() -> int:
+	if style >= 0:
+		return style
+	match kit:
+		Kit.MANDALORIAN: return CharacterModel.Style.MANDALORIAN
+		Kit.FORCE: return CharacterModel.Style.JEDI
+		Kit.WOOKIEE: return CharacterModel.Style.WOOKIEE
+		Kit.TRANDOSHAN: return CharacterModel.Style.TRANDOSHAN
+		_: return CharacterModel.Style.CLONE
+
+
 func weapon_class() -> int:
-	return WEAPONS[weapon]["class"]
+	return primary_override if primary_override >= 0 else WEAPONS[weapon]["class"]
 
 
 func has_primary() -> bool:
-	return weapon != NO_PRIMARY
+	return primary_override >= 0 or weapon != NO_PRIMARY
 
 
 func weapon_name() -> String:
@@ -816,6 +928,25 @@ func gadget_id() -> int:
 ## The second slot, or NONE for every kit that only has one.
 func gadget2_id() -> int:
 	return gadget2 if gadget_slots() >= 2 else Gadget.NONE
+
+
+## One line naming what this build actually deploys with — gun, sidearm, gadgets
+## and the health the frame gives it.
+##
+## Derived from the build rather than written per preset, because a faction
+## class IS a table row: a hand-written blurb sitting next to it goes stale the
+## first time somebody swaps the gadget and does not notice the description.
+## The character-select screen shows this under the class list.
+func gear_summary() -> String:
+	var parts := PackedStringArray()
+	parts.append(weapon_name() if has_primary() else secondary_name())
+	if has_primary():
+		parts.append(secondary_name())
+	for id in [gadget_id(), gadget2_id()]:
+		if id != Gadget.NONE:
+			parts.append(str(GADGETS[id]["name"]))
+	parts.append("%d HP" % roundi(max_health()))
+	return "   ·   ".join(parts)
 
 
 func armor_stats() -> Dictionary:
@@ -933,6 +1064,8 @@ func _copy_from(other: Loadout) -> void:
 	kit = other.kit
 	gadget2 = other.gadget2
 	weapon = other.weapon
+	primary_override = other.primary_override
+	style = other.style
 	secondary = other.secondary
 	secondary_mod = other.secondary_mod
 	gadget = other.gadget
