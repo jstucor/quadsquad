@@ -69,6 +69,10 @@ func _build() -> void:
 	# because it is the same size of decision: it decides which classes, weapons
 	# and factions the whole match is made of.
 	var universe_dd := _dropdown(top, "UNIVERSE")
+	# PLANET only means anything for the generated map, so it is DISABLED rather
+	# than hidden on the others — the same rule VICTORY and CLASSES follow: an
+	# option that vanishes is one nobody learns exists.
+	var planet_dd := _dropdown(top, "PLANET")
 	# TIME TO KILL is next to it because the two answer the same question — what
 	# kind of fight is this — and both change how every gun in the game feels.
 	var ttk_dd := _dropdown(top, "TIME TO KILL")
@@ -121,7 +125,7 @@ func _build() -> void:
 
 	_wire_focus([
 		[map_dd, mode_dd],
-		[universe_dd, ttk_dd],
+		[universe_dd, planet_dd, ttk_dd],
 		[players_dd, teams_dd, size_dd],
 		[victory_dd, skill_dd, assist_dd],
 		[classes_dd],
@@ -139,9 +143,10 @@ func _build() -> void:
 		_fill(map_dd, _map_items(), GameState.map_index)
 		_fill(mode_dd, _mode_items(), GameState.mode)
 		_fill(universe_dd, _universe_items(), GameState.universe)
+		_fill(planet_dd, _planet_items(), GameState.planet + 1)   # RANDOM is item 0
+		planet_dd.disabled = not GameState.map_is_procedural()
 		_fill(ttk_dd, _ttk_items(), GameState.ttk)
-		blurb.text = "%s   —   %s" % [
-			GameState.MAPS[GameState.map_index]["blurb"], GameState.mode_blurb()]
+		blurb.text = "%s   —   %s" % [GameState.map_blurb(), GameState.mode_blurb()]
 		# CONQUEST is Republic vs Separatist: exactly two sides, never a free-for-all.
 		var conquest: bool = GameState.mode == GameState.Mode.CONQUEST
 		if conquest:
@@ -181,6 +186,10 @@ func _build() -> void:
 		# its faction rosters, everything else on the buy screen, and the CLASSES
 		# row below is free to say otherwise.
 		GameState.class_mode = GameState.default_class_mode(i)
+		_refresh_all.call())
+	planet_dd.item_selected.connect(func(i: int) -> void:
+		# Item 0 is RANDOM, which is GameState.RANDOM_PLANET (-1).
+		GameState.planet = i - 1
 		_refresh_all.call())
 	universe_dd.item_selected.connect(func(i: int) -> void:
 		# Changing universe changes who the sides ARE, so a team picked on the
@@ -366,6 +375,15 @@ func _universe_items() -> PackedStringArray:
 	var out := PackedStringArray()
 	for u in Loadout.UNIVERSES:
 		out.append(str(u["name"]))
+	return out
+
+
+## RANDOM first, then every world. Random is the default because a generated
+## map that is a different world each time is the whole point of having one.
+func _planet_items() -> PackedStringArray:
+	var out := PackedStringArray(["RANDOM"])
+	for i in PlanetMap.PLANET_NAMES.size():
+		out.append(str(PlanetMap.PLANET_NAMES[i]))
 	return out
 
 

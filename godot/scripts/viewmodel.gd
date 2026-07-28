@@ -536,19 +536,49 @@ func _build(class_id: int, scoped: bool, holo: bool) -> void:
 	if shape.get("saber", false):
 		_build_saber()
 		return
-	var gun := StandardMaterial3D.new()
-	gun.albedo_color = Color(0.12, 0.12, 0.14)
-	gun.metallic = 0.1  # keep low: a near-black sky reflects into metal (Gotchas)
-	gun.roughness = 0.6
-	var dark := StandardMaterial3D.new()
-	dark.albedo_color = Color(0.08, 0.08, 0.09)
-	dark.metallic = 0.1
-	dark.roughness = 0.7
-	var accent := StandardMaterial3D.new()
+	# THE PALETTE. A real weapon reads as two materials that respond to light in
+	# completely different ways — MACHINED METAL and MOULDED POLYMER — and the
+	# old set had everything at metallic 0.1 / roughness ~0.6 in three shades of
+	# near-black, so a steel barrel and a plastic grip shaded identically and the
+	# whole gun collapsed into one dark slab (which is exactly what the render
+	# showed). Splitting them is the single biggest realism win available here,
+	# and it costs nothing: same part count, different material.
+	#
+	# HOW the split is made matters, and the first attempt got it wrong: pushing
+	# the steel to metallic 0.8 made the gun DARKER, not richer. The GL
+	# Compatibility gotcha still holds — metal is lit almost entirely by what it
+	# REFLECTS, and against this project's near-black skies that is nothing.
+	# `Grade`'s sky-sourced ambient softens it but does not repeal it, and the
+	# renderer is currently Compatibility (see project.godot).
+	#
+	# So the separation is carried by ALBEDO and ROUGHNESS instead, with metallic
+	# kept moderate. That works on both renderers: a low-roughness, lighter-albedo
+	# part catches a hot specular from the DIRECT lights — which every map has —
+	# rather than depending on an environment probe that may be black. Polymer
+	# gets the opposite treatment, and the contrast between them is what reads.
+	var gun := StandardMaterial3D.new()          # receiver, barrel: machined steel
+	gun.albedo_color = Color(0.28, 0.285, 0.31)
+	gun.metallic = 0.30
+	gun.roughness = 0.30
+	gun.metallic_specular = 0.65
+	var dark := StandardMaterial3D.new()         # furniture: grip, stock, mag, rails
+	dark.albedo_color = Color(0.075, 0.075, 0.085)
+	dark.metallic = 0.0                          # polymer is a DIELECTRIC
+	dark.roughness = 0.80
+	dark.metallic_specular = 0.30
+	var accent := StandardMaterial3D.new()       # the heat cell
 	accent.albedo_color = Color(0.05, 0.05, 0.06)
 	accent.emission_enabled = true
 	accent.emission = Color(1.0, 0.25, 0.15)
 	accent.emission_energy_multiplier = 2.0
+	# A fourth, for the small hard parts that catch the eye at arm's length:
+	# charging handle, trigger, sling loops, port surround. Brighter and smoother
+	# than the receiver, so detail READS instead of disappearing into it.
+	var bright := StandardMaterial3D.new()
+	bright.albedo_color = Color(0.46, 0.465, 0.49)
+	bright.metallic = 0.35
+	bright.roughness = 0.18
+	bright.metallic_specular = 0.8
 
 	var receiver: Vector3 = shape["receiver"]
 	var barrel: Vector3 = shape["barrel"]
@@ -566,15 +596,70 @@ func _build(class_id: int, scoped: bool, holo: bool) -> void:
 
 	var muzzle_size: float = shape.get("muzzle", 0.0)
 	if muzzle_size > 0.0:
+		# Muzzle device in STEEL, not polymer — it is the hottest part of the gun
+		# and reading as plastic was wrong. Given a pair of ports as well.
 		_box(Vector3(muzzle_size, muzzle_size, 0.06),
-			Vector3(0, 0.012, barrel_z - barrel.z * 0.5 - 0.06), dark)
+			Vector3(0, 0.012, barrel_z - barrel.z * 0.5 - 0.06), bright)
+		for side: float in [-1.0, 1.0]:
+			_box(Vector3(muzzle_size * 0.35, muzzle_size * 1.15, 0.012),
+				Vector3(muzzle_size * 0.32 * side, 0.012,
+					barrel_z - barrel.z * 0.5 - 0.052), dark)
 
-	# Pistol grip, always: it's what you're holding.
-	var hand := _box(Vector3(0.035, 0.11, 0.05), Vector3(0, -0.07, 0.03), gun)
+	# Heat shroud along the barrel of anything with a long one. A bare extruded
+	# box IS the "slab" look; a run of cooling slots breaks the length up and
+	# says the barrel gets hot, which is the whole conceit of a blaster.
+	if barrel_count == 1 and barrel.z > 0.14:
+		var vents := clampi(int(barrel.z / 0.045), 2, 6)
+		for i in vents:
+			var vz := barrel_z + barrel.z * 0.5 - 0.03 - i * (barrel.z - 0.06) \
+				/ maxf(vents - 1, 1)
+			for side: float in [-1.0, 1.0]:
+				_box(Vector3(0.006, barrel.y * 0.85, 0.016),
+					Vector3(barrel.x * 0.5 * side, 0.012, vz), dark)
+		# Front sight block, where a real barrel has one.
+		_box(Vector3(0.014, 0.024, 0.016),
+			Vector3(0, barrel.y * 0.5 + 0.014, barrel_z - barrel.z * 0.34), bright)
+
+	# Pistol grip, always: it's what you're holding. Polymer, not steel — it is
+	# the part closest to the camera and the one that most needs to not be metal.
+	var hand := _box(Vector3(0.035, 0.11, 0.05), Vector3(0, -0.07, 0.03), dark)
 	hand.rotation.x = -0.25
 
+	# --- Universal furniture -------------------------------------------------
+	# Every gun gets these, because every gun has them and their absence is what
+	# made the receivers read as extruded blocks. They are small and cheap, and
+	# at viewmodel range (the weapon fills a quarter of the frame) they are the
+	# difference between a prop and a machine. Sized off the receiver so they
+	# land correctly on all twelve silhouettes rather than being tuned to one.
+	var rz: float = receiver.z
+	var ry: float = receiver.y
+	# Trigger guard: a loop under the receiver, made of three thin bars.
+	_box(Vector3(0.014, 0.008, 0.052), Vector3(0, -ry * 0.5 - 0.034, 0.006), bright)
+	_box(Vector3(0.014, 0.030, 0.008), Vector3(0, -ry * 0.5 - 0.019, 0.030), bright)
+	# Trigger itself, inside the guard.
+	_box(Vector3(0.009, 0.024, 0.008), Vector3(0, -ry * 0.5 - 0.014, 0.012), bright)
+	# Ejection port: a recessed panel on the right of the receiver with a lip.
+	_box(Vector3(0.006, 0.030, 0.062), Vector3(receiver.x * 0.5, 0.004, -0.03), dark)
+	_box(Vector3(0.008, 0.008, 0.070), Vector3(receiver.x * 0.5, 0.021, -0.03), bright)
+	# Charging handle, standing proud on the left where the eye catches it.
+	_box(Vector3(0.028, 0.012, 0.014), Vector3(-receiver.x * 0.5 - 0.010, 0.016, 0.01), bright)
+	# Top rail: a run of slots along the receiver. A repeated small feature is
+	# what gives a surface SCALE — the same trick as the tower mullions on
+	# Coruscant, and the reason a plain box could be any size.
+	var slots := clampi(int(rz / 0.028), 3, 9)
+	for i in slots:
+		var t := -rz * 0.5 + 0.02 + i * (rz - 0.04) / maxf(slots - 1, 1)
+		_box(Vector3(0.030, 0.006, 0.008), Vector3(0, ry * 0.5 + 0.003, t), dark)
+	# Sling loop at the rear.
+	_box(Vector3(0.008, 0.018, 0.008), Vector3(-receiver.x * 0.4, -ry * 0.5 - 0.006,
+		rz * 0.42), bright)
+
 	if shape.get("stock", false):
-		_box(Vector3(0.04, 0.055, 0.12), Vector3(0, -0.008, receiver.z * 0.5 + 0.05), gun)
+		# Polymer, and given a cheek riser: a stock is the one part with a shape
+		# that comes from a human face rather than from the mechanism.
+		_box(Vector3(0.04, 0.055, 0.12), Vector3(0, -0.008, receiver.z * 0.5 + 0.05), dark)
+		_box(Vector3(0.030, 0.018, 0.075), Vector3(0, 0.026, receiver.z * 0.5 + 0.04), dark)
+		_box(Vector3(0.044, 0.050, 0.012), Vector3(0, -0.012, receiver.z * 0.5 + 0.108), bright)
 	if shape.get("grip", false):
 		_box(Vector3(0.02, 0.035, 0.05), Vector3(0, -0.055, -0.1), dark)
 	if shape.has("mag"):
@@ -1026,9 +1111,10 @@ func _build_flash(tip_z: float) -> void:
 func _box(size: Vector3, pos: Vector3, mat: Material,
 		into: Node3D = null) -> MeshInstance3D:
 	var mi := MeshInstance3D.new()
-	var m := BoxMesh.new()
-	m.size = size
-	mi.mesh = m
+	# Chamfered, like the body parts — and it matters MORE here than anywhere
+	# else, because a first-person weapon sits half a metre from the camera and
+	# fills a quarter of the frame. A hard edge at that distance is unmissable.
+	mi.mesh = Meshes.chamfer_box(size)
 	mi.position = pos
 	mi.material_override = mat
 	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF

@@ -40,13 +40,32 @@ const GLOW_THRESHOLD := 1.0   # only genuinely bright things bloom
 const FOG_AERIAL := 0.8       # how much distance takes the colour of the sky
 const FOG_HEIGHT := 12.0      # metres: above this the ground haze thins out
 const FOG_HEIGHT_DENSITY := 0.012
-const SHADOW_OPACITY := 0.82  # a shadow is not a hole; something bounces in
-const SHADOW_BLUR := 1.3
+const SHADOW_OPACITY := 0.92  # SSIL and SSAO now carry most of the bounce
+const SHADOW_BLUR := 1.0
+## --- Forward+ only ------------------------------------------------------------
+## Everything below needs the clustered renderer. The project ran on GL
+## Compatibility for the Raspberry Pi 5, which has none of it; dropping that
+## target is what these cost.
+const SSAO_RADIUS := 1.6          # metres of contact darkening
+const SSAO_INTENSITY := 2.4
+const SSIL_RADIUS := 6.0          # metres a surface throws its colour
+const SSIL_INTENSITY := 1.1
+## Volumetric density is FAR more sensitive than depth fog: 0.012 turned a 280 m
+## forest into an opaque green soup with the ground lost in it. Outdoor vistas
+## want thousandths. A map that wants weather (Mustafar's ash, Hoth's blizzard)
+## passes its own.
+const VOLUMETRIC_DENSITY := 0.0022
+const FOG_ANISOTROPY := 0.55      # >0 scatters forward, which is what makes rays
+## Softness of the sun's shadow edge, in degrees of angular diameter. The real
+## sun is about 0.5; more than that reads as overcast, and it is also the dial
+## that hides the shadow map's resolution.
+const SUN_ANGULAR := 1.1
 
 
 ## The five things that separate "a lit diorama" from "a photograph", none of
 ## which need a renderer feature GL Compatibility does not have.
-static func apply(env: Environment, exposure := EXPOSURE) -> void:
+static func apply(env: Environment, exposure := EXPOSURE,
+		fog_density := VOLUMETRIC_DENSITY) -> void:
 	if env == null:
 		return
 	# 1. TONEMAPPING. Without it anything brighter than white simply clips —
@@ -117,6 +136,54 @@ static func apply(env: Environment, exposure := EXPOSURE) -> void:
 	env.adjustment_contrast = CONTRAST
 	env.adjustment_saturation = SATURATION
 
+	# 6-8. THE FORWARD+ HALF. None of this exists under GL Compatibility, and
+	#      dropping the Raspberry Pi target is what bought it. These three are
+	#      the difference between "lit" and "shaded".
+	#
+	#      GUARDED, because the project can still be run on either renderer (see
+	#      the [rendering] block in project.godot for the measured trade). Setting
+	#      any of them under Compatibility does not fail quietly — it raises an
+	#      error per environment per call, which buried the real output of every
+	#      look test in fog warnings. `get_rendering_device()` is null on exactly
+	#      the renderers that lack these, so it is the honest question to ask.
+	if RenderingServer.get_rendering_device() == null:
+		return
+	#
+	# SSAO: contact darkening where surfaces meet. On a game built out of boxes
+	# standing on ground this is the single biggest one — without it every object
+	# floats, because nothing ever darkens where it touches anything else.
+	env.ssao_enabled = true
+	env.ssao_radius = SSAO_RADIUS
+	env.ssao_intensity = SSAO_INTENSITY
+	env.ssao_power = 1.6
+	env.ssao_detail = 0.6
+	env.ssao_horizon = 0.08
+	env.ssao_light_affect = 0.15   # a little, so shadows do not go pure black
+
+	# SSIL: colour bleeding between surfaces. Red rock throws red into the
+	# shadow beside it; lava throws orange up the wall above it. It is what makes
+	# a palette look like it belongs to one place rather than being painted on.
+	env.ssil_enabled = true
+	env.ssil_radius = SSIL_RADIUS
+	env.ssil_intensity = SSIL_INTENSITY
+	env.ssil_sharpness = 0.98
+	env.ssil_normal_rejection = 1.0
+
+	# VOLUMETRIC FOG: actual air. Depth fog tints distance; volumetric fog is a
+	# medium the sun shines THROUGH, so it gives god rays under a canopy, glow
+	# over lava and a real blizzard — and it is lit by every light in the scene,
+	# which is why the lava and the city windows now do something to the sky
+	# above them instead of only to the ground below.
+	env.volumetric_fog_enabled = true
+	env.volumetric_fog_density = fog_density
+	env.volumetric_fog_albedo = env.fog_light_color
+	env.volumetric_fog_emission = Color.BLACK
+	env.volumetric_fog_gi_inject = 1.0
+	env.volumetric_fog_anisotropy = FOG_ANISOTROPY
+	env.volumetric_fog_length = 260.0
+	env.volumetric_fog_detail_spread = 2.0
+	env.volumetric_fog_ambient_inject = 0.9
+
 
 ## Shadow quality, per directional light. Two separate problems, both visible in
 ## the same screenshot: shadows that are BLACK (nothing bounces into them, so a
@@ -129,6 +196,12 @@ static func light(l: DirectionalLight3D) -> void:
 	# nothing and it is the difference between a shadow and a hole.
 	l.shadow_opacity = SHADOW_OPACITY
 	l.shadow_blur = SHADOW_BLUR
+	# A real penumbra: the shadow edge softens with distance from what casts it,
+	# the way a sun-cast shadow actually does. Forward+ only.
+	l.light_angular_distance = SUN_ANGULAR
+	# ...and the light has to be told to light the FOG as well as the surfaces,
+	# or the volumetric layer sits there unlit and just greys the picture down.
+	l.light_volumetric_fog_energy = 1.0
 	# Four splits with blending across them. These maps run to 260 m, and one
 	# split over that distance is what makes near-ground shadows crawl.
 	l.directional_shadow_mode = DirectionalLight3D.SHADOW_PARALLEL_4_SPLITS
@@ -142,9 +215,10 @@ static func light(l: DirectionalLight3D) -> void:
 
 ## Grade every environment and directional light under `root`. What Arena calls
 ## on itself, and what a test scene calls so its screenshots match the game.
-static func apply_to(root: Node, exposure := EXPOSURE) -> void:
+static func apply_to(root: Node, exposure := EXPOSURE,
+		fog_density := VOLUMETRIC_DENSITY) -> void:
 	for child in root.get_children():
 		if child is WorldEnvironment:
-			apply(child.environment, exposure)
+			apply(child.environment, exposure, fog_density)
 		elif child is DirectionalLight3D:
 			light(child)

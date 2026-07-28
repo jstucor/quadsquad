@@ -264,9 +264,7 @@ func _mat(c: Color) -> StandardMaterial3D:
 
 func _box(parent: Node3D, size: Vector3, center: Vector3, mat: Material) -> void:
 	var mi := MeshInstance3D.new()
-	var bm := BoxMesh.new()
-	bm.size = size
-	mi.mesh = bm
+	mi.mesh = Meshes.chamfer_box(size)   # same bevel as the living body it came off
 	mi.position = center
 	mi.material_override = mat
 	parent.add_child(mi)  # layer 1 (default): every camera sees a corpse

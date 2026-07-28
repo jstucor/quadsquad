@@ -262,10 +262,22 @@ const FINISHES := {
 
 ## `rim` is a fresnel term that brightens a surface as it turns away from the
 ## camera — which on a box lands as a bright line down every silhouette edge.
-## That is the cheapest available stand-in for a CHAMFER: a real bevel would
-## quadruple the triangle count of every body part (thirty boxes a character,
-## four viewports, plus a shadow pass), and this costs one extra term in a shader
-## that is already running.
+##
+## It used to be here as a STAND-IN for a chamfer, which the Raspberry Pi budget
+## would not pay for. The parts are genuinely chamfered now (`Meshes.chamfer_box`,
+## via `_box`/`_limb`), and rim stays because the two do different jobs: the
+## bevel puts a real lit edge on the silhouette, rim lifts the whole grazing-angle
+## falloff so a face turning away does not go flat. Keep both.
+
+
+## A value/saturation shift of one colour, for building tonal variants of a plate
+## without inventing a second colour. `value` scales brightness, `sat` scales
+## saturation — a highlight is not just a brighter red, it is a paler one, and a
+## shadow is a deeper and MORE saturated one. Doing it in HSV rather than by
+## multiplying the RGB is what keeps that true.
+func _shade(c: Color, value: float, sat: float) -> Color:
+	return Color.from_hsv(c.h, clampf(c.s * sat, 0.0, 1.0),
+		clampf(c.v * value, 0.0, 1.0), c.a)
 func _mat(color: Color, finish := Finish.PLATE) -> StandardMaterial3D:
 	var f: Dictionary = FINISHES[finish]
 	var m := StandardMaterial3D.new()
@@ -286,11 +298,15 @@ func _joint(parent: Node3D, jname: String, pos: Vector3) -> Node3D:
 	return n
 
 
+## Every body part goes through here, so this is the one place that decides what
+## a "box" on this rig actually is: a CHAMFERED box (`Meshes.chamfer_box`), whose
+## bevelled edges catch a highlight along the silhouette. A true box shades each
+## face at one flat value and reads as cardboard however good the material is.
+## The meshes are cached and shared by size, so the two arms, two legs and every
+## paired plate on all twelve bodies on a map hold the same handful of resources.
 func _box(parent: Node3D, size: Vector3, center: Vector3, mat: Material) -> MeshInstance3D:
 	var mi := MeshInstance3D.new()
-	var bm := BoxMesh.new()
-	bm.size = size
-	mi.mesh = bm
+	mi.mesh = Meshes.chamfer_box(size)
 	mi.position = center
 	mi.material_override = mat
 	parent.add_child(mi)
@@ -538,6 +554,21 @@ func _build_body() -> void:
 	# the way real armour does, and the accents still call the side at a glance.
 	_suit_mat = _mat(_team_color, Finish.PLATE)
 	var armor := _mat(style["armor"], Finish.PLATE)   # the class's main plate colour
+	# TWO MORE TONES OF THE SAME PLATE, and the reason these stopped reading as
+	# moulded plastic. Every plate on the body shared one material, so a pauldron
+	# facing the sky, a chest facing you and a skirt flap hanging in shadow all
+	# came back at exactly the same value — and a single flat value across a whole
+	# figure is the loudest "toy" cue there is. Real armour is one COLOUR at many
+	# values, because it is many separate pieces at many angles.
+	#
+	# Deliberately three materials rather than a per-part tint: a fresh material
+	# per box would be forty a character and twelve characters a map, which is the
+	# allocation rule this project cares most about. Three is free and gets almost
+	# all of it, because the eye is reading the BREAK between panels, not a smooth
+	# gradient. Raised/sky-facing pieces take `armor_hi`, hanging and recessed ones
+	# `armor_lo`; the rest stay on the base tone.
+	var armor_hi := _mat(_shade(style["armor"], 1.22, 0.90), Finish.PLATE)
+	var armor_lo := _mat(_shade(style["armor"], 0.66, 1.10), Finish.PLATE)
 	var dark := _mat(style["dark"], Finish.CLOTH)     # undersuit, joints, hands, boots
 	# A THIRD colour, and the reason these units stopped reading as coloured
 	# blocks. Two tones plus the team accent is enough for a trooper in one
@@ -555,9 +586,9 @@ func _build_body() -> void:
 	_box(hips, Vector3(0.055, 0.06, 0.03), Vector3(0, -0.035, -0.105 * bulk), dark)        # buckle (front)
 	if acc.has("kama"):   # ARC skirt: plated flaps hanging front and back
 		for kz in [0.11, -0.11]:
-			_box(hips, Vector3(0.30, 0.26, 0.04), Vector3(0, -0.17, kz * bulk), armor)
+			_box(hips, Vector3(0.30, 0.26, 0.04), Vector3(0, -0.17, kz * bulk), armor_lo)
 	if acc.has("robe"):   # Jedi tabard hanging from the waist, at the front
-		_box(hips, Vector3(0.24, 0.36, 0.05), Vector3(0, -0.20, -0.10), armor)
+		_box(hips, Vector3(0.24, 0.36, 0.05), Vector3(0, -0.20, -0.10), armor_lo)
 
 	# Torso pivots at the hips so run/idle can lean from the waist. The model faces
 	# -Z, so front detail is at NEGATIVE z and anything worn on the back at positive.
@@ -572,16 +603,16 @@ func _build_body() -> void:
 	else:
 		_box(spine, Vector3(0.28 * bulk, 0.26, 0.055), Vector3(0, 0.31, -0.105 * bulk), _suit_mat)  # team chest vest
 		_box(spine, Vector3(0.29 * bulk, 0.05, 0.062), Vector3(0, 0.18, -0.105 * bulk), dark)       # ab seam
-	_box(spine, Vector3(0.22 * bulk, 0.10, 0.19 * bulk), Vector3(0, 0.46, 0), armor)       # collar
+	_box(spine, Vector3(0.22 * bulk, 0.10, 0.19 * bulk), Vector3(0, 0.46, 0), armor_hi)    # collar (sky-facing)
 	if acc.has("backpack"):                   # on the back (+z)
 		_box(spine, Vector3(0.23, 0.28, 0.11), Vector3(0, 0.30, 0.15 * bulk), dark)
 		_box(spine, Vector3(0.05, 0.14, 0.05), Vector3(0.09, 0.44, 0.14 * bulk), _suit_mat)  # antenna
 	if acc.has("jetpack"):                     # on the back (+z)
-		_box(spine, Vector3(0.21, 0.30, 0.10), Vector3(0, 0.32, 0.15 * bulk), armor)
+		_box(spine, Vector3(0.21, 0.30, 0.10), Vector3(0, 0.32, 0.15 * bulk), armor_lo)
 		for jx in [-0.07, 0.07]:
 			_box(spine, Vector3(0.05, 0.07, 0.05), Vector3(jx, 0.14, 0.18), dark)      # nozzles
 	if acc.has("cape") or acc.has("robe"):    # cloth down the back (+z)
-		_box(spine, Vector3(0.32, 0.66, 0.03), Vector3(0, 0.15, 0.13 * bulk), armor)
+		_box(spine, Vector3(0.32, 0.66, 0.03), Vector3(0, 0.15, 0.13 * bulk), armor_lo)
 	if acc.has("bandolier"):                  # a team sash across a Wookiee's fur (front)
 		_box(spine, Vector3(0.085, 0.56, 0.04), Vector3(0.0, 0.24, -0.13 * bulk), _suit_mat).rotation.z = 0.34
 	if acc.has("antenna"):                    # ARC trooper's rangefinder stalk
@@ -630,7 +661,7 @@ func _build_body() -> void:
 		_box(spine, Vector3(0.22 * bulk, 0.09, 0.05), Vector3(0.03, 0.14, -0.11 * bulk), accent)
 
 	var head := _joint(spine, "Head", at["head"])
-	_build_head(style, head, armor, dark)
+	_build_head(style, head, armor_hi, dark)
 
 	for side in [-1, 1]:
 		var sn := "L" if side < 0 else "R"
@@ -692,14 +723,14 @@ func _build_body() -> void:
 		_box(knee, Vector3(0.13 * bulk, 0.09, 0.14 * bulk), Vector3(0, 0.0, -0.02), _suit_mat)  # team knee pad (front)
 		if acc.has("thighplate"):
 			_box(hip, Vector3(0.16 * bulk, 0.24, 0.06),
-				at["k" + ln] * 0.42 + Vector3(0, 0, -0.08 * bulk), armor)
+				at["k" + ln] * 0.42 + Vector3(0, 0, -0.08 * bulk), armor_hi)
 		var footv: Vector3 = at["k" + ln].normalized() * LOWER_LEG
 		if acc.has("greaves"):
 			# Shin plate on the front of the lower leg. Cheap, and it stops a
 			# heavily armoured unit having bare pipe-cleaner legs under a slab
 			# of a chest — which is what made the Spartan read top-heavy.
 			_box(knee, Vector3(0.15 * bulk, 0.26, 0.06),
-				footv * 0.45 + Vector3(0, 0, -0.07 * bulk), armor)
+				footv * 0.45 + Vector3(0, 0, -0.07 * bulk), armor_hi)
 		_limb(knee, footv, 0.105 * bulk, 0.11 * bulk, armor)                            # shin
 		_box(knee, Vector3(0.115 * bulk, 0.10, 0.24 * bulk), footv + Vector3(0, 0.0, -0.05), dark)  # boot
 	_apply_layers()
@@ -803,9 +834,7 @@ func _build_held_staff(held: Node3D, pole_mat: Material) -> void:
 func _limb(parent: Node3D, to: Vector3, tx: float, tz: float, mat: Material) -> MeshInstance3D:
 	var length := to.length()
 	var mi := MeshInstance3D.new()
-	var bm := BoxMesh.new()
-	bm.size = Vector3(tx, length, tz)
-	mi.mesh = bm
+	mi.mesh = Meshes.chamfer_box(Vector3(tx, length, tz))
 	mi.material_override = mat
 	var dir := to.normalized()
 	if not dir.is_equal_approx(Vector3.UP):

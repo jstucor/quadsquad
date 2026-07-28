@@ -86,6 +86,11 @@ const MAPS: Array[Dictionary] = [
 		"scene": preload("res://scenes/levels/senate.tscn")},
 	{"name": "BONEYARD", "blurb": "Ship graveyard: vast hulls and the chokes between them. 260m",
 		"scene": preload("res://scenes/levels/boneyard.tscn")},
+	# The generated one. Its blurb is the PLANET's, filled in by map_blurb(),
+	# because "what map is this" is answered by the planet and the roll — not by
+	# a fixed line that would be wrong four times out of five.
+	{"name": "PROCEDURAL WORLD", "blurb": "", "procedural": true,
+		"scene": preload("res://scenes/levels/planet.tscn")},
 ]
 ## A team is just an index now, 0 .. active_teams()-1. Two is the classic
 ## two-faction match; three or four makes it a free-for-all between squads;
@@ -153,6 +158,43 @@ const TTK_BLURBS := {
 	Ttk.MEDIUM: "The standard fight",
 	Ttk.HIGH: "Long duels, room to react and reposition",
 }
+## --- PROCEDURAL WORLDS ---------------------------------------------------------
+##
+## The generated map (MAPS' `procedural` row) reads these. `planet` is the menu
+## choice, RANDOM_PLANET rolls one per match, and `planet_seed` is what makes the
+## same planet a different layout every time you drop into it.
+##
+## The seed is re-rolled in reset_match, so it is stable for the whole of one
+## match — the terrain, the structures and every prop are generated from it, and
+## anything that re-derived a position mid-match would tear the map apart.
+const RANDOM_PLANET := -1
+var planet := RANDOM_PLANET
+var planet_seed := 0
+
+
+## Which world the generator should actually build this match: the menu choice,
+## or a roll if it is set to RANDOM.
+func chosen_planet() -> int:
+	var count: int = PlanetMap.PLANET_NAMES.size()
+	if planet >= 0 and planet < count:
+		return planet
+	return abs(planet_seed) % count
+
+
+## True if the selected map generates itself. The menu shows the PLANET row only
+## for this one, and the map blurb comes from the planet rather than the row.
+func map_is_procedural() -> bool:
+	return MAPS[map_index].get("procedural", false)
+
+
+func map_blurb() -> String:
+	if not map_is_procedural():
+		return str(MAPS[map_index]["blurb"])
+	if planet == RANDOM_PLANET:
+		return "A world rolled at the drop. Every match is a new one"
+	return str(PlanetMap.PLANETS[chosen_planet()]["blurb"])
+
+
 var ttk := Ttk.MEDIUM:
 	set(value):
 		ttk = clampi(value, 0, TTK_NAMES.size() - 1)
@@ -386,6 +428,10 @@ func reset_match() -> void:
 	match_live = false
 	zone_active = false
 	map_shapes.clear()
+	# A fresh world for a fresh match. Rolled here rather than at generation
+	# time so it is fixed for the whole match: every structure and prop is placed
+	# from it, and a seed that moved would tear the map apart mid-round.
+	planet_seed = int(Time.get_unix_time_from_system()) ^ (randi() & 0xffff)
 	nav = NavGrid.new()
 	map_bounds_known = false
 	smokes.clear()
