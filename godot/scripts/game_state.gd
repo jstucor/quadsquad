@@ -88,20 +88,75 @@ const MAPS: Array[Dictionary] = [
 		"scene": preload("res://scenes/levels/boneyard.tscn")},
 ]
 ## A team is just an index now, 0 .. active_teams()-1. Two is the classic
-## Republic/Separatist match; three or four makes it a free-for-all between
-## squads; FREE FOR ALL gives every player a team of one. Team.REPUBLIC and
-## Team.CIS are still 0 and 1, so maps that name them keep working.
+## two-faction match; three or four makes it a free-for-all between squads;
+## FREE FOR ALL gives every player a team of one. Team.REPUBLIC and Team.CIS are
+## still 0 and 1, so maps that name them keep working.
 ##
-## Arrays, not dictionaries keyed by the enum: every `TEAM_COLORS[team]` lookup
+## Arrays, not dictionaries keyed by the enum: every `team_colors[team]` lookup
 ## in the game indexes by int and carries on working unchanged.
+##
+## WHO those sides ARE comes from the UNIVERSE (see Loadout.UNIVERSES) — UNSC and
+## Covenant, or four Warhammer factions — so these are vars refreshed by
+## apply_universe() rather than constants. Everything that reads them indexes an
+## array of four either way.
 const MAX_TEAMS := 4
-const TEAM_NAMES: Array[String] = ["REPUBLIC", "SEPARATIST", "MANDALORE", "HUTT CARTEL"]
-const TEAM_COLORS: Array[Color] = [
+var team_names: Array[String] = ["REPUBLIC", "SEPARATIST", "MANDALORE", "HUTT CARTEL"]
+var team_colors: Array[Color] = [
 	Color(0.35, 0.55, 1.0),   # blue
 	Color(1.0, 0.40, 0.32),   # red
 	Color(0.45, 0.85, 0.45),  # green
 	Color(0.95, 0.78, 0.30),  # gold
 ]
+
+## --- UNIVERSE ----------------------------------------------------------------
+##
+## Which SETTING the match is played in: which classes exist, which sides they
+## fight for, and which of the catalogue they can reach. The tables themselves
+## live in Loadout (a class_name, so it works with no autoloads — see the note
+## there); this holds the choice and pushes it where it is needed.
+## Both this and the TTK setting below are MIRRORED into Loadout, which may not
+## name an autoload (its rules are exercised by a --script test that has none).
+## Setters rather than a call at match start, so the buy screen's HP figures are
+## right the moment the menu changes and can never disagree with what deploys.
+## An initialiser does not run a setter, so _init seeds both as well.
+var universe := Loadout.Universe.STAR_WARS:
+	set(value):
+		universe = clampi(value, 0, Loadout.UNIVERSES.size() - 1)
+		Loadout.active_universe = universe
+		var u: Dictionary = Loadout.UNIVERSES[universe]
+		# assign(), not `=`: the table's rows are untyped arrays and these are
+		# typed, so every `team_colors[t]` call site keeps its Color.
+		team_names.assign(u["teams"])
+		team_colors.assign(u["colors"])
+
+## --- TIME TO KILL -------------------------------------------------------------
+##
+## How fast somebody dies, chosen on the menu. It is a MULTIPLIER ON HEALTH and
+## nothing else: every weapon in the game keeps its damage, and halving the
+## health under it halves the time to kill for all of them at once. Doing it the
+## other way — scaling damage — would need every gun, every splash, every melee
+## swing and the guard's block pool touched, and any one of them missed would
+## quietly become the best weapon in the game.
+##
+## REALISTIC is a body that goes down to a burst; HIGH is the arena-shooter
+## sponge. MEDIUM is exactly the game as it was, which is why it is the default.
+enum Ttk { REALISTIC, LOW, MEDIUM, HIGH }
+const TTK_NAMES := {
+	Ttk.REALISTIC: "REALISTIC", Ttk.LOW: "LOW", Ttk.MEDIUM: "MEDIUM", Ttk.HIGH: "HIGH",
+}
+const TTK_HEALTH := {
+	Ttk.REALISTIC: 0.35, Ttk.LOW: 0.65, Ttk.MEDIUM: 1.0, Ttk.HIGH: 1.6,
+}
+const TTK_BLURBS := {
+	Ttk.REALISTIC: "A burst kills. Cover is everything",
+	Ttk.LOW: "Short fights, first shot matters",
+	Ttk.MEDIUM: "The standard fight",
+	Ttk.HIGH: "Long duels, room to react and reposition",
+}
+var ttk := Ttk.MEDIUM:
+	set(value):
+		ttk = clampi(value, 0, TTK_NAMES.size() - 1)
+		Loadout.ttk_health = float(TTK_HEALTH[ttk])
 
 var scores := {}
 var match_over := false
@@ -263,6 +318,11 @@ func _init() -> void:
 	# Bindings (the kb_* InputMap actions and every pad profile) live in Controls
 	# and are read back from user://controls.cfg here, before anything can ask.
 	Controls.ensure_loaded()
+	# Push the starting universe and TTK into Loadout's mirrors. A `var x := v`
+	# initialiser does not run its own setter, so without this the statics would
+	# be right only from the first time somebody changed the setting.
+	universe = universe
+	ttk = ttk
 	_read_cmdline()
 
 

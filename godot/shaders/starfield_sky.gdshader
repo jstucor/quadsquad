@@ -2,6 +2,13 @@
 // Pure math, no textures — cheap enough for the Pi 5 GL Compatibility target.
 shader_type sky;
 
+// The night gradient. Constants rather than uniforms: every map that uses this
+// sky wants the same night, and the ones that want a different sky already
+// override _build_environment with a shader of their own.
+const vec3 ZENITH = vec3(0.006, 0.009, 0.020);
+const vec3 HORIZON = vec3(0.030, 0.043, 0.078);
+const vec3 BAND = vec3(0.018, 0.030, 0.062);
+
 float hash13(vec3 p3) {
 	p3 = fract(p3 * 0.1031);
 	p3 += dot(p3, p3.zyx + 31.32);
@@ -10,9 +17,25 @@ float hash13(vec3 p3) {
 
 void sky() {
 	vec3 d = EYEDIR;
-	// Near-black space with a faint cold nebula band at the horizon.
-	vec3 col = vec3(0.004, 0.006, 0.012);
-	col += vec3(0.012, 0.02, 0.045) * pow(1.0 - abs(d.y), 4.0);
+	// A GRADED night sky, not a black one. Two reasons, and the second is the
+	// load-bearing one:
+	//
+	//   Looks:  a real night sky is never flat black. It has airglow near the
+	//           horizon and goes deepest overhead, and that gradient is most of
+	//           what reads as "sky" rather than "the inside of a box".
+	//   Light:  the arena grade sources part of its AMBIENT from this sky (see
+	//           Arena._grade_environment), so whatever is painted here is what
+	//           lights the shadow side of every object on a night map. A black
+	//           sky contributes black, which is exactly the documented gotcha
+	//           about metals rendering pitch dark — this is that bug's source.
+	//
+	// Still dark enough for the stars to carry the image; the gradient is worth
+	// a couple of percent of albedo, not a moonlit scene.
+	float horizon = pow(1.0 - abs(d.y), 3.0);
+	vec3 col = mix(ZENITH, HORIZON, horizon);
+	// A cold band tight to the skyline, which is where a distant silhouette
+	// separates from the sky.
+	col += BAND * pow(1.0 - abs(d.y), 10.0);
 
 	// Two star layers at different densities.
 	for (int i = 0; i < 2; i++) {

@@ -39,7 +39,14 @@ func _ready() -> void:
 
 func _test_faction_builds() -> void:
 	print("== faction builds ==")
-	_expect(Loadout.FACTION_BUILDS.size() == 8, "eight faction classes")
+	# Four per side, and every universe's sides. Conquest itself only ever plays
+	# two of them at once, but every roster has to be deployable — a class that
+	# names a weapon nobody added is a crash on the character select.
+	var rosters: int = 0
+	for u in Loadout.FACTION_ROSTERS:
+		rosters += Loadout.FACTION_ROSTERS[u].size()
+	_expect(Loadout.FACTION_BUILDS.size() == rosters * 4,
+		"four faction classes per side across every universe")
 	for i in Loadout.FACTION_BUILDS.size():
 		var b := Loadout.faction_build(i)
 		var cls: int = b.deploy_class()

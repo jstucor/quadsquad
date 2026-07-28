@@ -75,6 +75,10 @@ func _light() -> void:
 	e.ambient_light_energy = 0.6
 	env.environment = e
 	add_child(env)
+	# Grade it exactly as a real map is graded, or this test photographs a
+	# lighting model the game does not ship — which is the whole failure mode a
+	# look test exists to catch.
+	Grade.apply_to(self)
 
 
 func _build_floor() -> void:

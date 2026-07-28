@@ -13,6 +13,11 @@ const ZONE_SCENE := preload("res://scenes/fx/zone.tscn")
 # one shared pool of clicks (audio isn't split four ways the way the screen is).
 const HIT_MARKER := preload("res://scripts/hit_marker.gd")
 const HIT_TICK := preload("res://scripts/hit_tick.gd")
+
+## Multisampling per viewport. 2x rather than 4x because this is the Pi budget:
+## the scene is drawn four times already, and 2x removes most of the edge crawl
+## on flat-shaded boxes for a fraction of 4x's bandwidth. Dial it here.
+const MSAA := Viewport.MSAA_2X
 const MAP_VIEW := preload("res://scripts/map_view.gd")
 const SETTINGS_OVERLAY := preload("res://scripts/settings_overlay.gd")
 const SPAWN_SCREEN := preload("res://scripts/spawn_screen.gd")
@@ -99,6 +104,18 @@ func _ready() -> void:
 		# own_world_3d stays false: all four viewports render the root
 		# viewport's world, where the level lives.
 		var viewport := SubViewport.new()
+		# ANTI-ALIASING, and it has to be set HERE: the project setting only
+		# reaches the root viewport, and the game never renders anything into
+		# that — every pixel a player sees comes out of one of these.
+		#
+		# Worth more here than in most games. This scene is untextured flat-shaded
+		# boxes, so essentially ALL of its aliasing is geometric edges, which is
+		# exactly what MSAA fixes and exactly what a post-process AA smears. And
+		# each viewport is only 960x540, so the samples are cheap.
+		viewport.msaa_3d = MSAA
+		# The sky is a smooth gradient now, which is the classic thing to band on
+		# an 8-bit target. Debanding is a dither and costs nothing.
+		viewport.use_debanding = true
 		container.add_child(viewport)
 
 		var camera := Camera3D.new()
@@ -116,7 +133,7 @@ func _ready() -> void:
 		if spawn:
 			player.global_transform = spawn.global_transform
 		player.bind_camera(camera)
-		player.model.set_team_color(GameState.TEAM_COLORS[player.team])
+		player.model.set_team_color(GameState.team_colors[player.team])
 
 		viewport.add_child(_build_hud(player))
 		# The match waits for everyone's first deploy, so watch for it.
@@ -502,7 +519,7 @@ func _refresh_scores(_team := 0, _score := 0) -> void:
 	var parts := PackedStringArray()
 	for team in GameState.active_teams():
 		parts.append("%s  %d" % [
-			GameState.TEAM_NAMES[team], int(GameState.scores.get(team, 0))])
+			GameState.team_names[team], int(GameState.scores.get(team, 0))])
 	var text := ("     " if GameState.active_teams() <= 2 else "   ").join(parts)
 	for label in _score_labels:
 		label.text = text
@@ -599,8 +616,8 @@ func _refresh_zone(holder: int, contested: bool, seconds_left: int) -> void:
 		state = "ZONE CONTESTED"
 		tint = Color(1.0, 0.95, 0.6)
 	elif holder != -1:
-		state = "%s HOLDS THE ZONE" % GameState.TEAM_NAMES[holder]
-		tint = GameState.TEAM_COLORS[holder]
+		state = "%s HOLDS THE ZONE" % GameState.team_names[holder]
+		tint = GameState.team_colors[holder]
 	for label in _zone_labels:
 		label.text = "%s     moves in %ds" % [state, seconds_left]
 		label.add_theme_color_override("font_color", tint)
@@ -698,7 +715,11 @@ func _add_gear_readout(hud: Control, player: Player, color: Color) -> void:
 ## One gadget slot's line, or "" when the slot is empty. Each gadget reports the
 ## thing you actually need from it: fuel, or seconds until you may use it again.
 func _gadget_readout(player: Player, slot: int) -> String:
-	var id := player.gadget_in(slot)
+	var fitted := player.gadget_in(slot)
+	# Switch on what it DOES so a jump pack reads its fuel like a jetpack, but
+	# NAME it by what was actually bought — the HUD is the one place a Blood
+	# Angel should read "JUMP PACK" rather than the mechanism's name.
+	var id := Loadout.gadget_action(fitted)
 	match id:
 		Loadout.Gadget.NONE:
 			return ""
@@ -712,7 +733,7 @@ func _gadget_readout(player: Player, slot: int) -> String:
 			# fall through to the shared cooldown line below.
 			if player.cloak_left() > 0.0:
 				return "CLOAKED %ds" % ceili(player.cloak_left())
-	var name: String = Loadout.GADGETS[id]["name"]
+	var name: String = Loadout.GADGETS[fitted]["name"]
 	# The force powers run on their own cooldown, so they can say when they are up.
 	if Loadout.GADGET_COOLDOWNS.has(id):
 		var left := player.gadget_cooldown(slot)
@@ -730,8 +751,8 @@ func _add_victory_banner(hud: Control) -> void:
 
 func _show_victory(team: int) -> void:
 	for banner in _victory_banners:
-		banner.text = "%s WINS" % GameState.TEAM_NAMES[team]
-		banner.add_theme_color_override("font_color", GameState.TEAM_COLORS[team])
+		banner.text = "%s WINS" % GameState.team_names[team]
+		banner.add_theme_color_override("font_color", GameState.team_colors[team])
 		banner.visible = true
 
 
@@ -871,12 +892,15 @@ func _build_buy_screen(player: Player, color: Color) -> Control:
 	# Resolve the cursor -> box every frame while the screen is up, and redraw the
 	# reticle. Only re-runs the text refresh when the box under the cursor
 	# actually changes, so a still cursor costs one has_point sweep and no more.
-	get_tree().process_frame.connect(func() -> void:
-		if not panel.visible:
-			return
-		cursor.queue_redraw()
-		if BoxScreen.resolve(player, boxes):
-			refresh.call())
+	#
+	# Registered for Main's own per-frame tick rather than connected to
+	# process_frame as a lambda. A lambda that never touches `self` has no target
+	# object, so the SceneTree keeps the connection alive after the match is torn
+	# down and it goes on reading `panel.visible` off a freed panel every frame
+	# on the menu — the same leak the autoload signals were fixed for, one signal
+	# further out. This array dies with Main.
+	_buy_screens.append({"panel": panel, "cursor": cursor, "player": player,
+		"boxes": boxes, "refresh": refresh})
 	player.buy_changed.connect(func(_row: int) -> void: refresh.call())
 	player.deploy_ready.connect(func() -> void: refresh.call())
 	player.died.connect(func(eliminated: bool) -> void:
@@ -1054,6 +1078,9 @@ var _thermal_overlays: Array = []      # [{c: Control, player: Player}]
 var _thermal_was_live := false
 var _bloom_ticks: Array = []           # [{c: Control, player: Player, at: float}]
 var _slow_labels: Array = []           # [{label: Label, at: int}] — royale readouts
+## The deploy screens, one per human. Held here rather than each connecting its
+## own lambda to process_frame, so they are torn down with the match.
+var _buy_screens: Array = []           # [{panel, cursor, player, boxes, refresh}]
 ## How often the slow group refreshes. They print whole seconds and a rounded
 ## damage figure, so sixty times a second was fifty-four wasted string builds.
 const SLOW_TICK := 6                   # every 6th frame — 10 Hz at 60 fps
@@ -1069,11 +1096,26 @@ func _tick_overlays() -> void:
 	_tick_scans()
 	_tick_thermal()
 	_tick_bloom()
+	_tick_buy_screens()
 	if Engine.get_process_frames() % SLOW_TICK == 0:
 		for entry in _slow_labels:
 			var label: Label = entry["label"]
 			if is_instance_valid(label):
 				label.queue_redraw()
+
+
+## Each deploy screen that is currently up: redraw its cursor, and re-run the
+## text refresh only when the cursor has actually crossed into another box.
+func _tick_buy_screens() -> void:
+	for entry in _buy_screens:
+		var panel: Control = entry["panel"]
+		if not is_instance_valid(panel) or not panel.visible:
+			continue
+		var cursor: Control = entry["cursor"]
+		if is_instance_valid(cursor):
+			cursor.queue_redraw()
+		if BoxScreen.resolve(entry["player"], entry["boxes"]):
+			(entry["refresh"] as Callable).call()
 
 
 func _tick_scans() -> void:

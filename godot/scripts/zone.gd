@@ -193,7 +193,7 @@ func _paint() -> void:
 	if _contested:
 		tint = Color(1.0, 0.95, 0.6)
 	elif _holder != -1:
-		tint = GameState.TEAM_COLORS[_holder]
+		tint = GameState.team_colors[_holder]
 	_column.material_override = _marker_material(Color(tint, 0.13))
 	_ring.material_override = _marker_material(Color(tint, 0.75))
 

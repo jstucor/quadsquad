@@ -20,6 +20,24 @@ var _suit_mat: StandardMaterial3D  # torso/upper-limb colour, tinted per team
 var _gun_parts: Array[MeshInstance3D] = []
 var _saber_parts: Array[MeshInstance3D] = []
 var _staff_parts: Array[MeshInstance3D] = []
+## The joint the held weapon hangs off, kept so the melee parts can be rebuilt
+## for a different blade without touching the rest of the rig.
+var _held: Node3D
+## Which melee weapon is currently modelled here (Weapon.melee_look()). Compared
+## rather than reapplied, so a rebuild only happens on an actual weapon swap.
+var _melee_look := {}
+## Which render layer this model's meshes belong on, REMEMBERED rather than
+## stamped once from outside. Fresh MeshInstance3Ds default to the shared layer,
+## and this model rebuilds itself in two places now — a style change and a melee
+## swap — so an owner that stamped its layer at spawn would see its own
+## third-person blade hanging in front of its camera the first time it drew one.
+## Exactly the trap the viewmodel's view_layer exists to avoid, same shape.
+var render_layers := 0
+## The upper body's yaw relative to the legs, in radians (see set_twist). Kept on
+## the model rather than written straight onto the node, so a style rebuild — the
+## one thing that frees and replaces the whole joint tree — restores it.
+var _twist := 0.0
+var _twist_joint: Node3D
 
 # Proportions in metres. Feet rest at y = 0 and the model faces -Z.
 #
@@ -54,19 +72,77 @@ const LEG := UPPER_LEG + LOWER_LEG
 ## actually closes, not to the wrist, or the gun sits in the fingertips.
 const HAND_REACH := 0.075
 
-# Held-gun position, spine-local (in front of the chest, barrel toward -Z).
-const GUN_POS := Vector3(0.0, 0.30, -0.26)
+# Held-gun transform, spine-local. The barrel runs toward -Z, and the model
+# faces -Z, so +X is the character's own RIGHT.
+#
+# A RIFLE IS CARRIED ON THE RIGHT SHOULDER, NOT FLAT ACROSS THE CHEST. The old
+# pose sat the weapon dead-centre (x = 0) with no rotation, which put the
+# receiver in the middle of the sternum and both arms in a symmetric hug — the
+# single most toy-like thing about the model, and very visible on the wide-
+# shouldered units where the gun read as a bar sticking out of the ribs.
+#
+# So: pushed out to the right, and yawed so the muzzle crosses slightly inward
+# with a small cant. That makes the hold ASYMMETRIC, which is what a real one is
+# — the right hand tucks in at the trigger (it solves to ~55% arm extension) and
+# the left reaches across the body to the handguard (~94%). Nothing else had to
+# change: _hold() solves both arms onto grip points in the WEAPON's own space, so
+# moving the weapon carries the hands, and every clip is built from _carry().
+## Tuned against the ARM EXTENSION the solve comes out at, because that is what
+## decides whether the pose reads as a hold or as a reach: pushed out to
+## x 0.10 / z -0.235 the left arm solved to 94% of its length, and a two-bone IK
+## at 94% is a straight arm, which drags the shoulder up and gives every unit a
+## hunch. Drawn in and yawed further across, the left settles at ~86% (a bent
+## elbow) and the right at ~52% (tucked in at the trigger).
+const GUN_POS := Vector3(0.085, 0.29, -0.20)
+const GUN_ROT := Vector3(0.0, deg_to_rad(20.0), deg_to_rad(-6.0))
+
+## THE SPRINT CARRY. Dropped from chest height, pulled in tight against the body
+## and yawed most of the way across so the barrel lies over the chest rather than
+## pointing where the eyes are. The big number is the YAW: at the carry's 20
+## degrees a running figure still reads as aiming, and it is only past about 55
+## that the weapon reads as stowed.
+##
+## Both hands stay on it — this goes through _hold like every other pose — so the
+## arms are still a hold rather than swinging free. That is deliberate: a rifle
+## needs two hands whatever you are doing with your legs, and the arms swinging
+## empty while a gun floats alongside is worse than no sprint carry at all.
+const RUN_GUN_POS := Vector3(0.05, 0.235, -0.135)
+const RUN_GUN_ROT := Vector3(deg_to_rad(-6.0), deg_to_rad(62.0), deg_to_rad(-14.0))
 
 # The third-person lightsaber. Longer than the first-person blade (0.78 m): that
 # one is foreshortened by a camera 30 cm from the hilt, while this one is judged
 # from across the map, where the blade IS the silhouette.
 const BLADE_LENGTH := 1.25
 const BLADE_WIDTH := 0.05
+## What viewmodel.gd draws for the LIGHTSABER, in its own first-person scale.
+## A weapon states its blade in those numbers (Weapon.melee_look), and this pair
+## is what converts them to the third-person size above — one source of truth for
+## how long a blade is, two viewing distances.
+const VM_BLADE_LEN := 0.78
+const VM_BLADE_WIDTH := 0.038
 const BLADE_CORE := Color(0.75, 0.92, 1.0)
 const BLADE_GLOW := Color(0.25, 0.65, 1.0)
 # The electrostaff's charge is violet, not the saber's blue (the IG-100 look).
 const STAFF_CORE := Color(0.86, 0.62, 1.0)
 const STAFF_GLOW := Color(0.58, 0.16, 0.98)
+
+## STANDING STILL, A BODY STANDS WITH ITS FEET APART. Legs together under the
+## hips is a mannequin on a stand; a shoulder-width stance is what a person at
+## rest — never mind a soldier expecting to be shot at — actually does, and it
+## widens the silhouette, which is worth something on a four-way split screen.
+##
+## Splayed at the HIP (a roll about Z), so the thighs open outward and the knees
+## follow. Only the standing clips get it: walk and run put the legs back under
+## the body, which is where they have to be to carry it.
+const STANCE_SPLAY_DEG := 7.0
+## ...and the hips have to COME DOWN by what the splay costs in height, or the
+## feet hang above the floor. A leg rolled out by t reaches `LEG * cos t` down
+## instead of `LEG`, exactly the rule CROUCH_HIP_DROP follows -- and, like it, a
+## fraction of the LEG rather than of HIP_Y (see the note there). The ankle
+## column of tests/guard_pose.tscn is what catches getting this wrong.
+const STANCE_HIP_DROP := LEG * (cos(deg_to_rad(STANCE_SPLAY_DEG)) - 1.0)
+## The feet turn out with the splay, the way a real stance does.
+const STANCE_TOE_OUT_DEG := 5.0
 
 const IDLE_LEN := 2.4
 const WALK_LEN := 1.0
@@ -126,14 +202,23 @@ const GUARD_GUN_ROT := Vector3(deg_to_rad(74.0), deg_to_rad(-52.0), 0.0)
 # Short name -> node path (relative to this Character) for the animated joints.
 # "gun" is the held weapon: it is a joint like any other, so the guard can raise
 # it and the arms can be solved onto wherever it ends up.
+## NOTE THE `Twist` NODE between the hips and the spine. Nothing animates it —
+## it exists precisely so that the runtime torso twist (set_twist) has a joint of
+## its own to write, above the legs and below everything else.
+##
+## Laying the twist on the Spine instead would put it in a fight with the
+## AnimationPlayer, which rewrites every joint in this table every frame. That is
+## the same trap recorded for the crouch: anything applied ON TOP of a clip
+## survives only by process ordering. A joint the clips never name cannot be
+## clobbered, and needs no ordering rule to be correct.
 const PATHS := {
-	"spine": "Hips/Spine",
-	"head": "Hips/Spine/Head",
-	"sL": "Hips/Spine/ShoulderL", "eL": "Hips/Spine/ShoulderL/ElbowL",
-	"sR": "Hips/Spine/ShoulderR", "eR": "Hips/Spine/ShoulderR/ElbowR",
+	"spine": "Hips/Twist/Spine",
+	"head": "Hips/Twist/Spine/Head",
+	"sL": "Hips/Twist/Spine/ShoulderL", "eL": "Hips/Twist/Spine/ShoulderL/ElbowL",
+	"sR": "Hips/Twist/Spine/ShoulderR", "eR": "Hips/Twist/Spine/ShoulderR/ElbowR",
 	"hL": "Hips/HipL", "kL": "Hips/HipL/KneeL",
 	"hR": "Hips/HipR", "kR": "Hips/HipR/KneeR",
-	"gun": "Hips/Spine/HeldGun",
+	"gun": "Hips/Twist/Spine/HeldGun",
 }
 
 
@@ -152,11 +237,44 @@ func _ready() -> void:
 
 # --- rig construction ------------------------------------------------------
 
-func _mat(color: Color) -> StandardMaterial3D:
+## HOW A SURFACE IS FINISHED, which is most of what tells two materials apart at
+## a glance. Everything used to come back at metallic 0 / roughness 0.75, so a
+## ceramic plate, a rubber undersuit and a gun barrel all caught the light
+## identically and the whole model read as one moulded piece.
+##
+## The metallic values are usable again because the sky is graded now (see
+## Arena._grade_environment): the old "keep metallic under 0.15" rule existed
+## because metal reflected a near-black void and rendered as a black hole. Give
+## it a sky with a horizon in it and metal reflects something.
+enum Finish { PLATE, CLOTH, METAL, HIDE }
+const FINISHES := {
+	# Armour plate: hard, slightly glossy, a touch of specular sheen.
+	Finish.PLATE: {"metallic": 0.15, "roughness": 0.45, "rim": 0.35},
+	# Undersuit, webbing, boot rubber: matte and light-swallowing.
+	Finish.CLOTH: {"metallic": 0.0, "roughness": 0.92, "rim": 0.15},
+	# Gun bodies, staff poles, exposed frame: properly metallic.
+	Finish.METAL: {"metallic": 0.75, "roughness": 0.32, "rim": 0.45},
+	# Fur, skin, bone: matte with a strong rim, which is what reads as a soft
+	# edge against a hard one.
+	Finish.HIDE: {"metallic": 0.0, "roughness": 0.85, "rim": 0.5},
+}
+
+
+## `rim` is a fresnel term that brightens a surface as it turns away from the
+## camera — which on a box lands as a bright line down every silhouette edge.
+## That is the cheapest available stand-in for a CHAMFER: a real bevel would
+## quadruple the triangle count of every body part (thirty boxes a character,
+## four viewports, plus a shadow pass), and this costs one extra term in a shader
+## that is already running.
+func _mat(color: Color, finish := Finish.PLATE) -> StandardMaterial3D:
+	var f: Dictionary = FINISHES[finish]
 	var m := StandardMaterial3D.new()
 	m.albedo_color = color
-	m.metallic = 0.0  # near-black sky reflects into metal (see project Gotchas)
-	m.roughness = 0.75
+	m.metallic = f["metallic"]
+	m.roughness = f["roughness"]
+	m.rim_enabled = true
+	m.rim = f["rim"]
+	m.rim_tint = 0.35   # toward the light's colour rather than the albedo's
 	return m
 
 
@@ -231,13 +349,73 @@ func _arm_correction(sn: String) -> Basis:
 ## `staff` picks the electrostaff over the lightsaber; both are "melee" and both
 ## get the guard, so a Magna Guard reads as a staff-carrier from across the map
 ## while a Force adept reads as a blade-carrier.
-func set_melee(on: bool, staff := false) -> void:
+##
+## `look` is Weapon.melee_look() — the colour and size of THIS weapon's blade,
+## read off the same profile keys the first-person viewmodel reads, so a
+## chainsword is dull steel and a warscythe is green in both views without the
+## two ever agreeing by hand. It only rebuilds when the look actually changes,
+## which is a weapon swap and nothing else.
+func set_melee(on: bool, staff := false, look := {}) -> void:
+	if on and look != _melee_look:
+		_melee_look = look.duplicate()
+		_rebuild_melee()
 	for mi in _gun_parts:
 		mi.visible = not on
 	for mi in _saber_parts:
 		mi.visible = on and not staff
 	for mi in _staff_parts:
 		mi.visible = on and staff
+
+
+## Put this model on a render layer, and keep it there through every rebuild.
+func set_render_layers(bits: int) -> void:
+	render_layers = bits
+	_apply_layers()
+
+
+func _apply_layers() -> void:
+	if render_layers == 0:   # nobody asked; leave the engine default alone
+		return
+	for mi in find_children("*", "MeshInstance3D", true, false):
+		(mi as MeshInstance3D).layers = render_layers
+
+
+## TWIST THE UPPER BODY relative to the legs, in radians.
+##
+## What it is for: a body that pans its aim while standing still turns its TORSO
+## first and only moves its feet when it runs out of neck. Rotating the whole
+## model with the camera — which is what a CharacterBody3D yawing under a look
+## input does on its own — makes a character pirouette on the spot, and it is one
+## of the loudest tells that something is a game object rather than a person.
+##
+## The caller (Player) owns the policy: how far the torso may go before the feet
+## have to follow, and how fast they catch up. This just applies it.
+func set_twist(radians: float) -> void:
+	_twist = radians
+	if _twist_joint != null and is_instance_valid(_twist_joint):
+		_twist_joint.rotation.y = radians
+
+
+## Rebuild just the held blade and pole for the melee weapon now in hand. The
+## rest of the rig is untouched: these hang off the HeldGun joint, which survives
+## a weapon swap, so this is four boxes rather than a whole model.
+##
+## remove_child before queue_free, the same rule the viewmodel keeps: freeing is
+## deferred to the end of the frame, so a swap and a rebuild in one frame would
+## otherwise leave the old blade stacked inside the new one.
+func _rebuild_melee() -> void:
+	if _held == null or not is_instance_valid(_held):
+		return
+	for mi in _saber_parts + _staff_parts:
+		if is_instance_valid(mi):
+			_held.remove_child(mi)
+			mi.queue_free()
+	_saber_parts.clear()
+	_staff_parts.clear()
+	var gunmetal := _mat(Color(0.10, 0.10, 0.12), Finish.METAL)
+	_build_held_saber(_held, gunmetal)
+	_build_held_staff(_held, gunmetal)
+	_apply_layers()
 
 
 ## Fade the whole model to `alpha` (1.0 = solid) for the Trandoshan's cloak.
@@ -267,9 +445,17 @@ func set_cloak(alpha: float) -> void:
 # and the TEAM colour rides the ACCENTS (`_suit_mat`: shoulder bells, chest vest,
 # belt, knee pads, helmet crest) — the way real armour markings read, and still a
 # clear team call at a glance.
+## Styles from EVERY universe live in one enum, for the same reason Weapon.Class
+## does: STYLES is a dictionary keyed by it, so a Spartan costs a row and shifts
+## nothing, and which universe a body belongs to is stated once in Loadout (the
+## kit that wears it) rather than repeated here.
 enum Style {
 	GENERIC, CLONE, CLONE_ENGINEER, CLONE_HEAVY, CLONE_ARC,
 	B1, B2, MAGNAGUARD, TACTICAL, MANDALORIAN, JEDI, WOOKIEE, TRANDOSHAN,
+	# Halo
+	SPARTAN, ODST, MARINE, ELITE, GRUNT, BRUTE,
+	# Warhammer 40,000
+	ULTRAMARINE, BLOOD_ANGEL, NECRON, NECRON_LORD, ORK, ORK_NOB,
 }
 
 const STYLES := {
@@ -289,6 +475,33 @@ const STYLES := {
 	Style.JEDI:           {"armor": Color(0.40, 0.31, 0.20), "dark": Color(0.22, 0.17, 0.11), "head": "hood", "acc": ["robe"]},
 	Style.WOOKIEE:        {"armor": Color(0.34, 0.23, 0.13), "dark": Color(0.22, 0.15, 0.09), "head": "furry", "bulk": 1.45, "acc": ["fur", "bandolier"]},
 	Style.TRANDOSHAN:     {"armor": Color(0.42, 0.47, 0.30), "dark": Color(0.24, 0.28, 0.18), "head": "bare", "bulk": 1.08, "acc": ["scales"]},
+	# HALO — UNSC. A Spartan is a head taller than the marines it fights beside,
+	# which is the only thing anyone needs to read at a glance; the ODST is the
+	# same soldier in black with the pod-visor helmet. The Spartan carries plate
+	# on every limb — without the greaves and gauntlets a slab of a chest sat on
+	# bare pipe-cleaner legs and read top-heavy.
+	Style.SPARTAN:        {"armor": Color(0.30, 0.40, 0.29), "dark": Color(0.11, 0.13, 0.12), "accent": Color(0.86, 0.66, 0.20), "head": "spartan", "bulk": 1.24, "acc": ["pauldron", "gauntlet", "greaves", "thighplate"]},
+	Style.ODST:           {"armor": Color(0.17, 0.19, 0.22), "dark": Color(0.07, 0.08, 0.10), "accent": Color(0.45, 0.48, 0.54), "head": "odst", "bulk": 1.02, "acc": ["backpack", "gauntlet", "greaves"]},
+	Style.MARINE:         {"armor": Color(0.36, 0.38, 0.28), "dark": Color(0.14, 0.15, 0.12), "accent": Color(0.52, 0.48, 0.34), "head": "odst", "bulk": 0.96, "acc": ["greaves"]},
+	# HALO — Covenant. The Elite is tall and armoured over a dark bodysuit, the
+	# Grunt is tiny behind a methane tank bigger than it is, the Brute is the
+	# widest thing in the game and wears half a set of plate.
+	Style.ELITE:          {"armor": Color(0.36, 0.31, 0.56), "dark": Color(0.13, 0.11, 0.19), "accent": Color(0.72, 0.66, 0.95), "head": "elite", "bulk": 1.22, "acc": ["bigpauldron", "gauntlet", "greaves"]},
+	Style.GRUNT:          {"armor": Color(0.76, 0.44, 0.16), "dark": Color(0.22, 0.15, 0.09), "accent": Color(0.30, 0.34, 0.38), "head": "grunt", "bulk": 0.88, "acc": ["tank"]},
+	Style.BRUTE:          {"armor": Color(0.46, 0.36, 0.28), "dark": Color(0.27, 0.21, 0.16), "accent": Color(0.58, 0.53, 0.47), "head": "brute", "bulk": 1.52, "acc": ["fur", "spikes", "shoulderplate", "greaves"]},
+	# WARHAMMER — Astartes. Both chapters are the same power armour in different
+	# heraldry, which is exactly how the setting works. The pack and the enormous
+	# pauldrons ARE the silhouette: without them a marine is a coloured rectangle.
+	Style.ULTRAMARINE:    {"armor": Color(0.13, 0.26, 0.60), "dark": Color(0.08, 0.09, 0.12), "accent": Color(0.80, 0.68, 0.26), "head": "astartes", "bulk": 1.38, "acc": ["bigpauldron", "powerpack", "aquila", "gauntlet", "greaves", "thighplate"]},
+	Style.BLOOD_ANGEL:    {"armor": Color(0.62, 0.10, 0.10), "dark": Color(0.12, 0.07, 0.07), "accent": Color(0.85, 0.75, 0.32), "head": "astartes", "bulk": 1.38, "acc": ["bigpauldron", "jetpack", "aquila", "gauntlet", "greaves", "thighplate"]},
+	# WARHAMMER — Necrons. Bare metal skeletons: no undersuit, no soft parts, an
+	# exposed ribcage over a lit core, and the eyes are the only colour on them.
+	Style.NECRON:         {"armor": Color(0.50, 0.52, 0.54), "dark": Color(0.13, 0.15, 0.15), "accent": Color(0.35, 1.0, 0.40), "head": "necron", "bulk": 0.86, "acc": ["ribs"]},
+	Style.NECRON_LORD:    {"armor": Color(0.58, 0.55, 0.40), "dark": Color(0.12, 0.14, 0.14), "accent": Color(0.40, 1.0, 0.45), "head": "necron", "bulk": 1.12, "acc": ["ribs", "cape", "collar"]},
+	# WARHAMMER — Orks. Green, wide, and wearing whatever they found, bolted on
+	# crooked: the ASYMMETRY is the read.
+	Style.ORK:            {"armor": Color(0.29, 0.47, 0.21), "dark": Color(0.22, 0.18, 0.12), "accent": Color(0.42, 0.36, 0.28), "head": "ork", "bulk": 1.34, "acc": ["spikes", "bandolier", "shoulderplate", "scrap"]},
+	Style.ORK_NOB:        {"armor": Color(0.25, 0.43, 0.19), "dark": Color(0.19, 0.16, 0.11), "accent": Color(0.46, 0.40, 0.30), "head": "ork", "bulk": 1.62, "acc": ["spikes", "shoulderplate", "scrap", "gauntlet", "greaves"]},
 }
 
 var _style_id := Style.GENERIC
@@ -323,9 +536,17 @@ func _build_body() -> void:
 	# TEAM colour rides the ACCENTS (shoulder bells, chest vest, belt, helmet crest)
 	# rather than the whole body — so a clone reads as white plate with team markings
 	# the way real armour does, and the accents still call the side at a glance.
-	_suit_mat = _mat(_team_color)
-	var armor := _mat(style["armor"])         # the class's main plate colour
-	var dark := _mat(style["dark"])           # undersuit, joints, hands, boots
+	_suit_mat = _mat(_team_color, Finish.PLATE)
+	var armor := _mat(style["armor"], Finish.PLATE)   # the class's main plate colour
+	var dark := _mat(style["dark"], Finish.CLOTH)     # undersuit, joints, hands, boots
+	# A THIRD colour, and the reason these units stopped reading as coloured
+	# blocks. Two tones plus the team accent is enough for a trooper in one
+	# palette, but a Spartan's gold visor, a Necron's green light and an ork's
+	# bare scrap metal are none of those three — every one of them was being
+	# painted in the body colour and vanishing into it. Defaults to `dark`, so a
+	# style that has nothing to say says nothing.
+	var accent := _mat(style.get("accent", style["dark"]),
+		style.get("accent_finish", Finish.METAL))
 	var furry: bool = acc.has("fur")
 
 	var hips := _joint(self, "Hips", Vector3(0.0, HIP_Y, 0.0))
@@ -340,7 +561,11 @@ func _build_body() -> void:
 
 	# Torso pivots at the hips so run/idle can lean from the waist. The model faces
 	# -Z, so front detail is at NEGATIVE z and anything worn on the back at positive.
-	var spine := _joint(hips, "Spine", Vector3.ZERO)
+	# The un-animated twist joint the upper body hangs off (see PATHS).
+	var twist := _joint(hips, "Twist", Vector3.ZERO)
+	_twist_joint = twist
+	twist.rotation.y = _twist
+	var spine := _joint(twist, "Spine", Vector3.ZERO)
 	_box(spine, Vector3(0.30 * bulk, 0.36, 0.20 * bulk), Vector3(0, 0.24, 0), armor)       # torso
 	if furry:
 		_box(spine, Vector3(0.34 * bulk, 0.40, 0.24 * bulk), Vector3(0, 0.22, 0), dark)    # shaggy chest
@@ -361,6 +586,48 @@ func _build_body() -> void:
 		_box(spine, Vector3(0.085, 0.56, 0.04), Vector3(0.0, 0.24, -0.13 * bulk), _suit_mat).rotation.z = 0.34
 	if acc.has("antenna"):                    # ARC trooper's rangefinder stalk
 		_box(spine, Vector3(0.018, 0.22, 0.018), Vector3(0.10, 0.52, 0.0), dark)
+	if acc.has("powerpack"):
+		# The Astartes power pack: the single most recognisable thing about the
+		# silhouette after the pauldrons, and it was missing entirely. A slab on
+		# the back with two exhaust stacks standing proud of the shoulders.
+		_box(spine, Vector3(0.30 * bulk, 0.34, 0.14), Vector3(0, 0.30, 0.15 * bulk), dark)
+		for sx in [-0.10, 0.10]:
+			_box(spine, Vector3(0.06, 0.20, 0.06), Vector3(sx, 0.52, 0.15 * bulk), accent)
+			_box(spine, Vector3(0.075, 0.04, 0.075), Vector3(sx, 0.63, 0.15 * bulk), dark)
+	if acc.has("aquila"):
+		# A raised plate across the chest. Not a literal eagle — at this
+		# resolution what reads is the BREAK in a flat expanse of colour.
+		# Narrow, and PROUD of the team vest rather than level with it — at the
+		# same z the two were coplanar and the chest read as one flat inset panel.
+		_box(spine, Vector3(0.15 * bulk, 0.055, 0.04), Vector3(0, 0.37, -0.128 * bulk), accent)
+		_box(spine, Vector3(0.045, 0.20, 0.04), Vector3(0, 0.31, -0.128 * bulk), accent)
+	if acc.has("tank"):
+		# The Unggoy methane tank, which is most of a Grunt's silhouette: it is
+		# bigger than the torso carrying it, and the hose to the mask is what
+		# makes it read as breathing gear rather than as a rucksack.
+		_box(spine, Vector3(0.26, 0.34, 0.20), Vector3(0, 0.26, 0.19 * bulk), accent)
+		_box(spine, Vector3(0.05, 0.05, 0.05), Vector3(0.09, 0.44, 0.19 * bulk), dark)
+		_box(spine, Vector3(0.035, 0.22, 0.035), Vector3(0.10, 0.50, 0.13 * bulk), dark)
+	if acc.has("collar"):
+		# A standing collar behind the skull: what a Necron lord has instead of
+		# pauldrons, which on a skeleton read as borrowed power armour.
+		_box(spine, Vector3(0.30 * bulk, 0.26, 0.04), Vector3(0, 0.50, 0.10 * bulk), armor)
+		for cx in [-0.14, 0.14]:
+			_box(spine, Vector3(0.04, 0.20, 0.10), Vector3(cx * bulk, 0.52, 0.06 * bulk), accent)
+	if acc.has("ribs"):
+		# A Necron has no flesh on it: the chest is an exposed cage over a lit
+		# core. Three ribs and a spine, with the body colour showing between.
+		for ry in [0.16, 0.26, 0.36]:
+			_box(spine, Vector3(0.26 * bulk, 0.035, 0.21 * bulk), Vector3(0, ry, 0), armor)
+		_box(spine, Vector3(0.05, 0.34, 0.05), Vector3(0, 0.26, 0.08 * bulk), armor)
+		var core := _emit(Color(style.get("accent", Color(0.35, 1.0, 0.40))))
+		_box(spine, Vector3(0.09, 0.09, 0.04), Vector3(0, 0.27, -0.105 * bulk), core)
+	if acc.has("scrap"):
+		# Ork armour is whatever was to hand, bolted on crooked. ASYMMETRY is the
+		# whole point — a matched pair reads as issued kit, which orks do not have.
+		_box(spine, Vector3(0.17, 0.22, 0.05), Vector3(-0.07, 0.30, -0.11 * bulk),
+			accent).rotation.z = 0.16
+		_box(spine, Vector3(0.22 * bulk, 0.09, 0.05), Vector3(0.03, 0.14, -0.11 * bulk), accent)
 
 	var head := _joint(spine, "Head", at["head"])
 	_build_head(style, head, armor, dark)
@@ -374,8 +641,31 @@ func _build_body() -> void:
 			_limb(sh, at["e" + sn] * 1.06, 0.13 * bulk, 0.13 * bulk, dark)              # shaggy over-layer
 		if acc.has("pauldron"):                                                         # heavy's big plate
 			_box(sh, Vector3(0.20, 0.14, 0.22), Vector3(-0.05 * side, 0.05, 0), _suit_mat)
+		if acc.has("bigpauldron"):
+			# The Astartes shoulder: enormous, standing well clear of the arm and
+			# ABOVE the collar line. The generic pauldron above sits flush and
+			# merges into the torso, which is why a marine read as a rectangle.
+			_box(sh, Vector3(0.22, 0.17, 0.24), Vector3(0.042 * side, 0.075, 0), _suit_mat)
+			# A TRIM, not a lid. At 0.05 deep the accent cap was half the pauldron
+			# and the shoulder read as a gold-topped crate rather than as a rim.
+			_box(sh, Vector3(0.235, 0.032, 0.255), Vector3(0.042 * side, 0.17, 0), accent)
+		if acc.has("shoulderplate"):
+			# One big plate, one bare shoulder: an ork or a brute wears half a set.
+			if side > 0:
+				_box(sh, Vector3(0.24, 0.17, 0.26), Vector3(0.05, 0.08, 0), accent)
+				for gx in [-0.05, 0.05]:
+					_box(sh, Vector3(0.028, 0.10, 0.028), Vector3(0.05 + gx, 0.17, 0), dark)
+		if acc.has("spikes"):   # ork/brute shoulder spikes, angled out and back
+			for k in 2:
+				var spike := _box(sh, Vector3(0.035, 0.16, 0.035),
+					Vector3(-0.04 * side, 0.09, -0.05 + 0.10 * k), dark)
+				spike.rotation.z = 0.5 * side
 		var el := _joint(sh, "Elbow" + sn, at["e" + sn])
 		var handv: Vector3 = at["e" + sn].normalized() * LOWER_ARM
+		if acc.has("gauntlet"):
+			# Forearm armour, on the ELBOW joint so it swings with the forearm.
+			_box(el, Vector3(0.13 * bulk, 0.16, 0.13 * bulk),
+				handv.normalized() * 0.10, armor)
 		_limb(el, handv, 0.072 * bulk, 0.072 * bulk, armor)                             # forearm
 		_box(el, Vector3(0.085, 0.075, 0.05), (handv.normalized()) * 0.02, dark)        # wrist guard
 		_box(el, Vector3(0.075, 0.075, 0.075), handv + handv.normalized() * 0.045, dark)  # hand
@@ -383,8 +673,9 @@ func _build_body() -> void:
 	# Third-person blaster, held two-handed in front. Other players see this; the
 	# owner sees only the first-person viewmodel. Parented to the spine so it leans
 	# with the torso and the CARRY arm pose keeps the hands on it.
-	var gunmetal := _mat(Color(0.10, 0.10, 0.12))
+	var gunmetal := _mat(Color(0.10, 0.10, 0.12), Finish.METAL)
 	var held := _joint(spine, "HeldGun", GUN_POS)
+	_held = held
 	_gun_parts.append(_box(held, Vector3(0.05, 0.06, 0.24), Vector3(0, 0, 0.01), gunmetal))
 	_gun_parts.append(_box(held, Vector3(0.028, 0.028, 0.30), Vector3(0, 0.012, -0.22), gunmetal))
 	_gun_parts.append(_box(held, Vector3(0.035, 0.10, 0.05), Vector3(0, -0.06, 0.075), gunmetal))
@@ -399,9 +690,19 @@ func _build_body() -> void:
 			_limb(hip, at["k" + ln] * 1.04, 0.17 * bulk, 0.17 * bulk, dark)
 		var knee := _joint(hip, "Knee" + ln, at["k" + ln])
 		_box(knee, Vector3(0.13 * bulk, 0.09, 0.14 * bulk), Vector3(0, 0.0, -0.02), _suit_mat)  # team knee pad (front)
+		if acc.has("thighplate"):
+			_box(hip, Vector3(0.16 * bulk, 0.24, 0.06),
+				at["k" + ln] * 0.42 + Vector3(0, 0, -0.08 * bulk), armor)
 		var footv: Vector3 = at["k" + ln].normalized() * LOWER_LEG
+		if acc.has("greaves"):
+			# Shin plate on the front of the lower leg. Cheap, and it stops a
+			# heavily armoured unit having bare pipe-cleaner legs under a slab
+			# of a chest — which is what made the Spartan read top-heavy.
+			_box(knee, Vector3(0.15 * bulk, 0.26, 0.06),
+				footv * 0.45 + Vector3(0, 0, -0.07 * bulk), armor)
 		_limb(knee, footv, 0.105 * bulk, 0.11 * bulk, armor)                            # shin
 		_box(knee, Vector3(0.115 * bulk, 0.10, 0.24 * bulk), footv + Vector3(0, 0.0, -0.05), dark)  # boot
+	_apply_layers()
 	_built = true
 
 
@@ -416,34 +717,47 @@ func _build_body() -> void:
 ## on its shadow side and disappears on the night maps, which is where a glowing
 ## sword is most of the point.
 func _build_held_saber(held: Node3D, hilt_mat: Material) -> void:
-	_saber_parts.append(_box(held, Vector3(0.042, 0.042, 0.24),
+	# The weapon's own colour and proportions, scaled from the FIRST-PERSON
+	# numbers the profile states: this blade is judged from across the map and
+	# the viewmodel's from 30 cm away, so they are the same weapon at two sizes
+	# rather than two sets of numbers that can drift apart.
+	var core_col: Color = _melee_look.get("blade_core", BLADE_CORE)
+	var glow_col: Color = _melee_look.get("blade_glow", BLADE_GLOW)
+	var energy: float = _melee_look.get("blade_energy", 5.0)
+	var length := BLADE_LENGTH * float(_melee_look.get("blade_len", VM_BLADE_LEN)) / VM_BLADE_LEN
+	var width := BLADE_WIDTH * float(_melee_look.get("blade_width", VM_BLADE_WIDTH)) / VM_BLADE_WIDTH
+	var hilt := 0.24 * float(_melee_look.get("hilt_len", 0.24)) / 0.24
+
+	_saber_parts.append(_box(held, Vector3(0.042, 0.042, hilt),
 		Vector3(0, 0, 0.01), hilt_mat))
-	var band := _mat(Color(0.42, 0.36, 0.20))
+	var band := _mat(Color(0.42, 0.36, 0.20), Finish.METAL)
 	band.metallic = 0.0
 	_saber_parts.append(_box(held, Vector3(0.05, 0.05, 0.03),
-		Vector3(0, 0, -0.10), band))
+		Vector3(0, 0, -hilt * 0.42), band))
 
-	var core := _mat(BLADE_CORE)
+	var core := _mat(core_col)
 	core.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	core.emission_enabled = true
-	core.emission = BLADE_CORE
-	core.emission_energy_multiplier = 5.0
-	var glow := _mat(Color(BLADE_GLOW.r, BLADE_GLOW.g, BLADE_GLOW.b, 0.5))
+	if energy > 0.0:
+		core.emission_enabled = true
+		core.emission = core_col
+		core.emission_energy_multiplier = energy
+	var glow := _mat(Color(glow_col.r, glow_col.g, glow_col.b, 0.5))
 	glow.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	glow.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	glow.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+	# The aura stays lit even when the core does not — see the viewmodel's copy
+	# of this rule: `blade_energy` 0 is a metal weapon with a power field on it.
 	glow.emission_enabled = true
-	glow.emission = BLADE_GLOW
-	glow.emission_energy_multiplier = 3.0
+	glow.emission = glow_col
+	glow.emission_energy_multiplier = 3.0 if energy > 0.0 else 1.6
 
 	# Boxes rather than cylinders: at this size and this distance a square blade
 	# is indistinguishable from a round one, and it is one less mesh type on a
 	# model that already renders four times a frame.
-	var at := Vector3(0, 0, -0.12 - BLADE_LENGTH * 0.5)
+	var at := Vector3(0, 0, -hilt * 0.5 - length * 0.5)
+	_saber_parts.append(_box(held, Vector3(width, width, length), at, core))
 	_saber_parts.append(_box(held,
-		Vector3(BLADE_WIDTH, BLADE_WIDTH, BLADE_LENGTH), at, core))
-	_saber_parts.append(_box(held,
-		Vector3(BLADE_WIDTH * 2.2, BLADE_WIDTH * 2.2, BLADE_LENGTH * 0.99), at, glow))
+		Vector3(width * 2.2, width * 2.2, length * 0.99), at, glow))
 
 	for mi in _saber_parts:
 		mi.visible = false   # a blaster until somebody says otherwise
@@ -458,18 +772,22 @@ func _build_held_staff(held: Node3D, pole_mat: Material) -> void:
 	# The pole itself, longer than the blade and running both ways out of the grip.
 	_staff_parts.append(_box(held, Vector3(0.035, 0.035, 1.7),
 		Vector3(0, 0, -0.25), pole_mat))
-	# Violet electro-charge, not the saber's blue — the IG-100 look.
-	var core := _mat(STAFF_CORE)
+	# Violet electro-charge by default, not the saber's blue — the IG-100 look —
+	# but a pole weapon that states its own colour (a Necron warscythe's green)
+	# gets that instead, from the same profile keys the viewmodel reads.
+	var core_col: Color = _melee_look.get("blade_core", STAFF_CORE)
+	var glow_col: Color = _melee_look.get("blade_glow", STAFF_GLOW)
+	var core := _mat(core_col)
 	core.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	core.emission_enabled = true
-	core.emission = STAFF_CORE
+	core.emission = core_col
 	core.emission_energy_multiplier = 5.0
-	var glow := _mat(Color(STAFF_GLOW.r, STAFF_GLOW.g, STAFF_GLOW.b, 0.5))
+	var glow := _mat(Color(glow_col.r, glow_col.g, glow_col.b, 0.5))
 	glow.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	glow.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	glow.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
 	glow.emission_enabled = true
-	glow.emission = STAFF_GLOW
+	glow.emission = glow_col
 	glow.emission_energy_multiplier = 3.0
 	# A charged tip at each end of the pole, each wrapped in its aura.
 	for z in [-0.25 - 0.85, -0.25 + 0.85]:
@@ -547,7 +865,7 @@ func _build_head(style: Dictionary, joint: Node3D, armor: Material, dark: Materi
 			var eye := _emit(Color(1.0, 0.55, 0.15))
 			_box(joint, Vector3(0.03, 0.035, 0.02), Vector3(0, 0.21, -0.085), eye)
 		"furry":
-			var fur := _mat(Color(style["dark"]))
+			var fur := _mat(Color(style["dark"]), Finish.HIDE)
 			_box(joint, Vector3(0.23, 0.22, 0.22), Vector3(0, 0.16, 0), fur)             # big shaggy head
 			_box(joint, Vector3(0.25, 0.09, 0.20), Vector3(0, 0.245, 0.01), fur)         # brow tuft
 			_box(joint, Vector3(0.13, 0.11, 0.11), Vector3(0, 0.12, -0.135), armor)      # muzzle
@@ -555,8 +873,95 @@ func _build_head(style: Dictionary, joint: Node3D, armor: Material, dark: Materi
 			var eye := _emit(Color(0.85, 0.7, 0.35))
 			for ex in [-0.055, 0.055]:
 				_box(joint, Vector3(0.028, 0.028, 0.02), Vector3(ex, 0.185, -0.115), eye)
+		"spartan":
+			# MJOLNIR: a smooth dome with no ear caps and one big GOLD faceplate,
+			# which is the entire silhouette people know it by.
+			_box(joint, Vector3(0.19, 0.16, 0.19), Vector3(0, 0.17, 0), armor)
+			_box(joint, Vector3(0.16, 0.10, 0.05), Vector3(0, 0.155, -0.095), dark)     # visor recess
+			var gold := _emit(Color(0.95, 0.72, 0.20))
+			_box(joint, Vector3(0.145, 0.075, 0.03), Vector3(0, 0.155, -0.105), gold)   # faceplate
+			_box(joint, Vector3(0.055, 0.04, 0.10), Vector3(0, 0.255, -0.03), _suit_mat)  # team crest
+		"odst":
+			# The ODST/marine helmet: a rounded shell with a wide black visor band
+			# and a comms pod on the left side.
+			_box(joint, Vector3(0.185, 0.145, 0.19), Vector3(0, 0.165, 0), armor)
+			_box(joint, Vector3(0.155, 0.065, 0.045), Vector3(0, 0.155, -0.10), dark)   # visor band
+			_box(joint, Vector3(0.05, 0.05, 0.06), Vector3(-0.10, 0.145, -0.02), dark)  # comms pod
+			_box(joint, Vector3(0.06, 0.035, 0.14), Vector3(0.06, 0.245, 0.0), _suit_mat)  # team stripe
+		"elite":
+			# Sangheili: a long crested crown over a SPLIT jaw. The four mandibles
+			# are the whole reason an Elite is recognisable from behind cover.
+			_box(joint, Vector3(0.15, 0.17, 0.20), Vector3(0, 0.18, 0.01), armor)       # crown
+			_box(joint, Vector3(0.075, 0.06, 0.22), Vector3(0, 0.27, 0.02), armor)      # swept crest
+			var jaw := _mat(Color(style["dark"]), Finish.HIDE)
+			for mx in [-0.048, 0.048]:
+				for my in [0.075, 0.125]:
+					_box(joint, Vector3(0.034, 0.042, 0.13),
+						Vector3(mx, my, -0.10), jaw)                                    # mandibles
+			var eeye := _emit(Color(1.0, 0.62, 0.15))
+			for ex in [-0.05, 0.05]:
+				_box(joint, Vector3(0.03, 0.022, 0.02), Vector3(ex, 0.19, -0.095), eeye)
+		"grunt":
+			# Unggoy: a small head almost entirely covered by a methane rebreather,
+			# with the hose running back to the tank on its pack.
+			_box(joint, Vector3(0.15, 0.13, 0.15), Vector3(0, 0.13, 0), armor)
+			_box(joint, Vector3(0.12, 0.09, 0.06), Vector3(0, 0.115, -0.085), dark)     # mask cup
+			_box(joint, Vector3(0.035, 0.035, 0.16), Vector3(0.055, 0.145, 0.06), dark) # hose
+			var geye := _emit(Color(0.35, 0.85, 0.95))
+			for ex in [-0.038, 0.038]:
+				_box(joint, Vector3(0.026, 0.02, 0.02), Vector3(ex, 0.165, -0.075), geye)
+		"brute":
+			# Jiralhanae: a heavy brow over a jutting muzzle, a bone crest along the
+			# top, and tusks. Read as an ape in armour rather than a helmeted man.
+			var pelt := _mat(Color(style["dark"]), Finish.HIDE)
+			_box(joint, Vector3(0.22, 0.20, 0.21), Vector3(0, 0.16, 0), pelt)
+			_box(joint, Vector3(0.24, 0.06, 0.16), Vector3(0, 0.235, -0.01), armor)     # brow ridge
+			_box(joint, Vector3(0.06, 0.08, 0.18), Vector3(0, 0.28, 0.01), armor)       # crest
+			_box(joint, Vector3(0.14, 0.10, 0.10), Vector3(0, 0.11, -0.13), pelt)       # muzzle
+			for tx in [-0.045, 0.045]:
+				_box(joint, Vector3(0.022, 0.055, 0.022), Vector3(tx, 0.115, -0.175), _bone())  # tusks
+			var beye := _emit(Color(0.85, 0.25, 0.12))
+			for ex in [-0.055, 0.055]:
+				_box(joint, Vector3(0.026, 0.022, 0.02), Vector3(ex, 0.20, -0.105), beye)
+		"astartes":
+			# A Mk VII helm: domed skull, a RESPIRATOR GRILLE jutting out where a
+			# face would be, and two lenses. The snout is the tell — without it a
+			# power-armoured marine reads as a very large clone trooper.
+			_box(joint, Vector3(0.20, 0.16, 0.20), Vector3(0, 0.175, 0), armor)         # skull
+			_box(joint, Vector3(0.09, 0.09, 0.10), Vector3(0, 0.125, -0.125), armor)    # snout
+			_box(joint, Vector3(0.075, 0.055, 0.03), Vector3(0, 0.125, -0.175), dark)   # grille
+			_box(joint, Vector3(0.21, 0.045, 0.06), Vector3(0, 0.235, -0.075), armor)   # brow rim
+			var aeye := _emit(Color(0.85, 0.20, 0.12))
+			for ex in [-0.062, 0.062]:
+				_box(joint, Vector3(0.042, 0.03, 0.025), Vector3(ex, 0.175, -0.10), aeye)
+			_box(joint, Vector3(0.03, 0.06, 0.20), Vector3(0, 0.265, 0.0), _suit_mat)   # team crest
+		"necron":
+			# A metal SKULL: narrow, hollow-cheeked, with an exposed grin and two
+			# green points where the eyes were. No helmet, because there is nothing
+			# in there to protect.
+			_box(joint, Vector3(0.055, 0.10, 0.055), Vector3(0, 0.09, 0), dark)         # spine neck
+			_box(joint, Vector3(0.135, 0.15, 0.16), Vector3(0, 0.21, -0.01), armor)     # cranium
+			_box(joint, Vector3(0.11, 0.05, 0.09), Vector3(0, 0.135, -0.03), armor)     # jaw
+			for gx in [-0.03, 0.0, 0.03]:
+				_box(joint, Vector3(0.014, 0.045, 0.02), Vector3(gx, 0.145, -0.075), dark)  # teeth
+			var neye := _emit(Color(0.35, 1.0, 0.40))
+			for ex in [-0.038, 0.038]:
+				# z clear of the cranium's front face (-0.09), or the only colour
+				# on an all-grey skeleton is buried inside its own skull.
+				_box(joint, Vector3(0.03, 0.03, 0.025), Vector3(ex, 0.225, -0.10), neye)
+		"ork":
+			# All jaw. The head is small, the lower jaw is enormous, and two tusks
+			# come up past the nose — an ork is a mouth with a body attached.
+			_box(joint, Vector3(0.19, 0.13, 0.18), Vector3(0, 0.19, 0.01), armor)       # skull
+			_box(joint, Vector3(0.22, 0.05, 0.14), Vector3(0, 0.22, -0.055), armor)     # heavy brow
+			_box(joint, Vector3(0.21, 0.10, 0.16), Vector3(0, 0.115, -0.03), armor)     # jaw
+			for tx in [-0.07, 0.07]:
+				_box(joint, Vector3(0.028, 0.075, 0.028), Vector3(tx, 0.155, -0.095), _bone())  # tusks
+			var oeye := _emit(Color(0.95, 0.30, 0.20))
+			for ex in [-0.05, 0.05]:
+				_box(joint, Vector3(0.024, 0.018, 0.02), Vector3(ex, 0.195, -0.085), oeye)
 		"hood":
-			_box(joint, Vector3(0.15, 0.17, 0.16), Vector3(0, 0.14, -0.01), _mat(Color(0.58, 0.5, 0.4)))  # face
+			_box(joint, Vector3(0.15, 0.17, 0.16), Vector3(0, 0.14, -0.01), _mat(Color(0.58, 0.5, 0.4), Finish.HIDE))  # face
 			_box(joint, Vector3(0.24, 0.24, 0.22), Vector3(0, 0.18, 0.04), armor)        # hood shell (behind)
 			_box(joint, Vector3(0.20, 0.09, 0.10), Vector3(0, 0.10, -0.09), armor)       # hood brim over the face
 		_:
@@ -567,6 +972,12 @@ func _build_head(style: Dictionary, joint: Node3D, armor: Material, dark: Materi
 				var eye := _emit(Color(0.9, 0.75, 0.2))
 				for ex in [-0.045, 0.045]:
 					_box(joint, Vector3(0.025, 0.02, 0.02), Vector3(ex, 0.15, -0.095), eye)
+
+
+## Ivory, for tusks and teeth — the one colour that has to stay off a style's
+## palette, since a green tusk on a green ork disappears.
+func _bone() -> StandardMaterial3D:
+	return _mat(Color(0.86, 0.83, 0.72), Finish.HIDE)
 
 
 ## An unshaded emissive material for photoreceptor eyes and lenses.
@@ -691,9 +1102,16 @@ func _hold(gun_pos: Vector3, gun_rot: Vector3) -> Dictionary:
 ## up), so this hands out a COPY. Returning the cache itself let _crouch_base
 ## write its shoulder angles straight into it and permanently clobber the solved
 ## hold for every clip built afterwards.
+## The carry carries the WEAPON's transform too, not just the arms. Every clip is
+## built from this and `_clip` keys the gun joint from the pose, so a pose that
+## did not name the gun would key it back to the origin with no rotation — which
+## is what put the weapon back in the middle of the chest on every frame of every
+## clip the moment the carry stopped being centred.
 func _carry() -> Dictionary:
 	if _carry_pose.is_empty():
-		_carry_pose = _hold(GUN_POS, Vector3.ZERO)
+		_carry_pose = _hold(GUN_POS, GUN_ROT)
+		_carry_pose["gun"] = GUN_ROT
+		_carry_pose["gun_pos"] = GUN_POS
 	return _carry_pose.duplicate()
 
 
@@ -735,11 +1153,25 @@ func _arm_ik(target: Vector3, elbow: Vector3, b: float) -> Array:
 
 
 func _idle_pose(_time: float) -> Dictionary:
-	return _carry()  # near-static; hands on the gun
+	return _stance(_carry())  # near-static; hands on the gun, feet apart
+
+
+## Open the legs into a standing stance. Returns the same dictionary it was
+## given, so it can be dropped into any pose that is not walking.
+func _stance(p: Dictionary) -> Dictionary:
+	var splay := deg_to_rad(STANCE_SPLAY_DEG)
+	var toe := deg_to_rad(STANCE_TOE_OUT_DEG)
+	# +Z roll opens the LEFT leg outward and -Z the right: the two hips sit on
+	# opposite sides of the X axis, so the same sign closes one and opens the
+	# other.
+	p["hL"] = p.get("hL", Vector3.ZERO) + Vector3(0.0, -toe, splay)
+	p["hR"] = p.get("hR", Vector3.ZERO) + Vector3(0.0, toe, -splay)
+	return p
 
 
 func _idle_bob(time: float) -> Vector3:
-	return Vector3(0, 0.012 * sin(time / IDLE_LEN * TAU), 0)
+	# The stance drop rides the bob track, the same way the crouch's does.
+	return Vector3(0, STANCE_HIP_DROP + 0.012 * sin(time / IDLE_LEN * TAU), 0)
 
 
 func _walk_pose(time: float) -> Dictionary:
@@ -764,7 +1196,18 @@ func _run_pose(time: float) -> Dictionary:
 	var c := cos(phase)
 	var hip := deg_to_rad(45)
 	var knee := deg_to_rad(50)
-	var p := _carry()
+	# A SPRINT CARRY, not the ready carry with the legs going faster. Nobody runs
+	# with a rifle levelled: the weapon comes down and across the chest, muzzle
+	# swung inboard, so it is out of the way of the arms and of everything you are
+	# running past. It is also the clearest read a player gets at a distance that
+	# somebody is CLOSING rather than holding — which matters here, because a bot
+	# that has broken cover to advance now looks different from one that is posted.
+	#
+	# Solved onto the weapon like every other hold (see _hold): move the gun and
+	# both hands follow it, so this is four numbers rather than four arm angles.
+	var p := _hold(RUN_GUN_POS, RUN_GUN_ROT)
+	p["gun"] = RUN_GUN_ROT
+	p["gun_pos"] = RUN_GUN_POS
 	p["spine"] = Vector3(-deg_to_rad(14), 0, 0)  # lean into the run
 	p["head"] = Vector3(deg_to_rad(10), 0, 0)    # keep the head up
 	p["hL"] = Vector3(hip * s, 0, 0)
@@ -909,59 +1352,6 @@ func _guard_walk_hips(time: float) -> Vector3:
 	return Vector3(0, GUARD_HIP_DROP + rock, 0)
 
 
-## --- death ---------------------------------------------------------------
-##
-## What a body looks like once nobody is holding it up: knees folded under, hips
-## dropped nearly to the floor, spine slumped forward and the head lolling, arms
-## hanging off the shoulders instead of held out in front of a gun.
-##
-## It is a POSE rather than a clip, and the corpse it goes on is a rigid body
-## that gets launched and tumbles (see corpse.gd). That split is deliberate: the
-## motion — the part the eye actually reads as "they went down" — is the physics,
-## which costs one body, and the pose only has to say the body is limp rather
-## than standing. A jointed ragdoll would be four viewports of solver per death
-## on a Pi to say the same thing.
-##
-## `spread` shakes the limbs apart a little, so two bodies that fall in the same
-## place do not land in identical poses.
-func collapse_pose(spread := 0.0) -> Dictionary:
-	var rng := func(scale: float) -> float:
-		return randf_range(-scale, scale) * spread
-	var hip := deg_to_rad(COLLAPSE_HIP_DEG)
-	var knee := deg_to_rad(COLLAPSE_HIP_DEG * 1.45)
-	var p := {}
-	p["spine"] = Vector3(-deg_to_rad(34.0 + rng.call(9.0)), rng.call(0.25), rng.call(0.2))
-	p["head"] = Vector3(deg_to_rad(10.0 + rng.call(8.0)), rng.call(0.5), rng.call(0.3))
-	# The arms are SOLVED to hang, not posed by hand — for exactly the reason
-	# _carry is (see _arm_ik): this rig's arms rest along a direction tilted back
-	# off vertical with a quarter turn baked into the mesh, so shoulder eulers
-	# written by eye do not do what they read as. Hand-written ones here put both
-	# arms up and out, which is the mannequin look the whole change is escaping.
-	# Solving to a target below the shoulder gives a limp arm on any proportions.
-	var at := _joint_offsets()
-	var reach := LOWER_ARM + HAND_REACH
-	for side in [-1.0, 1.0]:
-		var sn := "L" if side < 0.0 else "R"
-		var elbow: Vector3 = at["e" + sn]
-		var span := elbow.length() + reach
-		# Hands down by the hips, thrown a little out to the side and back.
-		var target := Vector3(side * (0.26 + rng.call(0.12)), -0.90 + rng.call(0.08),
-			0.30 + rng.call(0.15)).normalized() * span * 0.97
-		var solved := _arm_ik(target, elbow, reach)
-		p["s" + sn] = solved[0]
-		p["e" + sn] = Vector3(solved[1], 0.0, 0.0)
-	p["hL"] = Vector3(hip + rng.call(0.18), rng.call(0.14), 0.0)
-	p["hR"] = Vector3(hip + rng.call(0.18), rng.call(0.14), 0.0)
-	p["kL"] = Vector3(-knee + rng.call(0.2), 0.0, 0.0)
-	p["kR"] = Vector3(-knee + rng.call(0.2), 0.0, 0.0)
-	# The weapon drops with the hands. The barrel runs along -Z, and a NEGATIVE
-	# pitch is what points it at the floor — the positive one stands it up like a
-	# flagpole over the corpse, which is the same sign trap the saber blade hit.
-	p["gun"] = Vector3(-deg_to_rad(62.0), 0.0, deg_to_rad(18.0))
-	p["gun_pos"] = GUN_POS + Vector3(0.06, -0.22, 0.16)
-	return p
-
-
 ## Write a pose (the same {joint: euler} dictionaries the clips are built from)
 ## straight onto the joints. For a model with no AnimationPlayer to do it — a
 ## corpse — since nothing would otherwise ever set these.
@@ -977,13 +1367,6 @@ func apply_pose(pose: Dictionary, hips_drop := 0.0) -> void:
 	var gun := get_node_or_null(NodePath(PATHS["gun"])) as Node3D
 	if gun != null:
 		gun.position = pose.get("gun_pos", GUN_POS)
-
-
-## How far the legs fold under a body nobody is holding up, and how far the hips
-## therefore come down — by the same rule the crouch and the guard use: a
-## fraction of the LEG, never of HIP_Y (see CROUCH_HIP_DROP).
-const COLLAPSE_HIP_DEG := 72.0
-const COLLAPSE_HIP_DROP := LEG * (cos(deg_to_rad(COLLAPSE_HIP_DEG)) - 1.0)
 
 
 func _jump_pose(_time: float) -> Dictionary:

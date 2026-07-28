@@ -173,4 +173,4 @@ func _hang_banners() -> void:
 				continue
 			xforms.append(Transform3D(Basis(Vector3.UP, f[1]), f[0]))
 		Props.batch(self, Props.box(Vector3(1.6, 4.0, 0.08)), xforms,
-			Props.material(GameState.TEAM_COLORS[team].darkened(0.25), 0.0, 0.9))
+			Props.material(GameState.team_colors[team].darkened(0.25), 0.0, 0.9))

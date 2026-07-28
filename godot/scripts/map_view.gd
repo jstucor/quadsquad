@@ -156,7 +156,7 @@ func _draw_squad() -> void:
 			continue
 		var mine := c == player
 		var at := _to_map(c.global_position)
-		var col: Color = GameState.TEAM_COLORS[c.team]
+		var col: Color = GameState.team_colors[c.team]
 		var is_human := c is Player
 		var r := SELF_R if mine else (DOT_R if is_human else DOT_R * 0.7)
 		draw_circle(at, r, col if is_human else col.darkened(0.35))

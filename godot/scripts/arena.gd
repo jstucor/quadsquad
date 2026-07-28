@@ -19,6 +19,11 @@ var cover_color := Color(0.23, 0.24, 0.27)
 var republic_spawns: Array[Vector3] = []
 var cis_spawns: Array[Vector3] = []
 var cover_boxes: Array = []  # [{pos = Vector3 (base at y=0), size = Vector3}, ...]
+## Exposure for THIS map, if it should not sit where the rest of the game sits.
+## The grade is shared (see _grade) but how bright a place is meant to be is a
+## map's own business — a foundry lit by molten metal and a snowfield at noon
+## are not the same photograph.
+var grade_exposure := Grade.EXPOSURE
 
 
 func _ready() -> void:
@@ -27,6 +32,7 @@ func _ready() -> void:
 		depth = size
 	_build_environment()
 	_build_lights()
+	_grade()
 	_build_floor()
 	_build_walls()
 	_build_cover()
@@ -85,6 +91,14 @@ func _build_environment() -> void:
 	add_child(we)
 
 
+## Apply THE GRADE (scripts/grade.gd) over whatever the map just built — the
+## response curve, the ambient model, the glow threshold, aerial perspective and
+## the shadow settings. The map keeps every colour it chose; how those colours
+## are rendered is one file for the whole game.
+func _grade() -> void:
+	Grade.apply_to(self, grade_exposure)
+
+
 func _build_lights() -> void:
 	var key := DirectionalLight3D.new()
 	key.rotation = Vector3(deg_to_rad(-52), deg_to_rad(38), 0)
@@ -118,11 +132,27 @@ func _build_floor() -> void:
 	body.add_child(shape)
 
 
-func _build_walls() -> void:
+## Walls and cover get the same treatment the character plate does: a real
+## metallic value (the sky is graded now, so there is something to reflect) and a
+## RIM term, which on a box lands as a bright line down every silhouette edge.
+##
+## That edge is what makes a cover box read as a solid object rather than a flat
+## colour, and it matters more here than on a body: cover is what a player reads
+## the map through, and at range a boxy silhouette with a lit edge separates from
+## the ground where a matte one merges into it.
+func _surface(color: Color, roughness: float) -> StandardMaterial3D:
 	var mat := StandardMaterial3D.new()
-	mat.albedo_color = wall_color
-	mat.metallic = 0.12
-	mat.roughness = 0.55
+	mat.albedo_color = color
+	mat.metallic = 0.25
+	mat.roughness = roughness
+	mat.rim_enabled = true
+	mat.rim = 0.3
+	mat.rim_tint = 0.4
+	return mat
+
+
+func _build_walls() -> void:
+	var mat := _surface(wall_color, 0.55)
 	var h := 6.0
 	var half := half_extents()
 	# N, S run along X; E, W run along Z.
@@ -150,10 +180,7 @@ func _wall(center: Vector3, box_size: Vector3, mat: Material) -> void:
 
 
 func _build_cover() -> void:
-	var mat := StandardMaterial3D.new()
-	mat.albedo_color = cover_color
-	mat.metallic = 0.1
-	mat.roughness = 0.5
+	var mat := _surface(cover_color, 0.5)
 	for c in cover_boxes:
 		var bsize: Vector3 = c["size"]
 		var pos: Vector3 = c["pos"]

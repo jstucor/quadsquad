@@ -65,6 +65,13 @@ func _build() -> void:
 	column.add_child(top)
 	var map_dd := _dropdown(top, "MAP")
 	var mode_dd := _dropdown(top, "GAME MODE")
+	# UNIVERSE sits with MAP and MODE rather than down among the match settings,
+	# because it is the same size of decision: it decides which classes, weapons
+	# and factions the whole match is made of.
+	var universe_dd := _dropdown(top, "UNIVERSE")
+	# TIME TO KILL is next to it because the two answer the same question — what
+	# kind of fight is this — and both change how every gun in the game feels.
+	var ttk_dd := _dropdown(top, "TIME TO KILL")
 
 	# The selected map + mode described in one line, since a dropdown shows only
 	# the name.
@@ -114,6 +121,7 @@ func _build() -> void:
 
 	_wire_focus([
 		[map_dd, mode_dd],
+		[universe_dd, ttk_dd],
 		[players_dd, teams_dd, size_dd],
 		[victory_dd, skill_dd, assist_dd],
 		[classes_dd],
@@ -130,6 +138,8 @@ func _build() -> void:
 	_refresh_all = func() -> void:
 		_fill(map_dd, _map_items(), GameState.map_index)
 		_fill(mode_dd, _mode_items(), GameState.mode)
+		_fill(universe_dd, _universe_items(), GameState.universe)
+		_fill(ttk_dd, _ttk_items(), GameState.ttk)
 		blurb.text = "%s   —   %s" % [
 			GameState.MAPS[GameState.map_index]["blurb"], GameState.mode_blurb()]
 		# CONQUEST is Republic vs Separatist: exactly two sides, never a free-for-all.
@@ -171,6 +181,16 @@ func _build() -> void:
 		# its faction rosters, everything else on the buy screen, and the CLASSES
 		# row below is free to say otherwise.
 		GameState.class_mode = GameState.default_class_mode(i)
+		_refresh_all.call())
+	universe_dd.item_selected.connect(func(i: int) -> void:
+		# Changing universe changes who the sides ARE, so a team picked on the
+		# old roster means nothing — team-select is re-run from scratch anyway,
+		# but clearing here keeps the summary line honest in the meantime.
+		GameState.universe = i
+		GameState.chosen_teams = []
+		_refresh_all.call())
+	ttk_dd.item_selected.connect(func(i: int) -> void:
+		GameState.ttk = i
 		_refresh_all.call())
 	classes_dd.item_selected.connect(func(i: int) -> void:
 		GameState.class_mode = i
@@ -342,6 +362,20 @@ func _assist_items() -> PackedStringArray:
 	return out
 
 
+func _universe_items() -> PackedStringArray:
+	var out := PackedStringArray()
+	for u in Loadout.UNIVERSES:
+		out.append(str(u["name"]))
+	return out
+
+
+func _ttk_items() -> PackedStringArray:
+	var out := PackedStringArray()
+	for i in GameState.TTK_NAMES.size():
+		out.append(str(GameState.TTK_NAMES[i]))
+	return out
+
+
 func _classes_items() -> PackedStringArray:
 	var out := PackedStringArray()
 	for i in GameState.CLASS_MODE_NAMES.size():
@@ -375,6 +409,11 @@ func _describe() -> String:
 		else "custom loadouts")
 	if GameState.mode == GameState.Mode.ROYALE:
 		gear = "   ·   everything scavenged"
+	# The two settings that change what the match is MADE of, spelled out: which
+	# armoury is on the buy screen and how long a body lasts under it.
+	gear += "   ·   %s   ·   %s" % [
+		Loadout.UNIVERSES[GameState.universe]["blurb"],
+		GameState.TTK_BLURBS[GameState.ttk]]
 	if GameState.free_for_all:
 		return "%d players, every one for themselves — no AI%s" % [
 			GameState.human_players, gear]

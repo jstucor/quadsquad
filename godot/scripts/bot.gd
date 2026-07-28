@@ -82,6 +82,17 @@ const ADS_STEADY := 0.7
 const LONG_RANGE_STILL := 28.0
 const LONG_RANGE_STRAFE := 0.25   # share of the usual circling kept out there
 const BASE_SPEED := 4.0        # walking pace before armour and skill scale it
+## BOTS SPRINT, and until now they could not. Their animation picked the run clip
+## off a speed threshold of 3.9 m/s while their actual pace was BASE_SPEED 4.0 —
+## so a bot flickered between walk and run at a standstill margin, and anything
+## in plate or a heavy kit never reached the clip at all.
+##
+## Now it is a STATE, exactly as it is for a player: you sprint when you are
+## going somewhere, not when you are fighting. A bot sprints while closing or
+## patrolling and drops to a walk the moment it is inside its own firing range —
+## and, like a player, it cannot use its sights while doing it. Matches the
+## player's WALK_SPEED 4.0 / SPRINT_SPEED 6.0.
+const SPRINT_MULT := 1.5
 # Gadget habits. Kept deliberately simple: a bot uses what it bought when the
 # obvious moment arrives, rather than planning.
 const GRENADE_RANGE := Vector2(9.0, 26.0)   # too close and it kills itself
@@ -135,6 +146,31 @@ const FIRE_CONE_DEG := 12.0      # must be facing this close to shoot
 # recruit's low-heat pistol out-damages a veteran's rifle, which is backwards.
 const FIRE_HEAT_CEILING := 0.7
 const STRAFE_SPEED := 0.45       # share of speed used to circle at hold range
+## --- HOLDING A POSITION -------------------------------------------------------
+##
+## A bot that has reached its stand-off used to circle for as long as the fight
+## lasted, which reads as a body that cannot keep still — and it is also bad
+## soldiering: the whole reason to stop advancing is to shoot from somewhere, and
+## a moving shooter is a worse shooter for the same reason the player's own
+## stance penalty exists.
+##
+## So ENGAGE alternates. It POSTS UP — plants, drops to a crouch and fires from
+## there — then breaks and circles for a while, then posts again. The circling
+## still has its job (a body that never moves is a free headshot) but it is now
+## punctuation rather than the whole sentence.
+const POST_TIME := Vector2(1.6, 3.6)     # seconds dug in, min/max
+const ROVE_TIME := Vector2(1.0, 2.2)     # ...and seconds circling between posts
+## Posted and crouched, a bot's own aim wobble tightens — the same trade the
+## player gets from a crouched, settled stance, and the reason posting is worth
+## doing rather than just a thing that looks calmer.
+const POST_STEADY := 0.72
+## ...and it makes the bot a SMALLER TARGET while it does, exactly as a crouching
+## player is. Without this the crouch would be a free accuracy bonus paid for by
+## nothing, and the silhouette the player is shooting at would not match the one
+## on screen. Matches Player.STAND_HEIGHT / CROUCH_HEIGHT.
+const STAND_HEIGHT := 1.8
+const CROUCH_HEIGHT := 1.1
+const CROUCH_EASE := 7.0   # how fast the capsule follows, per second
 const UNSTICK_RADIUS := 0.8      # matches Player: never let capsules stack
 const UNSTICK_SPEED := 5.0
 const EYE_HEIGHT := 1.5
@@ -196,6 +232,15 @@ var _mortar: Node3D
 var _mortar_reaim := 0.0   # seconds until it may move its barrage again
 var _shield: Node3D
 var _strafe_dir := 1.0
+## ENGAGE sub-state: seconds left dug in, and seconds left circling. Exactly one
+## is running at a time (see _update_post).
+var _post_left := 0.0
+var _rove_left := 0.0
+var _posted := false
+var _crouch_t := 0.0    # 0 standing, 1 fully crouched
+## Running rather than walking this frame. Drives the speed, the sprint-carry
+## animation and (by denying the sights) the same trade a sprinting player makes.
+var _sprinting := false
 var _gravity: float = ProjectSettings.get_setting("physics/3d/default_gravity")
 var _dead := false
 
@@ -259,12 +304,12 @@ func setup(owner: Node3D, bot_team: int, skill_index: int, build := -1) -> void:
 		* loadout.kit_speed()
 	_since_damage = 0.0
 	model.set_style(loadout.character_style())   # clone, droid, Wookiee... per build
-	model.set_team_color(GameState.TEAM_COLORS[team])
+	model.set_team_color(GameState.team_colors[team])
 	weapon.set_class(loadout.deploy_class(), loadout.primary_mods())
 	# Show the blade on the body, not just in the hitscan: a saber bot that walks
 	# in holding a blaster gives no warning at all that it intends to reach you.
-	model.set_melee(weapon.is_melee(), weapon.is_staff())
-	if loadout.gadget == Loadout.Gadget.SHIELD:
+	model.set_melee(weapon.is_melee(), weapon.is_staff(), weapon.melee_look())
+	if loadout.uses(Loadout.Gadget.SHIELD):
 		_raise_shield()
 	# The bot's gun is a world object, not a viewmodel: everyone should see it.
 	for mi in weapon.find_children("*", "MeshInstance3D", true, false):
@@ -308,7 +353,7 @@ func _die(attacker: Node) -> void:
 	if attacker is Node3D:
 		push = global_position - (attacker as Node3D).global_position
 	corpse.launch(Transform3D(Basis(Vector3.UP, rotation.y), global_position),
-		GameState.TEAM_COLORS[team], push,
+		GameState.team_colors[team], push,
 		loadout.character_style() if loadout != null else -1)
 	if is_instance_valid(_turret):
 		_turret.queue_free()  # the engineer's turret dies with the engineer
@@ -374,6 +419,7 @@ func _physics_process(delta: float) -> void:
 			_shove.y = 0.0
 		_shove = _shove.move_toward(Vector3.ZERO, SHOVE_DECAY * delta)
 	move_and_slide()
+	_update_crouch(delta)
 	_animate()
 
 
@@ -442,7 +488,50 @@ func _hit_reach() -> float:
 ## _aim_head go through this, so the range a bot works out for itself and the
 ## aim it actually shoots with can never drift apart.
 func _aim_error_deg(aimed: bool) -> float:
-	return float(_skill["aim_error"]) * (ADS_STEADY if aimed else 1.0)
+	# Dug in and crouched steadies the aim, the same way it tightens a player's
+	# cone. It is what makes posting a real tactic rather than an animation.
+	return float(_skill["aim_error"]) * (ADS_STEADY if aimed else 1.0) \
+		* (POST_STEADY if _posted else 1.0)
+
+
+## Flip between digging in and circling. One timer runs at a time; when it runs
+## out the other is rolled fresh, so no two bots at the same stand-off are ever
+## in step with each other.
+func _update_post(delta: float) -> void:
+	if _posted:
+		_post_left -= delta
+		if _post_left <= 0.0:
+			_posted = false
+			_rove_left = randf_range(ROVE_TIME.x, ROVE_TIME.y)
+			# Break the other way when it does move, so a bot that has been shot
+			# at from one side does not step back into the same line.
+			_strafe_dir = -_strafe_dir
+	else:
+		_rove_left -= delta
+		if _rove_left <= 0.0:
+			_posted = true
+			_post_left = randf_range(POST_TIME.x, POST_TIME.y)
+
+
+## Ease the capsule between standing and crouched, so what a shot has to hit
+## matches what is on screen. Eased rather than snapped for the same reason the
+## player's is: an instant resize pops the body a third of a metre.
+func _update_crouch(delta: float) -> void:
+	var target := 1.0 if _posted else 0.0
+	_crouch_t = move_toward(_crouch_t, target, delta * CROUCH_EASE)
+	var cap := _collision.shape as CapsuleShape3D
+	if cap == null:
+		return
+	cap.height = lerpf(STAND_HEIGHT, CROUCH_HEIGHT, _crouch_t)
+	_collision.position.y = cap.height * 0.5
+
+
+## Stand back up. Called whenever the bot stops being in contact — it must not
+## still be crouched while walking somewhere.
+func _leave_post() -> void:
+	_posted = false
+	_post_left = 0.0
+	_rove_left = 0.0
 
 
 ## The distance this bot tries to fight at.
@@ -488,7 +577,16 @@ func _fight(delta: float) -> void:
 	# the air for the rest of the match.
 	var hold := _hold_range()
 	_state = State.ENGAGE if gap <= hold else State.ADVANCE
+	if _state == State.ADVANCE:
+		_leave_post()   # walking somewhere is not holding a position
 	var speed := _speed
+	# Closing on somebody is a sprint until the shooting starts. `shot` below is
+	# the range this bot's own aim can actually reach; inside it, walk and use
+	# the sights instead.
+	_sprinting = _state == State.ADVANCE \
+		and gap > minf(_hit_reach() * LONG_SHOT_SLACK, weapon.max_range() * 0.9)
+	if _sprinting:
+		speed *= SPRINT_MULT
 	if _state == State.ADVANCE:
 		# Close on the target, but never off the leash: past it, the pull back to
 		# the owner wins and the bot gives ground rather than chasing. It keeps
@@ -507,15 +605,23 @@ func _fight(delta: float) -> void:
 		velocity.z = step.z
 		_watch_for_snag(want, delta)
 	else:
-		# In range: circle rather than stand still, so it isn't a free headshot.
-		# A shot taken from fifty metres is steadier from a stop, and there is
-		# nothing to dodge that far out, so the circling fades with distance.
-		var side := flat.normalized().cross(Vector3.UP) * _strafe_dir
-		var circle := STRAFE_SPEED
-		if gap > LONG_RANGE_STILL:
-			circle *= LONG_RANGE_STRAFE
-		velocity.x = side.x * speed * circle
-		velocity.z = side.z * speed * circle
+		# In range: alternate between DIGGING IN and circling (see POST_TIME).
+		_update_post(delta)
+		if _posted:
+			# Planted. Stop dead and shoot from here — no drift, or the crouch
+			# reads as a stumble rather than as a decision.
+			velocity.x = 0.0
+			velocity.z = 0.0
+		else:
+			# Circling, so it isn't a free headshot. A shot taken from fifty
+			# metres is steadier from a stop and there is nothing to dodge that
+			# far out, so the circling fades with distance.
+			var side := flat.normalized().cross(Vector3.UP) * _strafe_dir
+			var circle := STRAFE_SPEED
+			if gap > LONG_RANGE_STILL:
+				circle *= LONG_RANGE_STRAFE
+			velocity.x = side.x * speed * circle
+			velocity.z = side.z * speed * circle
 	_apply_unstick()
 
 	_place_turret_if_ready(false)  # in contact: dig in where we stand
@@ -537,7 +643,9 @@ func _fight(delta: float) -> void:
 	# Aiming down sights follows the same rule. It used to be gated on ENGAGE to
 	# mirror the human "no ADS while running" — but a bot has no sprint, so what
 	# that actually did was deny the sights to exactly the shot they are for.
-	weapon.aiming = _skill["ads"] and in_range and on_aim
+	# ...and no sights while sprinting, which is the player's rule (Player.
+	# _is_running) applied to the AI so the trade is the same on both sides.
+	weapon.aiming = _skill["ads"] and in_range and on_aim and not _sprinting
 	var may_fire := in_range and on_aim and _reaction_left <= 0.0 \
 		and weapon.heat() < FIRE_HEAT_CEILING
 	weapon.update_fire(may_fire, may_fire)
@@ -563,11 +671,14 @@ func _patrol(delta: float) -> void:
 	if gap <= arrive:
 		velocity.x = 0.0
 		velocity.z = 0.0
+		_sprinting = false   # arrived; nothing to run to
 		if not _has_owner():
 			_roam_left = 0.0  # arrived: pick somewhere new on the next tick
 		_apply_unstick()
 		return
 	_state = State.ADVANCE
+	_leave_post()
+	_sprinting = true   # nothing to shoot at and somewhere to be: run
 	_face(flat, delta)
 	var want := _route(goal, delta)
 	var step := want * _speed
@@ -682,8 +793,11 @@ func _throw_grenade_if_useful(gap: float) -> void:
 		return
 	# Grenades are gadgets now, so a bot throws only if it BOUGHT one; the type
 	# comes from whichever slot holds it.
-	var g := loadout.gadget if loadout.gadget in Loadout.GRENADE_GADGETS \
-		else loadout.gadget2
+	# Resolved to the ACTION first: every universe has its own grenade rows
+	# (a plasma grenade, a stikkbomb) and they all throw one of the three types.
+	var g := Loadout.gadget_action(loadout.gadget)
+	if not (g in Loadout.GRENADE_GADGETS):
+		g = Loadout.gadget_action(loadout.gadget2)
 	if not (g in Loadout.GRENADE_GADGETS):
 		return
 	if gap < GRENADE_RANGE.x or gap > GRENADE_RANGE.y:
@@ -707,7 +821,7 @@ func _throw_grenade_if_useful(gap: float) -> void:
 ## meant an engineer in deathmatch had to wander within a few metres of the map
 ## origin before it would ever deploy.
 func _place_turret_if_ready(near_goal: bool) -> void:
-	if loadout == null or loadout.gadget != Loadout.Gadget.TURRET:
+	if loadout == null or not loadout.uses(Loadout.Gadget.TURRET):
 		return
 	if is_instance_valid(_turret):
 		return
@@ -722,7 +836,7 @@ func _place_turret_if_ready(near_goal: bool) -> void:
 ## The other placeable, gated exactly like the turret: set the tube down once
 ## we're near where we were heading, or the moment we make contact.
 func _place_mortar_if_ready(near_goal: bool) -> void:
-	if loadout == null or loadout.gadget != Loadout.Gadget.MORTAR:
+	if loadout == null or not loadout.uses(Loadout.Gadget.MORTAR):
 		return
 	if is_instance_valid(_mortar):
 		return
@@ -781,7 +895,7 @@ func _enemy_cluster(mark: Vector3) -> Vector3:
 ## Scouts grapple ahead when they have a long way to go, which is both faster
 ## and the only way you'll see the wire fly in a match with no humans in it.
 func _try_cable(goal: Vector3) -> void:
-	if loadout == null or loadout.gadget != Loadout.Gadget.CABLE:
+	if loadout == null or not loadout.uses(Loadout.Gadget.CABLE):
 		return
 	if _cable_cd > 0.0 or _cable_left > 0.0:
 		return
@@ -809,7 +923,7 @@ func _try_cable(goal: Vector3) -> void:
 ## the bot's grenade: a power it only spends when the situation it is for has
 ## actually arrived, so it is not simply on cooldown forever.
 func _force_push_if_crowded(gap: float) -> void:
-	if loadout == null or loadout.gadget != Loadout.Gadget.FORCE_PUSH:
+	if loadout == null or not loadout.uses(Loadout.Gadget.FORCE_PUSH):
 		return
 	if _force_cd > 0.0 or gap > ForcePowers.PUSH_RANGE * 0.7:
 		return
@@ -823,7 +937,7 @@ func _force_push_if_crowded(gap: float) -> void:
 ## while it is still closing — and it is spent only on a target it can actually
 ## see, which _nearest_in_cone re-checks for itself.
 func _throw_lightning_if_in_reach(gap: float) -> void:
-	if loadout == null or loadout.gadget != Loadout.Gadget.FORCE_LIGHTNING:
+	if loadout == null or not loadout.uses(Loadout.Gadget.FORCE_LIGHTNING):
 		return
 	# Already pouring: keep it going while the target is still in reach. A bot
 	# has to CHANNEL for the same reason a player does — the power is worth 11 a
@@ -860,8 +974,7 @@ func _throw_lightning_if_in_reach(gap: float) -> void:
 func _fire_wrist_rocket_if_useful(gap: float) -> void:
 	if loadout == null or _force_cd > 0.0:
 		return
-	if loadout.gadget != Loadout.Gadget.WRIST_ROCKET \
-			and loadout.gadget2 != Loadout.Gadget.WRIST_ROCKET:
+	if not loadout.uses(Loadout.Gadget.WRIST_ROCKET):
 		return
 	if gap < Player.WRIST_ROCKET_SPLASH * 2.5 or gap > 60.0:
 		return
@@ -887,7 +1000,7 @@ func _raise_shield() -> void:
 		return
 	_shield = SHIELD_SCENE.instantiate()
 	add_child(_shield)
-	_shield.setup(GameState.TEAM_COLORS[team])
+	_shield.setup(GameState.team_colors[team])
 
 
 ## Bodies our own fire ignores — the same contract Player exposes, so a bot with
@@ -1007,7 +1120,15 @@ func _animate() -> void:
 		return
 	var ground_speed := Vector2(velocity.x, velocity.z).length()
 	var clip := "idle"
-	if ground_speed > 3.9:
+	if _posted:
+		# Dug in: the crouch is the whole tell. A bot that plants without
+		# changing its silhouette just looks like one that stopped working.
+		clip = "crouch_idle"
+	elif _sprinting and ground_speed > 0.15:
+		# The run clip carries the weapon ACROSS THE CHEST (see RUN_GUN_POS), so
+		# this is also the tell that a bot is closing rather than holding. Off the
+		# sprint STATE, not off a speed threshold: the old 3.9 m/s test sat right
+		# on the bots' own walking pace.
 		clip = "run"
 	elif ground_speed > 0.15:
 		clip = "walk"

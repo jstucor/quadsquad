@@ -55,7 +55,7 @@ func _exit_tree() -> void:
 func setup(placed_by: Node3D, mortar_team: int) -> void:
 	owner_player = placed_by
 	team = mortar_team
-	_paint(GameState.TEAM_COLORS[team])
+	_paint(GameState.team_colors[team])
 
 
 func is_alive() -> bool:

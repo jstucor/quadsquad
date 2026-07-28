@@ -51,20 +51,19 @@ func _ready() -> void:
 ## so what is on screen is the pose, not the tumble.
 func _lay_out() -> void:
 	for c in get_children():
-		if c is RigidBody3D:
+		if c.has_method("freeze_all"):
 			c.queue_free()
 	for i in LINEUP.size():
-		var corpse: RigidBody3D = CORPSE.instantiate()
+		var corpse: Node3D = CORPSE.instantiate()
 		add_child(corpse)
 		var at := Vector3((i - (LINEUP.size() - 1) * 0.5) * 1.15, 0.0, 0.0)
 		# Turned a little off square, so the pose reads in three quarters rather
 		# than as a flat front-on silhouette.
 		var facing := Basis(Vector3.UP, deg_to_rad(35.0))
-		corpse.launch(Transform3D(facing, at), GameState.TEAM_COLORS[i % 2],
+		corpse.launch(Transform3D(facing, at), GameState.team_colors[i % 2],
 			Vector3.ZERO, LINEUP[i])
-		corpse.freeze = true
-		corpse.linear_velocity = Vector3.ZERO
-		corpse.angular_velocity = Vector3.ZERO
+		# A corpse is a ragdoll now, so freezing it is six bodies, not one.
+		corpse.freeze_all()
 
 
 func _build_scene() -> void:

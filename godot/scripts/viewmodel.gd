@@ -17,6 +17,24 @@ const HIP_POS := Vector3.ZERO
 # by hand, but every receiver here is a different height and the sight drifted
 # off centre as soon as the guns stopped being identical.
 const ADS_PULL_BACK := 0.05
+
+## THE SPRINT CARRY, from the inside. The third-person model already drops the
+## weapon and swings it across the chest while running (CharacterModel's
+## RUN_GUN_POS) — so everyone ELSE could see a sprinting player stow their gun,
+## and the only person who could not was the one doing it.
+##
+## Same idea, different scale: a first-person camera sits 30 cm from the receiver,
+## so where the body model swings the weapon 62 degrees across, this drops it out
+## of the sight line and tips the muzzle down and inboard. It reads as "I am not
+## in a position to shoot", which is exactly true — sprinting already denies the
+## sights (Player._is_running).
+const SPRINT_AT := Vector3(0.06, -0.17, 0.07)
+const SPRINT_ROT := Vector3(-0.60, 0.95, -0.42)
+## Out fast, back in faster. Coming OUT of the sprint is the one that matters:
+## the gun has to be back in the aim by the time the player can shoot, or the
+## first shot of every engagement is fired from a stowed weapon.
+const SPRINT_IN := 0.18    # seconds to stow
+const SPRINT_OUT := 0.10   # ...and to bring it back up
 const AIM_TIME := 0.12       # seconds to fully raise/lower sights
 const RECOIL_DECAY := 6.0    # how fast the kick springs back
 const KICK_CEILING := 1.8    # a burst stacks up to here before it stops growing
@@ -78,11 +96,25 @@ var _parry := 0.0            # 1 the frame a hit is stopped, decaying to 0
 var _parry_side := 1.0       # which way the blade is knocked, alternating
 var _blade_core: StandardMaterial3D  # kept so a parry can flare them
 var _blade_glow: StandardMaterial3D
+## What the melee weapon currently in hand LOOKS like, read off its own profile
+## in _build (see Weapon.melee_look). One saber builder and one staff builder
+## serve every blade in every universe — a lightsaber, an energy sword, a
+## chainsword and a thunder hammer differ by these six numbers and nothing else.
+var _blade_col := BLADE_CORE
+var _glow_col := BLADE_GLOW
+var _blade_len := BLADE_LENGTH
+var _blade_rad := BLADE_RADIUS
+var _blade_energy := BLADE_ENERGY
+var _hilt_len := 0.24
 var _brace_t := 0.0          # phase of the guard's slow sway
 
 var _kick := 0.0             # current recoil amount (0..KICK_CEILING), springs to 0
 var _kick_yaw := 0.0         # random left/right lean per shot
 var _aim_t := 0.0            # 0 hip .. 1 aimed
+## 0 in the aim .. 1 fully stowed across the chest. Set by the owner every frame
+## (see Weapon.set_sprinting); eased here.
+var sprinting := false
+var _sprint_t := 0.0
 var _ads_pos := Vector3(-0.165, 0.055, ADS_PULL_BACK)  # solved in _build
 var _bob_t := 0.0
 var _flash_t := 0.0
@@ -198,6 +230,224 @@ const SHAPES := {
 		"receiver": Vector3(0.03, 0.03, 0.4), "barrel": Vector3(0.02, 0.02, 0.0),
 		"stock": false, "grip": false, "staff": true,
 	},
+
+	# --- HALO: UNSC -----------------------------------------------------------
+	# Boxy, top-heavy, magazine-fed. The MA5B's counter housing and the SPNKr's
+	# twin tubes are the two silhouettes people actually recognise.
+	Weapon.Class.MA5B: {  # MA5B: fat carry handle over a short barrel
+		"receiver": Vector3(0.062, 0.09, 0.26), "barrel": Vector3(0.03, 0.03, 0.20),
+		"stock": true, "grip": true, "mag": Vector3(0.036, 0.13, 0.055), "muzzle": 0.045,
+	},
+	Weapon.Class.BR55: {  # BR55: slim rifle, long barrel, ships with optics
+		"receiver": Vector3(0.05, 0.075, 0.28), "barrel": Vector3(0.024, 0.024, 0.36),
+		"stock": true, "grip": true, "mag": Vector3(0.03, 0.10, 0.05), "muzzle": 0.04,
+	},
+	Weapon.Class.M7_SMG: {  # M7: stockless, tall magazine, stubby bore
+		"receiver": Vector3(0.048, 0.072, 0.17), "barrel": Vector3(0.022, 0.022, 0.14),
+		"stock": false, "grip": true, "mag": Vector3(0.032, 0.15, 0.042), "muzzle": 0.032,
+	},
+	Weapon.Class.M90_SHOTGUN: {  # M90: fat tube under a fat barrel
+		"receiver": Vector3(0.072, 0.09, 0.30), "barrel": Vector3(0.05, 0.05, 0.30),
+		"stock": true, "grip": true, "muzzle": 0.08, "tube": true,
+	},
+	Weapon.Class.SRS99: {  # SRS99: enormous barrel, bipod, heavy optics
+		"receiver": Vector3(0.05, 0.07, 0.34), "barrel": Vector3(0.026, 0.026, 0.66),
+		"stock": true, "grip": true, "mag": Vector3(0.028, 0.08, 0.05), "muzzle": 0.08,
+		"bipod": true,
+	},
+	Weapon.Class.SPNKR: {  # SPNKr: twin tubes, no stock
+		"receiver": Vector3(0.115, 0.115, 0.54), "barrel": Vector3(0.09, 0.09, 0.20),
+		"stock": false, "grip": true, "muzzle": 0.14, "tube": true, "barrels": 2,
+	},
+	Weapon.Class.M6D: {  # M6D: heavy sidearm with a scope block
+		"receiver": Vector3(0.042, 0.065, 0.16), "barrel": Vector3(0.026, 0.026, 0.14),
+		"stock": false, "grip": false, "mag": Vector3(0.028, 0.09, 0.038), "muzzle": 0.035,
+	},
+	Weapon.Class.M247_HMG: {  # M247: belt-fed, drum, bipod
+		"receiver": Vector3(0.075, 0.085, 0.34), "barrel": Vector3(0.048, 0.048, 0.46),
+		"stock": true, "grip": true, "drum": 0.05, "muzzle": 0.08, "bipod": true,
+	},
+	Weapon.Class.M392_DMR: {  # M392: long, thin, scoped
+		"receiver": Vector3(0.046, 0.07, 0.30), "barrel": Vector3(0.023, 0.023, 0.50),
+		"stock": true, "grip": true, "mag": Vector3(0.028, 0.10, 0.045), "muzzle": 0.05,
+	},
+	Weapon.Class.SPARTAN_LASER: {  # laser: a squared-off block with a lens
+		"receiver": Vector3(0.10, 0.12, 0.42), "barrel": Vector3(0.055, 0.055, 0.12),
+		"stock": false, "grip": true, "drum": 0.055, "muzzle": 0.11,
+	},
+
+	# --- HALO: Covenant -------------------------------------------------------
+	# Rounded, vented, no magazines anywhere — plasma weapons carry a drum where
+	# a UNSC gun carries a mag, and the needler wears its crystals as limbs.
+	Weapon.Class.PLASMA_RIFLE: {
+		"receiver": Vector3(0.075, 0.095, 0.26), "barrel": Vector3(0.034, 0.034, 0.14),
+		"stock": false, "grip": true, "drum": 0.05, "muzzle": 0.055,
+	},
+	Weapon.Class.PLASMA_PISTOL: {
+		"receiver": Vector3(0.05, 0.075, 0.15), "barrel": Vector3(0.026, 0.026, 0.09),
+		"stock": false, "grip": false, "cylinder": 0.042, "muzzle": 0.045,
+	},
+	Weapon.Class.NEEDLER: {  # the crystals: the bowcaster's limbs, stood on end
+		"receiver": Vector3(0.062, 0.085, 0.22), "barrel": Vector3(0.028, 0.028, 0.13),
+		"stock": false, "grip": true, "muzzle": 0.04, "limbs": 0.11,
+	},
+	Weapon.Class.COV_CARBINE: {
+		"receiver": Vector3(0.052, 0.08, 0.28), "barrel": Vector3(0.026, 0.026, 0.34),
+		"stock": false, "grip": true, "drum": 0.038, "muzzle": 0.042,
+	},
+	Weapon.Class.BEAM_RIFLE: {  # long, forked, and mostly emitter
+		"receiver": Vector3(0.05, 0.075, 0.34), "barrel": Vector3(0.024, 0.024, 0.60),
+		"stock": false, "grip": true, "drum": 0.04, "muzzle": 0.07, "limbs": 0.09,
+	},
+	Weapon.Class.FUEL_ROD: {  # a fat green tube with a drum feed
+		"receiver": Vector3(0.10, 0.105, 0.44), "barrel": Vector3(0.07, 0.07, 0.20),
+		"stock": false, "grip": true, "drum": 0.07, "muzzle": 0.12, "tube": true,
+	},
+	Weapon.Class.BRUTE_SHOT: {  # drum-fed grenade thrower with a blade under it
+		"receiver": Vector3(0.085, 0.10, 0.30), "barrel": Vector3(0.05, 0.05, 0.22),
+		"stock": true, "grip": true, "drum": 0.075, "muzzle": 0.09,
+	},
+	Weapon.Class.MAULER: {  # a shotgun the size of a pistol
+		"receiver": Vector3(0.058, 0.08, 0.16), "barrel": Vector3(0.045, 0.045, 0.12),
+		"stock": false, "grip": false, "muzzle": 0.07,
+	},
+	# The two Covenant melee weapons build from the blade path, not these fields.
+	Weapon.Class.ENERGY_SWORD: {
+		"receiver": Vector3(0.05, 0.05, 0.22), "barrel": Vector3(0.03, 0.03, 0.0),
+		"stock": false, "grip": false, "saber": true,
+	},
+	Weapon.Class.GRAV_HAMMER: {
+		"receiver": Vector3(0.06, 0.06, 0.5), "barrel": Vector3(0.03, 0.03, 0.0),
+		"stock": false, "grip": false, "saber": true,
+	},
+
+	# --- WARHAMMER: Adeptus Astartes -----------------------------------------
+	# Everything is oversized, boxed and ribbed: a bolter is a hand-held cannon,
+	# so the receiver is deeper than any blaster's and the magazine is huge.
+	Weapon.Class.BOLTER: {
+		"receiver": Vector3(0.085, 0.105, 0.28), "barrel": Vector3(0.042, 0.042, 0.20),
+		"stock": true, "grip": true, "mag": Vector3(0.05, 0.14, 0.07), "muzzle": 0.065,
+	},
+	Weapon.Class.HEAVY_BOLTER: {
+		"receiver": Vector3(0.10, 0.115, 0.36), "barrel": Vector3(0.06, 0.06, 0.40),
+		"stock": true, "grip": true, "drum": 0.075, "muzzle": 0.10, "bipod": true,
+	},
+	Weapon.Class.STALKER_BOLT: {
+		"receiver": Vector3(0.062, 0.085, 0.32), "barrel": Vector3(0.03, 0.03, 0.56),
+		"stock": true, "grip": true, "mag": Vector3(0.034, 0.11, 0.06), "muzzle": 0.055,
+	},
+	Weapon.Class.PLASMA_GUN: {  # coil flask over the receiver, wide emitter
+		"receiver": Vector3(0.08, 0.10, 0.30), "barrel": Vector3(0.05, 0.05, 0.18),
+		"stock": true, "grip": true, "drum": 0.062, "muzzle": 0.10,
+	},
+	Weapon.Class.MELTAGUN: {  # a bell, a flask, and nothing else
+		"receiver": Vector3(0.09, 0.10, 0.24), "barrel": Vector3(0.075, 0.075, 0.16),
+		"stock": false, "grip": true, "drum": 0.07, "muzzle": 0.15, "tube": true,
+	},
+	Weapon.Class.FLAMER: {  # a nozzle on a promethium canister
+		"receiver": Vector3(0.075, 0.09, 0.26), "barrel": Vector3(0.038, 0.038, 0.24),
+		"stock": false, "grip": true, "drum": 0.08, "muzzle": 0.09,
+	},
+	Weapon.Class.BOLT_PISTOL: {
+		"receiver": Vector3(0.052, 0.075, 0.17), "barrel": Vector3(0.034, 0.034, 0.11),
+		"stock": false, "grip": false, "mag": Vector3(0.038, 0.10, 0.05), "muzzle": 0.05,
+	},
+	Weapon.Class.PLASMA_PISTOL_40K: {
+		"receiver": Vector3(0.052, 0.08, 0.16), "barrel": Vector3(0.034, 0.034, 0.10),
+		"stock": false, "grip": false, "cylinder": 0.05, "muzzle": 0.075,
+	},
+	Weapon.Class.GRENADE_LAUNCHER: {
+		"receiver": Vector3(0.09, 0.10, 0.28), "barrel": Vector3(0.062, 0.062, 0.22),
+		"stock": true, "grip": true, "muzzle": 0.11, "tube": true,
+	},
+	Weapon.Class.CHAINSWORD: {
+		"receiver": Vector3(0.06, 0.06, 0.24), "barrel": Vector3(0.03, 0.03, 0.0),
+		"stock": false, "grip": false, "saber": true,
+	},
+	Weapon.Class.POWER_SWORD: {
+		"receiver": Vector3(0.05, 0.05, 0.24), "barrel": Vector3(0.03, 0.03, 0.0),
+		"stock": false, "grip": false, "saber": true,
+	},
+	Weapon.Class.THUNDER_HAMMER: {
+		"receiver": Vector3(0.07, 0.07, 0.55), "barrel": Vector3(0.03, 0.03, 0.0),
+		"stock": false, "grip": false, "saber": true,
+	},
+
+	# --- WARHAMMER: Necrons ---------------------------------------------------
+	# Gauss weapons are skeletal: a thin spine, ribbed housings, and a tubular
+	# emitter cage rather than a bore. The limbs field does the cage.
+	Weapon.Class.GAUSS_FLAYER: {
+		"receiver": Vector3(0.05, 0.075, 0.30), "barrel": Vector3(0.024, 0.024, 0.30),
+		"stock": true, "grip": false, "muzzle": 0.05, "limbs": 0.08,
+	},
+	Weapon.Class.GAUSS_BLASTER: {
+		"receiver": Vector3(0.058, 0.085, 0.32), "barrel": Vector3(0.028, 0.028, 0.36),
+		"stock": true, "grip": true, "muzzle": 0.06, "limbs": 0.10,
+	},
+	Weapon.Class.TESLA_CARBINE: {
+		"receiver": Vector3(0.055, 0.08, 0.26), "barrel": Vector3(0.026, 0.026, 0.26),
+		"stock": false, "grip": true, "drum": 0.045, "muzzle": 0.055, "limbs": 0.09,
+	},
+	Weapon.Class.SYNAPTIC_DISINTEGRATOR: {
+		"receiver": Vector3(0.045, 0.065, 0.34), "barrel": Vector3(0.02, 0.02, 0.64),
+		"stock": true, "grip": false, "muzzle": 0.05, "limbs": 0.07,
+	},
+	Weapon.Class.HEAT_RAY: {
+		"receiver": Vector3(0.078, 0.09, 0.26), "barrel": Vector3(0.05, 0.05, 0.18),
+		"stock": false, "grip": true, "drum": 0.06, "muzzle": 0.11,
+	},
+	Weapon.Class.TRANSDIMENSIONAL_BEAMER: {
+		"receiver": Vector3(0.085, 0.095, 0.42), "barrel": Vector3(0.045, 0.045, 0.22),
+		"stock": false, "grip": true, "muzzle": 0.10, "tube": true, "limbs": 0.10,
+	},
+	Weapon.Class.GAUSS_PISTOL: {
+		"receiver": Vector3(0.042, 0.065, 0.16), "barrel": Vector3(0.022, 0.022, 0.16),
+		"stock": false, "grip": false, "muzzle": 0.04, "limbs": 0.06,
+	},
+	Weapon.Class.WARSCYTHE: {
+		"receiver": Vector3(0.03, 0.03, 0.4), "barrel": Vector3(0.02, 0.02, 0.0),
+		"stock": false, "grip": false, "staff": true,
+	},
+	Weapon.Class.STAFF_OF_LIGHT: {
+		"receiver": Vector3(0.03, 0.03, 0.4), "barrel": Vector3(0.02, 0.02, 0.0),
+		"stock": false, "grip": false, "staff": true,
+	},
+
+	# --- WARHAMMER: Orks ------------------------------------------------------
+	# Welded, over-magazined and bolted together: every ork gun is a bigger drum
+	# than it needs on a barrel that is too short for it.
+	Weapon.Class.SHOOTA: {
+		"receiver": Vector3(0.085, 0.10, 0.26), "barrel": Vector3(0.04, 0.04, 0.18),
+		"stock": true, "grip": true, "mag": Vector3(0.048, 0.16, 0.06), "muzzle": 0.07,
+	},
+	Weapon.Class.BIG_SHOOTA: {
+		"receiver": Vector3(0.105, 0.115, 0.30), "barrel": Vector3(0.055, 0.055, 0.34),
+		"stock": false, "grip": true, "drum": 0.085, "muzzle": 0.09, "barrels": 2,
+	},
+	Weapon.Class.SLUGGA: {
+		"receiver": Vector3(0.058, 0.08, 0.16), "barrel": Vector3(0.036, 0.036, 0.10),
+		"stock": false, "grip": false, "drum": 0.05, "muzzle": 0.06,
+	},
+	Weapon.Class.ROKKIT_LAUNCHA: {
+		"receiver": Vector3(0.12, 0.12, 0.50), "barrel": Vector3(0.10, 0.10, 0.18),
+		"stock": false, "grip": true, "muzzle": 0.16, "tube": true,
+	},
+	Weapon.Class.MEGA_BLASTA: {
+		"receiver": Vector3(0.095, 0.105, 0.30), "barrel": Vector3(0.058, 0.058, 0.22),
+		"stock": true, "grip": true, "drum": 0.08, "muzzle": 0.12, "limbs": 0.10,
+	},
+	Weapon.Class.BURNA: {
+		"receiver": Vector3(0.08, 0.095, 0.24), "barrel": Vector3(0.042, 0.042, 0.26),
+		"stock": false, "grip": true, "drum": 0.085, "muzzle": 0.10,
+	},
+	Weapon.Class.CHOPPA: {
+		"receiver": Vector3(0.06, 0.06, 0.22), "barrel": Vector3(0.03, 0.03, 0.0),
+		"stock": false, "grip": false, "saber": true,
+	},
+	Weapon.Class.POWER_KLAW: {
+		"receiver": Vector3(0.07, 0.07, 0.26), "barrel": Vector3(0.03, 0.03, 0.0),
+		"stock": false, "grip": false, "saber": true,
+	},
 }
 
 ## Blade dimensions and colour. The blade is drawn a good deal SHORTER than the
@@ -278,6 +528,8 @@ func _build(class_id: int, scoped: bool, holo: bool) -> void:
 	_blade_glow = null
 
 	var shape: Dictionary = SHAPES.get(class_id, SHAPES[Weapon.Class.SOLDIER])
+	if shape.get("saber", false) or shape.get("staff", false):
+		_read_blade_look(class_id, shape.get("staff", false))
 	if shape.get("staff", false):
 		_build_staff()
 		return
@@ -433,6 +685,46 @@ func _build(class_id: int, scoped: bool, holo: bool) -> void:
 ## same reason the cable's wire is unshaded).
 ##
 ## It leaves `_flash` null: a blade has no muzzle. kick() already null-checks it.
+## Read the melee look off the weapon's own profile, falling back to the
+## lightsaber's numbers. Done here rather than in SHAPES so the first-person
+## blade and the third-person one (CharacterModel.set_melee) read ONE source and
+## cannot disagree about what the player is holding.
+func _read_blade_look(class_id: int, staff := false) -> void:
+	var p: Dictionary = Weapon.PROFILES.get(class_id, {})
+	# A pole weapon defaults to the electrostaff's violet, a blade to the
+	# lightsaber's blue — so the two weapons that shipped before any of this
+	# still build exactly as they did without carrying colour keys of their own.
+	_blade_col = p.get("blade_core", STAFF_CORE if staff else BLADE_CORE)
+	_glow_col = p.get("blade_glow", STAFF_GLOW if staff else BLADE_GLOW)
+	_blade_len = p.get("blade_len", BLADE_LENGTH)
+	_blade_rad = float(p.get("blade_width", BLADE_RADIUS * 2.0)) * 0.5
+	_blade_energy = p.get("blade_energy", BLADE_ENERGY)
+	_hilt_len = p.get("hilt_len", 0.24)
+
+
+## An unshaded blade material. `energy` 0 builds a DULL edge — unshaded so it
+## still reads on the night maps, but with no emission at all, which is the
+## whole visual difference between a chainsword and a power sword.
+func _blade_mat(color: Color, energy: float, aura: bool) -> StandardMaterial3D:
+	var m := StandardMaterial3D.new()
+	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	m.albedo_color = Color(color.r, color.g, color.b, 0.5) if aura else color
+	if aura:
+		m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		m.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+	if energy > 0.0:
+		m.emission_enabled = true
+		m.emission = color
+		m.emission_energy_multiplier = energy
+	return m
+
+
+## A slim blade is a cylinder; a HEAD (a thunder hammer, a power klaw) is a box.
+## The threshold is what separates "a sword" from "a lump on a stick" — a fat
+## cylinder reads as a rolling pin, and a boxed sword reads as a plank.
+const BLADE_HEAD_WIDTH := 0.045   # blade radius above which it becomes a head
+
+
 func _build_saber() -> void:
 	# Everything hangs off one pivot so the whole weapon swings as a piece. The
 	# viewmodel root cannot be used for that: its transform is already driven by
@@ -453,31 +745,36 @@ func _build_saber() -> void:
 	ring_mat.roughness = 0.4
 
 	# The hilt sits in the hand, angled like the pistol grip every gun carries.
-	var hilt := _cyl(0.021, 0.24, Vector3(0, -0.015, 0.0), hilt_mat, _saber)
-	_cyl(0.025, 0.02, Vector3(0, -0.015, -0.10), ring_mat, _saber)   # emitter shroud
-	_cyl(0.024, 0.015, Vector3(0, -0.015, 0.06), ring_mat, _saber)   # pommel band
+	# A hammer's haft is long, a sword's grip is short — one number, from the
+	# profile, and the emitter/blade slide down the shaft to follow it.
+	var hilt := _cyl(0.021, _hilt_len, Vector3(0, -0.015, 0.0), hilt_mat, _saber)
+	var mouth := -_hilt_len * 0.42
+	_cyl(0.025, 0.02, Vector3(0, -0.015, mouth), ring_mat, _saber)    # emitter shroud
+	_cyl(0.024, 0.015, Vector3(0, -0.015, _hilt_len * 0.25), ring_mat, _saber)  # pommel
 	_box(Vector3(0.012, 0.014, 0.03), Vector3(0.02, -0.015, 0.02), ring_mat, _saber)
 
-	var core_mat := StandardMaterial3D.new()
-	core_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	core_mat.albedo_color = BLADE_CORE
-	core_mat.emission_enabled = true
-	core_mat.emission = BLADE_CORE
-	core_mat.emission_energy_multiplier = BLADE_ENERGY
-
-	var glow_mat := StandardMaterial3D.new()
-	glow_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	glow_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	glow_mat.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
-	glow_mat.albedo_color = Color(BLADE_GLOW.r, BLADE_GLOW.g, BLADE_GLOW.b, 0.5)
-	glow_mat.emission_enabled = true
-	glow_mat.emission = BLADE_GLOW
-	glow_mat.emission_energy_multiplier = 3.0
+	var core_mat := _blade_mat(_blade_col, _blade_energy, false)
+	# The AURA stays lit even when the core does not. `blade_energy` 0 means the
+	# weapon's body is metal rather than plasma — a chainsword, a thunder hammer
+	# — but all three still carry a power field at the edge, and a head built as
+	# a lit block reads as a glowing brick instead of a lump of metal.
+	var glow_mat := _blade_mat(_glow_col, 3.0 if _blade_energy > 0.0 else 1.6, true)
 
 	# Blade runs down -Z out of the emitter, the same axis every barrel uses.
-	var blade_z := -0.11 - BLADE_LENGTH * 0.5
-	_cyl(BLADE_RADIUS, BLADE_LENGTH, Vector3(0, -0.015, blade_z), core_mat, _saber)
-	_cyl(BLADE_RADIUS * 1.9, BLADE_LENGTH * 0.99, Vector3(0, -0.015, blade_z), glow_mat, _saber)
+	var blade_z := mouth - 0.01 - _blade_len * 0.5
+	if _blade_rad > BLADE_HEAD_WIDTH:
+		# A HEAD, not a blade — and the field goes on the STRIKING FACE, not
+		# around the whole thing. An additive shell wrapping a hammer head covers
+		# every pixel of it: the head stops reading as metal and becomes a
+		# glowing brick with a stick attached.
+		_box(Vector3(_blade_rad * 2.0, _blade_rad * 1.5, _blade_len),
+			Vector3(0, -0.015, blade_z), core_mat, _saber)
+		_box(Vector3(_blade_rad * 2.2, _blade_rad * 1.66, _blade_len * 0.26),
+			Vector3(0, -0.015, blade_z - _blade_len * 0.42), glow_mat, _saber)
+	else:
+		_cyl(_blade_rad, _blade_len, Vector3(0, -0.015, blade_z), core_mat, _saber)
+		_cyl(_blade_rad * 1.9, _blade_len * 0.99, Vector3(0, -0.015, blade_z),
+			glow_mat, _saber)
 	hilt.name = "SaberHilt"
 	# Held so a parry can flare them. They belong to this blade alone (built here,
 	# not shared out of a table), so writing to them cannot leak onto anyone else.
@@ -506,7 +803,9 @@ const SHIELD_HUB_BAR := Color(0.62, 0.64, 0.68)
 # The electrostaff's charge is VIOLET, not the saber's blue — the IG-100 look.
 const STAFF_CORE := Color(0.86, 0.62, 1.0)   # violet-white charged core
 const STAFF_GLOW := Color(0.58, 0.16, 0.98)  # purple aura around it
-const STAFF_ARC := Color(0.78, 0.42, 1.0)    # the crackling lightning at the tips
+# The crackling lightning at the tips is DERIVED (halfway between the core and
+# its aura) rather than stated, so a pole weapon that picks its own colours — a
+# Necron warscythe's green — crackles in them without a third colour key.
 const STAFF_ARC_BOLTS := 3       # little bolts spitting off each emitter
 const STAFF_ARC_SEGS := 4        # jagged pieces per bolt
 const STAFF_ARC_JITTER := 0.02   # how far a joint kicks off line, in m
@@ -548,9 +847,12 @@ func _build_staff() -> void:
 	_staff_arc_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	_staff_arc_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	_staff_arc_mat.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
-	_staff_arc_mat.albedo_color = STAFF_ARC
+	# The arc colour sits between the core and its aura, so a green warscythe
+	# crackles green without a fourth colour key on every pole weapon.
+	var arc_col := _blade_col.lerp(_glow_col, 0.5)
+	_staff_arc_mat.albedo_color = arc_col
 	_staff_arc_mat.emission_enabled = true
-	_staff_arc_mat.emission = STAFF_ARC
+	_staff_arc_mat.emission = arc_col
 	_staff_arc_mat.emission_energy_multiplier = 4.0
 
 	# The two charged emitter heads. The FRONT one is the business end a parry
@@ -576,20 +878,8 @@ func _build_staff() -> void:
 func _staff_emitter(base_z: float, outward: float,
 		collar_mat: StandardMaterial3D, prong_mat: StandardMaterial3D) -> StandardMaterial3D:
 	var y := -0.015
-	var core_mat := StandardMaterial3D.new()
-	core_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	core_mat.albedo_color = STAFF_CORE
-	core_mat.emission_enabled = true
-	core_mat.emission = STAFF_CORE
-	core_mat.emission_energy_multiplier = BLADE_ENERGY
-	var glow_mat := StandardMaterial3D.new()
-	glow_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	glow_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	glow_mat.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
-	glow_mat.albedo_color = Color(STAFF_GLOW.r, STAFF_GLOW.g, STAFF_GLOW.b, 0.5)
-	glow_mat.emission_enabled = true
-	glow_mat.emission = STAFF_GLOW
-	glow_mat.emission_energy_multiplier = 2.4
+	var core_mat := _blade_mat(_blade_col, _blade_energy, false)
+	var glow_mat := _blade_mat(_glow_col, 2.4, true)
 	# A metal collar where the pole meets the head, and a slightly flared cap.
 	_cyl(0.024, 0.06, Vector3(0, y, base_z), collar_mat, _saber)
 	_cyl(0.03, 0.02, Vector3(0, y, base_z + outward * 0.04), collar_mat, _saber)
@@ -952,6 +1242,8 @@ func _process(delta: float) -> void:
 		and _player.guard_up()
 
 	_aim_t = move_toward(_aim_t, 1.0 if (aiming or guarding) else 0.0, delta / AIM_TIME)
+	_sprint_t = move_toward(_sprint_t, 1.0 if sprinting else 0.0,
+		delta / (SPRINT_IN if sprinting else SPRINT_OUT))
 	_kick = move_toward(_kick, 0.0, delta * RECOIL_DECAY)
 
 	# Walk bob, damped while aiming and only on the ground.
@@ -975,9 +1267,13 @@ func _process(delta: float) -> void:
 	# Recoil shoves the gun back toward the player, capped so a stacked burst
 	# can't drive it through the camera.
 	pos.z += minf(shown * KICK_PUSH, MAX_PUSH)
+	# ...and the sprint carry rides on top of all of it, so a stowed gun still
+	# bobs with the stride and still kicks if something makes it fire.
+	pos += SPRINT_AT * _sprint_t
 	position = pos
 	# Muzzle climbs (rotate about +X) with a small random lateral lean.
-	rotation = Vector3(shown * KICK_PITCH, shown * _kick_yaw * KICK_LEAN, 0.0)
+	rotation = Vector3(shown * KICK_PITCH, shown * _kick_yaw * KICK_LEAN, 0.0) \
+		+ SPRINT_ROT * _sprint_t
 
 	if _flash:
 		_flash_t = maxf(_flash_t - delta, 0.0)

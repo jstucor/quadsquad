@@ -32,11 +32,31 @@ func _ready() -> void:
 			items.append(d.get_item_text(i))
 		print("  %-14s -> %s" % [d.get_item_text(d.selected), str(items)])
 
-	# Dropdown order matches the build: MAP, MODE, PLAYERS, TEAMS, TEAM SIZE,
-	# VICTORY, AI SKILL, AIM ASSIST.
+	# Dropdown order matches the build: MAP, MODE, UNIVERSE, TIME TO KILL,
+	# PLAYERS, TEAMS, TEAM SIZE, VICTORY, AI SKILL, AIM ASSIST, CLASSES.
 	var mode_dd: OptionButton = dropdowns[1]
-	var teams_dd: OptionButton = dropdowns[3]
-	var victory_dd: OptionButton = dropdowns[5]
+	var universe_dd: OptionButton = dropdowns[2]
+	var ttk_dd: OptionButton = dropdowns[3]
+	var teams_dd: OptionButton = dropdowns[5]
+	var victory_dd: OptionButton = dropdowns[7]
+
+	# UNIVERSE and TIME TO KILL: both rewrite what the match is made of, so both
+	# get picked here rather than only rendered.
+	universe_dd.select(1)
+	universe_dd.item_selected.emit(1)
+	await _frames(2)
+	print("picked 'HALO' -> universe %d, sides %s" % [
+		GameState.universe, str(GameState.team_names)])
+	ttk_dd.select(GameState.Ttk.REALISTIC)
+	ttk_dd.item_selected.emit(GameState.Ttk.REALISTIC)
+	await _frames(2)
+	print("picked 'REALISTIC' -> health x%.2f" % Loadout.ttk_health)
+	await _grab("menu_halo")
+	universe_dd.select(0)
+	universe_dd.item_selected.emit(0)
+	ttk_dd.select(GameState.Ttk.MEDIUM)
+	ttk_dd.item_selected.emit(GameState.Ttk.MEDIUM)
+	await _frames(2)
 
 	teams_dd.select(1)
 	teams_dd.item_selected.emit(1)

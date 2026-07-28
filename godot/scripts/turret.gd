@@ -42,7 +42,7 @@ func setup(placed_by: Node3D, turret_team: int) -> void:
 	owner_player = placed_by
 	team = turret_team
 	weapon.set_class(Weapon.Class.TURRET)
-	_paint(GameState.TEAM_COLORS[team])
+	_paint(GameState.team_colors[team])
 	for mi in weapon.find_children("*", "MeshInstance3D", true, false):
 		mi.layers = 1  # a world object, not a viewmodel: everyone sees it
 

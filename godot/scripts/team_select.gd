@@ -142,11 +142,11 @@ func _draw() -> void:
 		var x := (s.x - total) * 0.5 + t * (box_w + gap)
 		var r := Rect2(x, y, box_w, box_h)
 		box_rects.append(r)
-		var col: Color = GameState.TEAM_COLORS[t]
+		var col: Color = GameState.team_colors[t]
 		draw_rect(r, Color(col, 0.14))
 		draw_rect(r, col, false, 3.0)
 		_centre(font, fs, r.position + Vector2(box_w * 0.5, 34.0),
-			GameState.TEAM_NAMES[t], col)
+			GameState.team_names[t], col)
 
 	# Each player's token, sitting in the team it is hovering / locked on. Locked
 	# tokens are filled and lettered; a still-choosing token is a hollow ring.

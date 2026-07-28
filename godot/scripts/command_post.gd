@@ -188,11 +188,11 @@ func _build_marker() -> void:
 ## albedo write on the one marker that is animating. It used to build three
 ## whole materials a frame whether anything had changed or not.
 func _paint() -> void:
-	var base := NEUTRAL if owner_team == -1 else GameState.TEAM_COLORS[owner_team]
+	var base := NEUTRAL if owner_team == -1 else GameState.team_colors[owner_team]
 	var ring_tint := base
 	var ring_alpha := 0.7
 	if _cap_team != -1:
-		ring_tint = GameState.TEAM_COLORS[_cap_team]
+		ring_tint = GameState.team_colors[_cap_team]
 		ring_alpha = lerpf(0.35, 1.0, _cap_progress)
 	_tint(_column_mat, Color(base, 0.12))
 	_tint(_ring_mat, Color(ring_tint, ring_alpha))

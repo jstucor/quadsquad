@@ -15,6 +15,11 @@ extends Node3D
 signal heat_changed(heat: float, overheated: bool)
 signal fired(cam_recoil: float, kick_back: float)
 
+## Every gun in the game, ACROSS ALL UNIVERSES. One flat enum on purpose:
+## PROFILES is a dictionary keyed by it, so a new weapon shifts nothing, and the
+## universe a gun belongs to is stated once in Loadout's catalogue rows rather
+## than smeared through the shooting code. Nothing in this file knows or cares
+## which universe is being played — a bolter is a hitscan with a heavy round.
 enum Class {
 	SOLDIER, SNIPER, HEAVY, REVOLVER, HMG, BURST, SEMI, RPG, PISTOL, HOLDOUT,
 	ROTARY, TURRET,
@@ -24,6 +29,27 @@ enum Class {
 	BOWCASTER,                       # the Wookiee's sidearm, and only theirs
 	WRIST_CANNON,                    # the Super Battle Droid's arm gun (Conquest)
 	STAFF,                           # the Magna Guard's electrostaff (Conquest)
+
+	# --- HALO ----------------------------------------------------------------
+	# UNSC: ballistic, loud, and accurate in short controlled bursts.
+	MA5B, BR55, M7_SMG, M90_SHOTGUN, SRS99, SPNKR, M6D, M247_HMG, M392_DMR,
+	SPARTAN_LASER,
+	# Covenant: plasma — hotter, softer, and it melts shields rather than plate.
+	PLASMA_RIFLE, PLASMA_PISTOL, NEEDLER, COV_CARBINE, BEAM_RIFLE, FUEL_ROD,
+	BRUTE_SHOT, MAULER, ENERGY_SWORD, GRAV_HAMMER,
+
+	# --- WARHAMMER 40,000 -----------------------------------------------------
+	# Adeptus Astartes: mass-reactive bolts, plasma that cooks its own operator,
+	# and chain teeth for whatever survives the walk in.
+	BOLTER, HEAVY_BOLTER, STALKER_BOLT, PLASMA_GUN, MELTAGUN, FLAMER,
+	BOLT_PISTOL, PLASMA_PISTOL_40K, GRENADE_LAUNCHER,
+	CHAINSWORD, POWER_SWORD, THUNDER_HAMMER,
+	# Necrons: gauss flays, tesla arcs, and none of it ever jams.
+	GAUSS_FLAYER, GAUSS_BLASTER, TESLA_CARBINE, SYNAPTIC_DISINTEGRATOR,
+	HEAT_RAY, TRANSDIMENSIONAL_BEAMER, GAUSS_PISTOL, WARSCYTHE, STAFF_OF_LIGHT,
+	# Orks: more dakka, less accuracy, and a very large choppy thing.
+	SHOOTA, BIG_SHOOTA, SLUGGA, ROKKIT_LAUNCHA, MEGA_BLASTA, BURNA,
+	CHOPPA, POWER_KLAW,
 }
 enum FireMode { AUTO, SEMI, BURST }
 
@@ -236,6 +262,414 @@ const PROFILES := {
 		"heat_per_shot": 0.0, "cool_rate": 1.0, "scope": false,
 		"recoil": 1.1, "cam_recoil": 0.02, "melee": true, "staff": true,
 	},
+
+	# =========================================================================
+	# HALO — UNSC
+	# =========================================================================
+	# The reason these are here and not a re-skin of the DC-15: a universe's guns
+	# are how it FEELS. UNSC weapons are ballistic — they bloom fast, they kick,
+	# and they reward the three-round burst; Covenant plasma barely kicks at all
+	# and pays for it in heat, which is a mechanic this game already has.
+	Class.MA5B: {
+		"name": "MA5B Assault Rifle", "fire_interval": 0.085, "damage": 14.0,
+		"range": 70.0, "hip_spread": 3.4, "ads_spread": 1.2, "zoom_fov": 62.0,
+		"heat_per_shot": 0.048, "cool_rate": 0.30, "scope": false,
+		"recoil": 0.38, "cam_recoil": 0.034,
+	},
+	Class.BR55: {
+		"name": "BR55 Battle Rifle", "fire_interval": 0.36, "damage": 22.0,
+		"range": 150.0, "hip_spread": 1.5, "ads_spread": 0.12, "zoom_fov": 44.0,
+		"heat_per_shot": 0.085, "cool_rate": 0.30, "scope": false,
+		"recoil": 0.72, "cam_recoil": 0.074,
+		"mode": FireMode.BURST, "burst_count": 3, "burst_interval": 0.055,
+	},
+	Class.M7_SMG: {
+		"name": "M7 SMG", "fire_interval": 0.06, "damage": 10.0,
+		"range": 45.0, "hip_spread": 4.2, "ads_spread": 1.7, "zoom_fov": 66.0,
+		"heat_per_shot": 0.042, "cool_rate": 0.32, "scope": false,
+		"recoil": 0.28, "cam_recoil": 0.028,
+	},
+	Class.M90_SHOTGUN: {
+		"name": "M90 Shotgun", "fire_interval": 0.82, "damage": 13.0,
+		"range": 22.0, "hip_spread": 3.4, "ads_spread": 2.2, "zoom_fov": 68.0,
+		"heat_per_shot": 0.30, "cool_rate": 0.34, "scope": false,
+		"recoil": 1.45, "cam_recoil": 0.185, "kick_back": 2.4,
+		"mode": FireMode.SEMI, "pellets": 8,
+	},
+	Class.SRS99: {
+		"name": "SRS99 Sniper", "fire_interval": 1.15, "damage": 100.0,
+		"range": 400.0, "hip_spread": 7.5, "ads_spread": 0.0, "zoom_fov": 19.0,
+		"heat_per_shot": 0.46, "cool_rate": 0.28, "scope": true,
+		"recoil": 1.6, "cam_recoil": 0.22, "kick_back": 3.2,
+		"mode": FireMode.SEMI,
+	},
+	Class.SPNKR: {
+		"name": "M41 SPNKr", "fire_interval": 1.5, "damage": 0.0,
+		"range": 300.0, "hip_spread": 0.6, "ads_spread": 0.0, "zoom_fov": 60.0,
+		"heat_per_shot": 0.58, "cool_rate": 0.30, "scope": false,
+		"recoil": 1.8, "cam_recoil": 0.30, "kick_back": 5.2,
+		"mode": FireMode.SEMI,
+		"projectile": true, "splash": 4.6, "splash_damage": 95.0,
+	},
+	Class.M6D: {
+		"name": "M6D Magnum", "fire_interval": 0.30, "damage": 36.0,
+		"range": 95.0, "hip_spread": 1.6, "ads_spread": 0.25, "zoom_fov": 46.0,
+		"heat_per_shot": 0.16, "cool_rate": 0.34, "scope": false,
+		"recoil": 1.05, "cam_recoil": 0.135, "mode": FireMode.SEMI,
+	},
+	Class.M247_HMG: {
+		"name": "M247 Machine Gun", "fire_interval": 0.055, "damage": 14.0,
+		"range": 105.0, "hip_spread": 5.6, "ads_spread": 2.6, "zoom_fov": 60.0,
+		"heat_per_shot": 0.044, "cool_rate": 0.34, "scope": false,
+		"recoil": 0.44, "cam_recoil": 0.042,
+	},
+	Class.M392_DMR: {
+		"name": "M392 DMR", "fire_interval": 0.35, "damage": 40.0,
+		"range": 190.0, "hip_spread": 2.0, "ads_spread": 0.0, "zoom_fov": 36.0,
+		"heat_per_shot": 0.18, "cool_rate": 0.30, "scope": true,
+		"recoil": 0.95, "cam_recoil": 0.118, "mode": FireMode.SEMI,
+	},
+	# The one gun in the game that has to be CHARGED. `spinup` already exists for
+	# the rotary's barrels, and a charge is the same thing said backwards: hold
+	# the trigger, nothing happens, then the whole magazine's worth arrives at
+	# once. AUTO rather than SEMI because the spin-up gate eats the press edge —
+	# a semi-automatic charge weapon would never fire at all.
+	Class.SPARTAN_LASER: {
+		"flash": Color(1.0, 0.35, 0.30),
+		"name": "M6 Spartan Laser", "fire_interval": 1.6, "damage": 180.0,
+		"range": 320.0, "hip_spread": 0.0, "ads_spread": 0.0, "zoom_fov": 34.0,
+		"heat_per_shot": 0.85, "cool_rate": 0.22, "scope": true,
+		"recoil": 1.7, "cam_recoil": 0.24, "kick_back": 2.0, "spinup": 1.2,
+	},
+
+	# =========================================================================
+	# HALO — Covenant
+	# =========================================================================
+	Class.PLASMA_RIFLE: {
+		"flash": Color(0.45, 0.75, 1.0),
+		"name": "Plasma Rifle", "fire_interval": 0.10, "damage": 15.0,
+		"range": 60.0, "hip_spread": 2.8, "ads_spread": 1.0, "zoom_fov": 62.0,
+		"heat_per_shot": 0.075, "cool_rate": 0.26, "scope": false,
+		"recoil": 0.26, "cam_recoil": 0.020,
+	},
+	Class.PLASMA_PISTOL: {
+		"flash": Color(0.45, 0.85, 0.7),
+		"name": "Plasma Pistol", "fire_interval": 0.22, "damage": 21.0,
+		"range": 50.0, "hip_spread": 2.0, "ads_spread": 0.55, "zoom_fov": 58.0,
+		"heat_per_shot": 0.11, "cool_rate": 0.30, "scope": false,
+		"recoil": 0.4, "cam_recoil": 0.030, "mode": FireMode.SEMI,
+	},
+	# The needler's crystals track, which this engine has no room for — so what
+	# makes it a needler here is VOLUME on a very tight cone: it is the only
+	# automatic weapon that stays accurate while you hold it down, and it hurts
+	# in proportion to how long you can keep it on somebody.
+	Class.NEEDLER: {
+		"flash": Color(0.95, 0.45, 1.0),
+		"name": "Type-33 Needler", "fire_interval": 0.075, "damage": 11.0,
+		"range": 50.0, "hip_spread": 1.3, "ads_spread": 0.5, "zoom_fov": 64.0,
+		"heat_per_shot": 0.05, "cool_rate": 0.28, "scope": false,
+		"recoil": 0.22, "cam_recoil": 0.016,
+	},
+	Class.COV_CARBINE: {
+		"flash": Color(0.65, 1.0, 0.55),
+		"name": "Covenant Carbine", "fire_interval": 0.24, "damage": 30.0,
+		"range": 165.0, "hip_spread": 1.4, "ads_spread": 0.1, "zoom_fov": 40.0,
+		"heat_per_shot": 0.13, "cool_rate": 0.28, "scope": false,
+		"recoil": 0.8, "cam_recoil": 0.090, "mode": FireMode.SEMI,
+	},
+	Class.BEAM_RIFLE: {
+		"flash": Color(0.55, 0.75, 1.0),
+		"name": "Particle Beam Rifle", "fire_interval": 1.0, "damage": 92.0,
+		"range": 400.0, "hip_spread": 6.5, "ads_spread": 0.0, "zoom_fov": 18.0,
+		"heat_per_shot": 0.50, "cool_rate": 0.24, "scope": true,
+		"recoil": 1.2, "cam_recoil": 0.14, "mode": FireMode.SEMI,
+	},
+	Class.FUEL_ROD: {
+		"flash": Color(0.55, 1.0, 0.35),
+		"name": "Fuel Rod Cannon", "fire_interval": 1.1, "damage": 0.0,
+		"range": 220.0, "hip_spread": 1.2, "ads_spread": 0.4, "zoom_fov": 60.0,
+		"heat_per_shot": 0.34, "cool_rate": 0.26, "scope": false,
+		"recoil": 1.5, "cam_recoil": 0.24, "kick_back": 3.4,
+		"mode": FireMode.SEMI,
+		"projectile": true, "splash": 3.8, "splash_damage": 72.0,
+	},
+	Class.BRUTE_SHOT: {
+		"name": "Brute Shot", "fire_interval": 0.75, "damage": 0.0,
+		"range": 150.0, "hip_spread": 1.8, "ads_spread": 0.8, "zoom_fov": 62.0,
+		"heat_per_shot": 0.26, "cool_rate": 0.30, "scope": false,
+		"recoil": 1.3, "cam_recoil": 0.19, "kick_back": 2.2,
+		"mode": FireMode.SEMI,
+		"projectile": true, "splash": 3.0, "splash_damage": 55.0,
+	},
+	Class.MAULER: {
+		"name": "Mauler", "fire_interval": 0.55, "damage": 11.0,
+		"range": 18.0, "hip_spread": 3.0, "ads_spread": 2.0, "zoom_fov": 66.0,
+		"heat_per_shot": 0.26, "cool_rate": 0.34, "scope": false,
+		"recoil": 1.2, "cam_recoil": 0.16, "kick_back": 1.6,
+		"mode": FireMode.SEMI, "pellets": 5,
+	},
+	# The energy sword is the saber's mechanism with a different blade: a melee
+	# hitscan that lands on the forward arc. Longer reach than the lightsaber and
+	# it kills a standard body outright, which is the lunge everybody remembers.
+	Class.ENERGY_SWORD: {
+		"name": "Energy Sword", "fire_interval": 0.55, "damage": 95.0,
+		"range": 4.0, "hip_spread": 0.0, "ads_spread": 0.0, "zoom_fov": 75.0,
+		"heat_per_shot": 0.0, "cool_rate": 1.0, "scope": false,
+		"recoil": 1.2, "cam_recoil": 0.026, "melee": true,
+		"blade_core": Color(0.72, 0.94, 1.0), "blade_glow": Color(0.20, 0.75, 1.0),
+		"blade_len": 0.62, "blade_width": 0.055,
+	},
+	Class.GRAV_HAMMER: {
+		"name": "Gravity Hammer", "fire_interval": 0.85, "damage": 120.0,
+		"range": 4.4, "hip_spread": 0.0, "ads_spread": 0.0, "zoom_fov": 75.0,
+		"heat_per_shot": 0.0, "cool_rate": 1.0, "scope": false,
+		"recoil": 1.6, "cam_recoil": 0.05, "melee": true,
+		"blade_core": Color(0.55, 0.42, 0.30), "blade_glow": Color(0.95, 0.55, 0.15),
+		"blade_len": 0.22, "blade_width": 0.17, "hilt_len": 0.55, "blade_energy": 0.0,
+	},
+
+	# =========================================================================
+	# WARHAMMER 40,000 — Adeptus Astartes
+	# =========================================================================
+	# A bolt is a rocket-propelled shell that detonates inside the target, so
+	# these hit far harder per round than a blaster and fire far slower. The
+	# plasma weapons keep the setting's actual joke: they overheat, and the heat
+	# pool this game already has is exactly the right place to say so.
+	Class.BOLTER: {
+		"name": "Godwyn Bolter", "fire_interval": 0.16, "damage": 24.0,
+		"range": 110.0, "hip_spread": 2.6, "ads_spread": 0.5, "zoom_fov": 50.0,
+		"heat_per_shot": 0.075, "cool_rate": 0.26, "scope": false,
+		"recoil": 0.85, "cam_recoil": 0.062,
+	},
+	Class.HEAVY_BOLTER: {
+		"name": "Heavy Bolter", "fire_interval": 0.115, "damage": 21.0,
+		"range": 125.0, "hip_spread": 4.8, "ads_spread": 2.4, "zoom_fov": 60.0,
+		"heat_per_shot": 0.055, "cool_rate": 0.32, "scope": false,
+		"recoil": 0.9, "cam_recoil": 0.070, "kick_back": 0.8,
+	},
+	Class.STALKER_BOLT: {
+		"name": "Stalker Bolt Rifle", "fire_interval": 0.42, "damage": 58.0,
+		"range": 240.0, "hip_spread": 2.2, "ads_spread": 0.0, "zoom_fov": 30.0,
+		"heat_per_shot": 0.26, "cool_rate": 0.30, "scope": true,
+		"recoil": 1.15, "cam_recoil": 0.150, "kick_back": 1.4,
+		"mode": FireMode.SEMI,
+	},
+	# Three shots and it is locked out: the plasma gun is a weapon you spend
+	# rather than carry, which is the whole of its reputation.
+	Class.PLASMA_GUN: {
+		"flash": Color(0.55, 0.80, 1.0),
+		"name": "Plasma Gun", "fire_interval": 0.70, "damage": 72.0,
+		"range": 150.0, "hip_spread": 1.4, "ads_spread": 0.1, "zoom_fov": 44.0,
+		"heat_per_shot": 0.36, "cool_rate": 0.18, "scope": false,
+		"recoil": 1.3, "cam_recoil": 0.175, "kick_back": 1.2,
+		"mode": FireMode.SEMI,
+	},
+	Class.MELTAGUN: {
+		"flash": Color(1.0, 0.55, 0.15),
+		"name": "Meltagun", "fire_interval": 1.2, "damage": 145.0,
+		"range": 18.0, "hip_spread": 0.8, "ads_spread": 0.0, "zoom_fov": 56.0,
+		"heat_per_shot": 0.48, "cool_rate": 0.26, "scope": false,
+		"recoil": 1.5, "cam_recoil": 0.20, "kick_back": 1.8,
+		"mode": FireMode.SEMI,
+	},
+	Class.FLAMER: {
+		"flash": Color(1.0, 0.50, 0.12),
+		"name": "Flamer", "fire_interval": 0.05, "damage": 7.0,
+		"range": 14.0, "hip_spread": 7.0, "ads_spread": 6.0, "zoom_fov": 70.0,
+		"heat_per_shot": 0.022, "cool_rate": 0.22, "scope": false,
+		"recoil": 0.2, "cam_recoil": 0.010, "pellets": 3,
+	},
+	Class.BOLT_PISTOL: {
+		"name": "Bolt Pistol", "fire_interval": 0.32, "damage": 33.0,
+		"range": 70.0, "hip_spread": 2.0, "ads_spread": 0.4, "zoom_fov": 54.0,
+		"heat_per_shot": 0.16, "cool_rate": 0.32, "scope": false,
+		"recoil": 1.0, "cam_recoil": 0.130, "mode": FireMode.SEMI,
+	},
+	# Named for the chapter rather than the weapon, because Halo has a plasma
+	# pistol too and two rows sharing a display name is how a leak between
+	# universes hides from the isolation check in tests/kit_rules.gd.
+	Class.PLASMA_PISTOL_40K: {
+		"flash": Color(0.55, 0.80, 1.0),
+		"name": "Astartes Plasma Pistol", "fire_interval": 0.60, "damage": 52.0,
+		"range": 85.0, "hip_spread": 1.5, "ads_spread": 0.2, "zoom_fov": 50.0,
+		"heat_per_shot": 0.32, "cool_rate": 0.22, "scope": false,
+		"recoil": 1.25, "cam_recoil": 0.170, "kick_back": 1.0,
+		"mode": FireMode.SEMI,
+	},
+	Class.GRENADE_LAUNCHER: {
+		"name": "Auxiliary Launcher", "fire_interval": 1.3, "damage": 0.0,
+		"range": 180.0, "hip_spread": 1.4, "ads_spread": 0.5, "zoom_fov": 58.0,
+		"heat_per_shot": 0.40, "cool_rate": 0.28, "scope": false,
+		"recoil": 1.4, "cam_recoil": 0.22, "kick_back": 2.0,
+		"mode": FireMode.SEMI,
+		"projectile": true, "splash": 4.0, "splash_damage": 78.0,
+	},
+	# Three melee weapons that are deliberately NOT the same weapon. The
+	# chainsword is fast and cheap, the power sword trades rate for reach and
+	# damage, and the thunder hammer is one swing that ends anybody it touches
+	# and leaves you standing still for most of a second if it does not.
+	Class.CHAINSWORD: {
+		"name": "Chainsword", "fire_interval": 0.34, "damage": 60.0,
+		"range": 3.6, "hip_spread": 0.0, "ads_spread": 0.0, "zoom_fov": 75.0,
+		"heat_per_shot": 0.0, "cool_rate": 1.0, "scope": false,
+		"recoil": 1.0, "cam_recoil": 0.024, "melee": true,
+		# Steel, not energy: zero emission is what tells the viewmodel to build a
+		# dull blade instead of a lit one.
+		"blade_core": Color(0.62, 0.63, 0.68), "blade_glow": Color(0.35, 0.30, 0.28),
+		"blade_len": 0.72, "blade_width": 0.070, "blade_energy": 0.0,
+	},
+	Class.POWER_SWORD: {
+		"name": "Power Sword", "fire_interval": 0.45, "damage": 88.0,
+		"range": 3.9, "hip_spread": 0.0, "ads_spread": 0.0, "zoom_fov": 75.0,
+		"heat_per_shot": 0.0, "cool_rate": 1.0, "scope": false,
+		"recoil": 1.15, "cam_recoil": 0.026, "melee": true,
+		"blade_core": Color(0.85, 0.90, 1.0), "blade_glow": Color(0.35, 0.45, 1.0),
+		"blade_len": 0.80, "blade_width": 0.052,
+	},
+	Class.THUNDER_HAMMER: {
+		"name": "Thunder Hammer", "fire_interval": 0.95, "damage": 135.0,
+		"range": 4.1, "hip_spread": 0.0, "ads_spread": 0.0, "zoom_fov": 75.0,
+		"heat_per_shot": 0.0, "cool_rate": 1.0, "scope": false,
+		"recoil": 1.7, "cam_recoil": 0.055, "melee": true,
+		"blade_core": Color(0.48, 0.52, 0.60), "blade_glow": Color(0.40, 0.70, 1.0),
+		"blade_len": 0.24, "blade_width": 0.19, "hilt_len": 0.60, "blade_energy": 0.0,
+	},
+
+	# =========================================================================
+	# WARHAMMER 40,000 — Necrons
+	# =========================================================================
+	# Gauss strips a target a layer at a time: steady, unhurried, and it never
+	# stops. The whole armoury is built low-recoil and long-cooling — a Necron
+	# does not flinch, but it also does not hurry.
+	Class.GAUSS_FLAYER: {
+		"flash": Color(0.45, 1.0, 0.55),
+		"name": "Gauss Flayer", "fire_interval": 0.13, "damage": 18.0,
+		"range": 95.0, "hip_spread": 2.4, "ads_spread": 0.6, "zoom_fov": 54.0,
+		"heat_per_shot": 0.065, "cool_rate": 0.24, "scope": false,
+		"recoil": 0.4, "cam_recoil": 0.028,
+	},
+	Class.GAUSS_BLASTER: {
+		"flash": Color(0.45, 1.0, 0.55),
+		"name": "Gauss Blaster", "fire_interval": 0.20, "damage": 27.0,
+		"range": 135.0, "hip_spread": 1.8, "ads_spread": 0.3, "zoom_fov": 46.0,
+		"heat_per_shot": 0.10, "cool_rate": 0.24, "scope": false,
+		"recoil": 0.6, "cam_recoil": 0.048,
+	},
+	Class.TESLA_CARBINE: {
+		"flash": Color(0.55, 0.95, 1.0),
+		"name": "Tesla Carbine", "fire_interval": 0.12, "damage": 16.0,
+		"range": 80.0, "hip_spread": 3.0, "ads_spread": 1.1, "zoom_fov": 58.0,
+		"heat_per_shot": 0.055, "cool_rate": 0.30, "scope": false,
+		"recoil": 0.35, "cam_recoil": 0.026,
+	},
+	Class.SYNAPTIC_DISINTEGRATOR: {
+		"flash": Color(0.50, 1.0, 0.60),
+		"name": "Synaptic Disintegrator", "fire_interval": 1.0, "damage": 88.0,
+		"range": 380.0, "hip_spread": 5.5, "ads_spread": 0.0, "zoom_fov": 20.0,
+		"heat_per_shot": 0.42, "cool_rate": 0.26, "scope": true,
+		"recoil": 1.0, "cam_recoil": 0.10, "mode": FireMode.SEMI,
+	},
+	Class.HEAT_RAY: {
+		"flash": Color(1.0, 0.60, 0.25),
+		"name": "Heat Ray", "fire_interval": 0.09, "damage": 22.0,
+		"range": 30.0, "hip_spread": 1.6, "ads_spread": 0.8, "zoom_fov": 64.0,
+		"heat_per_shot": 0.075, "cool_rate": 0.22, "scope": false,
+		"recoil": 0.3, "cam_recoil": 0.020,
+	},
+	Class.TRANSDIMENSIONAL_BEAMER: {
+		"name": "Transdimensional Beamer", "fire_interval": 1.7, "damage": 0.0,
+		"range": 300.0, "hip_spread": 0.4, "ads_spread": 0.0, "zoom_fov": 44.0,
+		"heat_per_shot": 0.60, "cool_rate": 0.26, "scope": false,
+		"recoil": 1.4, "cam_recoil": 0.20, "kick_back": 2.0,
+		"mode": FireMode.SEMI,
+		"projectile": true, "splash": 4.2, "splash_damage": 88.0,
+	},
+	Class.GAUSS_PISTOL: {
+		"flash": Color(0.45, 1.0, 0.55),
+		"name": "Gauss Pistol", "fire_interval": 0.30, "damage": 34.0,
+		"range": 80.0, "hip_spread": 1.7, "ads_spread": 0.35, "zoom_fov": 54.0,
+		"heat_per_shot": 0.15, "cool_rate": 0.30, "scope": false,
+		"recoil": 0.7, "cam_recoil": 0.080, "mode": FireMode.SEMI,
+	},
+	# A polearm, so it uses the electrostaff's silhouette rather than the saber's.
+	Class.WARSCYTHE: {
+		"name": "Warscythe", "fire_interval": 0.55, "damage": 98.0,
+		"range": 4.5, "hip_spread": 0.0, "ads_spread": 0.0, "zoom_fov": 75.0,
+		"heat_per_shot": 0.0, "cool_rate": 1.0, "scope": false,
+		"recoil": 1.2, "cam_recoil": 0.028, "melee": true, "staff": true,
+		"blade_core": Color(0.70, 1.0, 0.72), "blade_glow": Color(0.20, 0.95, 0.35),
+	},
+	Class.STAFF_OF_LIGHT: {
+		"name": "Staff of Light", "fire_interval": 0.42, "damage": 74.0,
+		"range": 4.2, "hip_spread": 0.0, "ads_spread": 0.0, "zoom_fov": 75.0,
+		"heat_per_shot": 0.0, "cool_rate": 1.0, "scope": false,
+		"recoil": 1.0, "cam_recoil": 0.022, "melee": true, "staff": true,
+		"blade_core": Color(0.75, 1.0, 0.80), "blade_glow": Color(0.30, 1.0, 0.50),
+	},
+
+	# =========================================================================
+	# WARHAMMER 40,000 — Orks
+	# =========================================================================
+	# The Orks pay for everything in accuracy. Every one of these throws more
+	# metal than its counterpart elsewhere and lands less of it, which makes the
+	# faction's answer to any problem "get closer" — and that is the point.
+	Class.SHOOTA: {
+		"name": "Shoota", "fire_interval": 0.085, "damage": 16.0,
+		"range": 55.0, "hip_spread": 5.2, "ads_spread": 2.4, "zoom_fov": 66.0,
+		"heat_per_shot": 0.05, "cool_rate": 0.30, "scope": false,
+		"recoil": 0.55, "cam_recoil": 0.044,
+	},
+	Class.BIG_SHOOTA: {
+		"name": "Big Shoota", "fire_interval": 0.055, "damage": 15.0,
+		"range": 75.0, "hip_spread": 6.4, "ads_spread": 3.4, "zoom_fov": 66.0,
+		"heat_per_shot": 0.040, "cool_rate": 0.34, "scope": false,
+		"recoil": 0.6, "cam_recoil": 0.050, "kick_back": 0.6,
+	},
+	Class.SLUGGA: {
+		"name": "Slugga", "fire_interval": 0.26, "damage": 30.0,
+		"range": 45.0, "hip_spread": 3.2, "ads_spread": 1.2, "zoom_fov": 62.0,
+		"heat_per_shot": 0.14, "cool_rate": 0.34, "scope": false,
+		"recoil": 1.0, "cam_recoil": 0.115, "mode": FireMode.SEMI,
+	},
+	Class.ROKKIT_LAUNCHA: {
+		"name": "Rokkit Launcha", "fire_interval": 1.8, "damage": 0.0,
+		"range": 260.0, "hip_spread": 2.5, "ads_spread": 1.4, "zoom_fov": 62.0,
+		"heat_per_shot": 0.62, "cool_rate": 0.30, "scope": false,
+		"recoil": 2.0, "cam_recoil": 0.34, "kick_back": 6.0,
+		"mode": FireMode.SEMI,
+		"projectile": true, "splash": 5.0, "splash_damage": 100.0,
+	},
+	Class.MEGA_BLASTA: {
+		"flash": Color(0.60, 0.90, 1.0),
+		"name": "Kustom Mega-Blasta", "fire_interval": 0.9, "damage": 78.0,
+		"range": 120.0, "hip_spread": 2.6, "ads_spread": 0.9, "zoom_fov": 52.0,
+		"heat_per_shot": 0.44, "cool_rate": 0.18, "scope": false,
+		"recoil": 1.5, "cam_recoil": 0.21, "kick_back": 1.6,
+		"mode": FireMode.SEMI,
+	},
+	Class.BURNA: {
+		"flash": Color(1.0, 0.50, 0.12),
+		"name": "Burna", "fire_interval": 0.055, "damage": 8.0,
+		"range": 15.0, "hip_spread": 7.5, "ads_spread": 6.5, "zoom_fov": 70.0,
+		"heat_per_shot": 0.024, "cool_rate": 0.22, "scope": false,
+		"recoil": 0.22, "cam_recoil": 0.012, "pellets": 3,
+	},
+	Class.CHOPPA: {
+		"name": "Choppa", "fire_interval": 0.36, "damage": 68.0,
+		"range": 3.6, "hip_spread": 0.0, "ads_spread": 0.0, "zoom_fov": 75.0,
+		"heat_per_shot": 0.0, "cool_rate": 1.0, "scope": false,
+		"recoil": 1.05, "cam_recoil": 0.026, "melee": true,
+		"blade_core": Color(0.58, 0.56, 0.52), "blade_glow": Color(0.30, 0.26, 0.22),
+		"blade_len": 0.66, "blade_width": 0.085, "blade_energy": 0.0,
+	},
+	Class.POWER_KLAW: {
+		"name": "Power Klaw", "fire_interval": 0.80, "damage": 118.0,
+		"range": 3.5, "hip_spread": 0.0, "ads_spread": 0.0, "zoom_fov": 75.0,
+		"heat_per_shot": 0.0, "cool_rate": 1.0, "scope": false,
+		"recoil": 1.5, "cam_recoil": 0.048, "melee": true,
+		"blade_core": Color(0.55, 0.50, 0.42), "blade_glow": Color(0.20, 0.85, 0.95),
+		"blade_len": 0.30, "blade_width": 0.15, "hilt_len": 0.28, "blade_energy": 0.0,
+	},
 }
 
 # Purchased upgrades (Loadout.SIGHTS / UPGRADES) as multipliers on the base
@@ -254,6 +688,17 @@ const FOREGRIP_RECOIL_MULT := 0.8  # front grip: -20% kick, the only way to buy 
 
 const BOLT_SCENE := preload("res://scenes/fx/blaster_bolt.tscn")
 const ROCKET_SCENE := preload("res://scenes/fx/rocket.tscn")
+const IMPACT := preload("res://scripts/impact.gd")
+## How many impact bursts one trigger pull may spawn. A scattergun throws eight
+## pellets and eight simultaneous bursts on one wall is both a waste and a
+## visual mess — the first few read as the shot, the rest are noise.
+const IMPACTS_PER_SHOT := 3
+## ...and nothing is spawned for a hit no human could possibly see. In a 4v4 most
+## rounds fired in a match are bots shooting at bots somewhere else on a 220 m
+## map, and every one of those was building a burst, running it for a quarter of
+## a second and freeing it with nobody watching. Generous enough that a sniper
+## still sees where their round landed.
+const IMPACT_VIEW_RANGE := 120.0
 const OVERHEAT_RELEASE := 0.35  # heat must fall below this to fire again
 const HEADSHOT_MULT := 2.0
 
@@ -275,6 +720,38 @@ var _spin := 0.0   # seconds the trigger has been held, for spin-up weapons
 var stance_spread_mult := 1.0
 
 @onready var _viewmodel: Node3D = get_node_or_null("Viewmodel")
+
+## --- muzzle flash -------------------------------------------------------------
+##
+## A REAL LIGHT at the muzzle, not just a bright quad on the viewmodel. This is
+## the best realism-per-line in the game: a shot that lights the wall beside you,
+## the floor under you and the man you are shooting at reads as an explosion in a
+## barrel, where an emissive sprite reads as a sticker. It is also the only
+## dynamic light most of these maps ever get.
+##
+## Built ONCE and toggled, never allocated per shot — the project's per-frame
+## allocation rule, and a repeater fires thirteen times a second. Shadows off:
+## a shadow-casting light per bullet would be four shadow passes a shot.
+const FLASH_TIME := 0.055     # seconds; about one frame at 60, plus a little
+const FLASH_ENERGY := 2.2
+const FLASH_RANGE := 6.5
+const FLASH_DEFAULT := Color(1.0, 0.72, 0.35)   # burnt orange, the usual muzzle
+
+var _muzzle_light: OmniLight3D
+var _flash_left := 0.0
+var _impacts_left := 0     # impact bursts still allowed on this trigger pull
+
+
+func _ready() -> void:
+	_muzzle_light = OmniLight3D.new()
+	_muzzle_light.omni_range = FLASH_RANGE
+	_muzzle_light.shadow_enabled = false
+	_muzzle_light.light_specular = 0.6
+	# Ahead of the receiver so it lights what is in front of the shooter rather
+	# than the inside of their own chest.
+	_muzzle_light.position = Vector3(0.0, 0.0, -0.45)
+	_muzzle_light.visible = false
+	add_child(_muzzle_light)
 
 
 ## Equip a gun. `upgrades` is Loadout.weapon_mods() — the flags are folded into
@@ -395,6 +872,26 @@ func is_staff() -> bool:
 	return _profile.get("staff", false)
 
 
+## What a melee weapon LOOKS like, for whoever is drawing it — the first-person
+## viewmodel and the third-person model both build their blade from this, so a
+## lightsaber, an energy sword, a chainsword and a thunder hammer are one code
+## path and four table rows.
+##
+## `energy` 0 means a DULL edge: steel that does not glow, which is the whole
+## difference between a chainsword and a power sword. Defaults are the
+## lightsaber's, so an existing melee profile that says nothing is unchanged.
+const BLADE_LOOK_KEYS := ["blade_core", "blade_glow", "blade_len", "blade_width",
+	"blade_energy", "hilt_len"]
+
+
+func melee_look() -> Dictionary:
+	var out := {}
+	for key in BLADE_LOOK_KEYS:
+		if _profile.has(key):
+			out[key] = _profile[key]
+	return out
+
+
 ## How far this weapon can actually reach. Bots read it so they never sit at
 ## their preferred stand-off range holding a weapon that cannot get there.
 func max_range() -> float:
@@ -439,6 +936,14 @@ func current_spread_deg() -> float:
 # framerate (important on the Pi) and on the same clock as firing.
 func _physics_process(delta: float) -> void:
 	_cooldown = maxf(_cooldown - delta, 0.0)
+	if _flash_left > 0.0:
+		_flash_left -= delta
+		if _flash_left <= 0.0:
+			_muzzle_light.visible = false
+		else:
+			# Decay rather than a hard cut: a flash that switches off looks like a
+			# dropped frame, and the falloff is most of what reads as a flash.
+			_muzzle_light.light_energy = FLASH_ENERGY * (_flash_left / FLASH_TIME)
 	# Bloom recovers when not actively spraying (scaled to the weapon's spread).
 	if _bloom > 0.0:
 		_bloom = maxf(_bloom - _profile["hip_spread"] * 4.0 * delta, 0.0)
@@ -497,6 +1002,28 @@ func set_view_layer(bits: int) -> void:
 		_viewmodel._apply_view_layer()
 
 
+## Light the muzzle for a moment. A blade has no muzzle, and neither does a
+## weapon whose shot never leaves the barrel, so melee is skipped outright.
+func _flash_muzzle() -> void:
+	if _muzzle_light == null or is_melee():
+		return
+	_muzzle_light.light_color = _profile.get("flash", FLASH_DEFAULT)
+	_muzzle_light.light_energy = FLASH_ENERGY
+	_muzzle_light.visible = true
+	_flash_left = FLASH_TIME
+
+
+## Stow the first-person weapon across the chest while sprinting, or bring it
+## back up. Forwarded rather than reached for, the same as parry(): the viewmodel
+## is this node's private child and Player is what knows it is running.
+##
+## A blade ignores it — the saber and staff have their own pose path, and a
+## melee weapon carried "not ready" is a distinction without a difference.
+func set_sprinting(on: bool) -> void:
+	if _viewmodel and "sprinting" in _viewmodel:
+		_viewmodel.sprinting = on and not is_melee()
+
+
 ## The owner's guard just stopped a hit; show it on the blade. Forwarded rather
 ## than reached for, because the viewmodel is this node's private child — Player
 ## knows about the block, and Weapon is the one thing that knows where the model
@@ -513,6 +1040,7 @@ func _fire_shot() -> void:
 	heat_changed.emit(_heat, _overheated)
 	if _viewmodel:
 		_viewmodel.kick(_profile["recoil"])
+	_flash_muzzle()
 	fired.emit(_profile["cam_recoil"], _profile.get("kick_back", 0.0))
 	# Hip fire blooms the cone; aiming down sights stays precise.
 	if not aiming:
@@ -540,6 +1068,7 @@ func _fire_hitscan() -> void:
 		var muzzle := from - global_transform.basis.y * 0.12
 		var pellets: int = _profile.get("pellets", 1)
 		var damage: float = _profile["damage"]
+		_impacts_left = IMPACTS_PER_SHOT
 		for i in pellets:
 			var end := _trace_pellet(from, pooled, damage)
 			var bolt := BOLT_SCENE.instantiate()
@@ -615,6 +1144,16 @@ func _trace_pellet(from: Vector3, pooled: Dictionary, damage: float) -> Vector3:
 
 	var end: Vector3 = hit.get("position", to)
 	var col = hit.get("collider")
+	# Mark the WALL, not the man. A body already reports a hit three ways (the
+	# marker, the tick and the damage), and sparking off a chest as well as off
+	# stone reads as armour rather than as flesh.
+	if col != null and not col.has_method("take_damage") and _impacts_left > 0 \
+			and _worth_showing(end):
+		_impacts_left -= 1
+		var burst: Node3D = IMPACT.new()
+		get_tree().current_scene.add_child(burst)
+		burst.burst(end, hit.get("normal", Vector3.UP),
+			_profile.get("flash", FLASH_DEFAULT))
 	if col != null and col.has_method("take_damage"):
 		var dmg := damage
 		# The target is told it was a head hit as well as how much it cost, so it
@@ -627,6 +1166,18 @@ func _trace_pellet(from: Vector3, pooled: Dictionary, damage: float) -> Vector3:
 		entry[0] += dmg
 		entry[1] = entry[1] or head
 	return end
+
+
+## Is this point close enough to a HUMAN for the effect to be worth building?
+## Humans only: bots have no camera, so a burst next to one is seen by nobody.
+## Walks GameState.combatants rather than the viewports because that list is
+## already there and is at most a dozen entries.
+func _worth_showing(at: Vector3) -> bool:
+	for c in GameState.combatants:
+		if c is Player and is_instance_valid(c) \
+				and c.global_position.distance_to(at) <= IMPACT_VIEW_RANGE:
+			return true
+	return false
 
 
 func _fire_rocket() -> void:

@@ -389,8 +389,11 @@ func refresh_settings() -> void:
 ## Put every mesh of the (re)built body on this player's own render layer, so
 ## the owner's camera culls it (first person) while everyone else sees it.
 func _stamp_model_layers() -> void:
-	for mi in model.find_children("*", "MeshInstance3D", true, false):
-		mi.layers = 1 << (1 + player_index)
+	# Told to the MODEL rather than stamped on the meshes here, for the same
+	# reason the viewmodel is told its layer: the body rebuilds itself on a style
+	# change and on a melee swap, and fresh meshes default to the shared layer —
+	# where this player's own third-person blade hangs in front of its camera.
+	model.set_render_layers(1 << (1 + player_index))
 
 
 func bind_camera(cam: Camera3D) -> void:
@@ -1048,7 +1051,7 @@ func _spawn_corpse(attacker: Node) -> void:
 		push = global_position - (attacker as Node3D).global_position
 	var xform := Transform3D(Basis(Vector3.UP, rotation.y), global_position)
 	# The corpse wears the body you deployed as, not a generic trooper.
-	_corpse.launch(xform, GameState.TEAM_COLORS[team], push,
+	_corpse.launch(xform, GameState.team_colors[team], push,
 		loadout.character_style())
 
 
@@ -1092,6 +1095,12 @@ func _respawn() -> void:
 	velocity = Vector3.ZERO
 	_recoil_pitch = 0.0
 	_recoil_yaw = 0.0
+	# The legs start under the body they respawned in. Left at whatever heading
+	# the last life ended on, the first frame would be a full-lead twist and the
+	# body would deploy visibly wrung out.
+	_feet_yaw = rotation.y
+	model.rotation.y = 0.0
+	model.set_twist(0.0)
 	_kick_vel = Vector3.ZERO
 	_apply_loadout()
 	health_changed.emit(health)
@@ -1183,6 +1192,15 @@ func _physics_process(delta: float) -> void:
 	var crouching := _crouch_held()
 	var sprinting := _sprint_held() and not crouching
 	_update_stance_spread(move, crouching)
+	# The SPRINT CARRY, in first person. Cancelled by the trigger: the weapon has
+	# to come back up the instant you decide to shoot, or the first round of every
+	# engagement leaves a gun that is visibly stowed. Sprinting already denies the
+	# sights, so this only ever changes what the pose LOOKS like, never what the
+	# shot does.
+	var stow := _is_running() and not _fire_held()
+	weapon.set_sprinting(stow)
+	weapon_off.set_sprinting(stow)
+	_update_torso_twist(move, delta)
 	var speed := (SPRINT_SPEED if sprinting else WALK_SPEED) * _speed_mult
 	if _rotary_out:
 		speed *= ROTARY_SPEED_MULT  # the cannon is heavy; you walk with it out
@@ -1519,16 +1537,19 @@ func _hand_name() -> String:
 ## read, so a blade stowed on the wrong body is a lie about who can block.
 func _announce_hand() -> void:
 	weapon_changed.emit(_hand_name())
-	model.set_melee(weapon.is_melee(), weapon.is_staff())
+	model.set_melee(weapon.is_melee(), weapon.is_staff(), weapon.melee_look())
 
 
 ## The gadget button. Toggles (shield, rotary) and one-shots (cable, turret) act
 ## on the press; the jetpack burns while held, in _apply_gadget_motion.
 func _use_gadget(slot: int) -> void:
-	var id := gadget_in(slot)
+	# The ACTION, not the id: a bubble shield, an iron halo and a kustom force
+	# field are three catalogue rows and one mechanism, so this switch stays the
+	# list of things a gadget can DO rather than a list of every gadget's name.
+	var id := Loadout.gadget_action(gadget_in(slot))
 	# The force powers are the only gadgets on a cooldown of their own; the rest
 	# are toggles, placements, or (the cable) time themselves.
-	var cd: float = Loadout.GADGET_COOLDOWNS.get(id, 0.0)
+	var cd: float = Loadout.cooldown_of(gadget_in(slot))
 	if cd > 0.0 and _force_cd[slot] > 0.0:
 		return
 	match id:
@@ -1598,15 +1619,18 @@ func gadget_in(slot: int) -> int:
 
 ## True if either slot carries this gadget — the jetpack and the cable have to
 ## work from whichever hand the Mandalorian bought them into.
+##
+## Compared on the ACTION, so a caller asks "do I have a jetpack" and gets the
+## right answer whether the slot holds a jetpack, a jump pack or a rokkit pack.
 func has_gadget(id: int) -> bool:
-	return gadget == id or gadget2 == id
+	return Loadout.gadget_action(gadget) == id or Loadout.gadget_action(gadget2) == id
 
 
 ## Which slot holds it, or -1. Used to pick which BUTTON drives it.
 func slot_of(id: int) -> int:
-	if gadget == id:
+	if Loadout.gadget_action(gadget) == id:
 		return 0
-	return 1 if gadget2 == id else -1
+	return 1 if Loadout.gadget_action(gadget2) == id else -1
 
 
 ## Is the button for this slot down right now? Slot 0 is the GADGET 1 control,
@@ -1901,7 +1925,7 @@ func _toggle_shield() -> void:
 		return
 	_shield = SHIELD_SCENE.instantiate()
 	add_child(_shield)  # rides with the body, so it always faces where you do
-	_shield.setup(GameState.TEAM_COLORS[team])
+	_shield.setup(GameState.team_colors[team])
 
 
 ## Swap to the spin-up rotary cannon (and back). Carrying it slows you down.
@@ -2055,6 +2079,46 @@ func _is_running() -> bool:
 ## Feed the weapons this frame's stance penalty on the spread cone: wider in the
 ## air, wide while moving, tight while crouched (they multiply). Both hands get
 ## it so a dual-wielding Mandalorian sprays wider on the move too.
+## --- upper/lower body separation ----------------------------------------------
+##
+## A CharacterBody3D yawing under a look input turns the WHOLE body, feet
+## included, so panning your aim while standing still pirouettes the model on the
+## spot. Real bodies turn the torso first and move their feet only once they run
+## out of neck, and that lag is one of the strongest cues that a thing on screen
+## is a person rather than an object being rotated.
+##
+## So the legs get a heading of their own (`_feet_yaw`) that the body's aim yaw
+## is allowed to lead by up to TWIST_MAX. The MODEL is counter-rotated back onto
+## the feet and the model's own Twist joint puts the upper body back on the aim,
+## which nets to: legs where the feet are, chest where the crosshair is. Nothing
+## about aiming, shooting or collision changes — `rotation.y` is still the body's
+## true facing and the weapon still fires down it.
+const TWIST_MAX := deg_to_rad(55.0)    # how far the chest may lead the feet
+const TWIST_STEP_RATE := 7.0           # rad/s the feet catch up once they must
+const TWIST_WALK_RATE := 14.0          # ...and much faster once you are moving
+
+var _feet_yaw := 0.0
+
+
+func _update_torso_twist(move: Vector2, delta: float) -> void:
+	var aim := rotation.y
+	var lead := wrapf(aim - _feet_yaw, -PI, PI)
+	# Moving, airborne or crouched, the feet go where the body goes: a twist held
+	# through a walk cycle reads as a broken hip, and the legs have to point
+	# where they are actually carrying you.
+	if move.length() > 0.1 or not is_on_floor() or _crouch_t > 0.5:
+		_feet_yaw += lead * minf(TWIST_WALK_RATE * delta, 1.0)
+	elif absf(lead) > TWIST_MAX:
+		# Out of neck: step the feet round, but only far enough to get back
+		# inside the limit — that is what makes it read as a shuffle rather than
+		# as the legs snapping to the camera.
+		var over := lead - signf(lead) * TWIST_MAX
+		_feet_yaw += over * minf(TWIST_STEP_RATE * delta, 1.0)
+	lead = wrapf(aim - _feet_yaw, -PI, PI)
+	model.rotation.y = -lead     # the legs stay where the feet are...
+	model.set_twist(lead)        # ...and the chest comes back onto the aim
+
+
 func _update_stance_spread(move: Vector2, crouching: bool) -> void:
 	var mult := 1.0
 	if not is_on_floor():

@@ -170,25 +170,6 @@ func _init() -> void:
 	if m.row_value(L.Row.GADGET) == m.row_value(L.Row.GADGET2):
 		fails.append("both gadget slots hold the same thing")
 
-	# --- every AI preset must be legal for its own kit and inside budget --
-	print("\n== bot presets ==")
-	for i in L.BOT_BUILDS.size():
-		var preset: Dictionary = L.BOT_BUILDS[i]
-		var b2 = L.bot_build(i)
-		var why := []
-		if b2.cost() > L.BUDGET:
-			why.append("costs %d" % b2.cost())
-		for pair in [[L.Row.WEAPON, b2.weapon], [L.Row.GADGET, b2.gadget],
-				[L.Row.GADGET2, b2.gadget2], [L.Row.ARMOR, b2.armor],
-				[L.Row.SECONDARY_MOD, b2.secondary_mod]]:
-			if not b2.allows(pair[0], pair[1]):
-				why.append("row %d holds %d, which its kit forbids" % [pair[0], pair[1]])
-
-		print("  %-14s %-14s %3d tokens  %s" % [preset["name"], b2.kit_name(),
-			b2.cost(), "OK" if why.is_empty() else str(why)])
-		if not why.is_empty():
-			fails.append("preset %s: %s" % [preset["name"], str(why)])
-
 	# --- royale is CLASS-FREE: no crate may hold a class's signature gear ----
 	print("\n== battle royale crate contents ==")
 	var guns: Array = L.royale_items(L.WEAPONS, 1)
@@ -220,6 +201,126 @@ func _init() -> void:
 	if start.kit != L.Kit.CLONE or start.can_dash():
 		fails.append("royale should drop you in as a plain trooper")
 
+	fails += _universe_rules(L)
+
 	print("\n==== %s ====" % ("ALL RULES HOLD" if fails.is_empty()
 		else "%d FAILURE(S):\n  %s" % [fails.size(), "\n  ".join(fails)]))
 	quit()
+
+
+## Every universe on its own terms: the classes it offers, the guns and gadgets
+## those classes can reach, its AI presets and its royale crates.
+##
+## The rule this is really here to protect is ISOLATION. Weapons, gadgets and
+## bodies all share one enum each across every setting, which is what makes
+## adding a universe cheap — and also what would let a bolter turn up on a clone
+## trooper's buy screen if a single allow-list were written wrong. So every walk
+## is checked against the set of names that universe is allowed to contain, not
+## against a list of specific mistakes somebody thought of.
+func _universe_rules(L) -> Array:
+	var fails := []
+	var was = L.active_universe
+	for u in L.UNIVERSES.size():
+		L.active_universe = u
+		var uni: Dictionary = L.UNIVERSES[u]
+		print("\n\n######## %s ########" % uni["name"])
+
+		# What this universe is ALLOWED to contain, by weapon display name.
+		var legal_guns := {}
+		for row in L.WEAPONS + L.SECONDARIES:
+			if row["class"] >= 0 and L.in_universe(row, u):
+				legal_guns[Weapon.PROFILES[row["class"]]["name"]] = true
+		var legal_gear := {}
+		for i in L.GADGETS.size():
+			if L.in_universe(L.GADGETS[i], u):
+				legal_gear[L.GADGETS[i]["name"]] = true
+
+		var kits: Array = L.universe_kits()
+		if kits.is_empty():
+			fails.append("%s offers no classes at all" % uni["name"])
+			continue
+		for k in kits:
+			var b = L.new()
+			b.adopt_kit(k)
+			var name: String = b.kit_name()
+			var kit_guns := walk(b, L.Row.WEAPON)
+			b.adopt_kit(k)
+			var kit_sides := walk(b, L.Row.SECONDARY)
+			b.adopt_kit(k)
+			var kit_gear := walk(b, L.Row.GADGET)
+			b.adopt_kit(k)
+			print("\n== %s ==" % name)
+			print("  primaries : %s" % str(kit_guns))
+			print("  sidearms  : %s" % str(kit_sides))
+			print("  gadgets   : %s" % str(kit_gear))
+			for g in kit_guns + kit_sides:
+				if g != "none" and not legal_guns.has(g):
+					fails.append("%s (%s) can reach %s, which is not in this universe"
+						% [name, uni["name"], g])
+			for g in kit_gear:
+				if not legal_gear.has(g):
+					fails.append("%s (%s) can fit %s, which is not in this universe"
+						% [name, uni["name"], g])
+			# A class has to deploy ARMED and inside budget with no shopping done.
+			if b.cost() > L.BUDGET:
+				fails.append("%s opens at %d tokens, over budget" % [name, b.cost()])
+			if not b.has_primary() and b.secondary_name() == "":
+				fails.append("%s adopts its kit holding nothing" % name)
+			# ...and the cursor must never stop on a row it does not have.
+			for r in L.Row.size():
+				if not b.row_available(b.next_row(r, 1)):
+					fails.append("%s: next_row landed on an unavailable row from %d"
+						% [name, r])
+
+		# Every AI preset in this universe: legal for its own kit, inside budget.
+		print("\n-- AI presets --")
+		var presets: Array = L.universe_builds()
+		if presets.is_empty():
+			fails.append("%s has no AI presets, so team fill has nothing to deploy"
+				% uni["name"])
+		for n in presets.size():
+			var preset: Dictionary = L.BOT_BUILDS[presets[n]]
+			var b2 = L.bot_build(n)
+			var why := []
+			if b2.cost() > L.BUDGET:
+				why.append("costs %d" % b2.cost())
+			for pair in [[L.Row.WEAPON, b2.weapon], [L.Row.GADGET, b2.gadget],
+					[L.Row.GADGET2, b2.gadget2], [L.Row.ARMOR, b2.armor],
+					[L.Row.SECONDARY, b2.secondary],
+					[L.Row.SECONDARY_MOD, b2.secondary_mod]]:
+				if not b2.allows(pair[0], pair[1]):
+					why.append("row %d holds %d, which its kit forbids" % [pair[0], pair[1]])
+			print("  %-18s %-14s %3d tokens  %s" % [preset["name"], b2.kit_name(),
+				b2.cost(), "OK" if why.is_empty() else str(why)])
+			if not why.is_empty():
+				fails.append("preset %s: %s" % [preset["name"], str(why)])
+
+		# Every FACTION class this universe's sides deploy off the character
+		# select. These ignore the allow-lists by design (they are authored, not
+		# shopped), so what is checked is that they exist, are armed, and wear a
+		# class from this universe.
+		print("\n-- faction rosters --")
+		for team in L.FACTION_ROSTERS[u].size():
+			var line := []
+			for slot in L.faction_classes(team):
+				var f = L.faction_build(slot)
+				line.append(L.FACTION_BUILDS[slot]["name"])
+				if L.kit_universe(f.kit) != u:
+					fails.append("%s roster %d slot %d wears a class from another universe"
+						% [uni["name"], team, slot])
+				if not f.has_primary() and f.secondary_name() == "":
+					fails.append("%s: faction class %s deploys unarmed"
+						% [uni["name"], L.FACTION_BUILDS[slot]["name"]])
+			print("  %-14s %s" % [str(uni["teams"][team]), str(line)])
+
+		# Royale crates: this universe's gear only.
+		var crate_guns: Array = L.royale_items(L.WEAPONS, 1)
+		for i in crate_guns:
+			var gname: String = Weapon.PROFILES[L.WEAPONS[i]["class"]]["name"]
+			if not legal_guns.has(gname):
+				fails.append("%s royale crates can hold %s" % [uni["name"], gname])
+		if L.kit_universe(L.royale_start().kit) != u:
+			fails.append("%s royale drops you in wearing another universe's body"
+				% uni["name"])
+	L.active_universe = was
+	return fails

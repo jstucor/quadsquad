@@ -67,7 +67,7 @@ func _build_mesh() -> void:
 	_pulse_mat = StandardMaterial3D.new()
 	_pulse_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	_pulse_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	_pulse_mat.albedo_color = Color(GameState.TEAM_COLORS[_team], 0.0)
+	_pulse_mat.albedo_color = Color(GameState.team_colors[_team], 0.0)
 	_pulse.material_override = _pulse_mat
 	_pulse.visible = false
 	add_child(_pulse)

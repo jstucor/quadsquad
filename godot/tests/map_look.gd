@@ -12,7 +12,7 @@ extends Node3D
 ## Edit ONLY to change which maps it shoots. Shots land in user://.
 
 ## Which entries of GameState.MAPS to render, by name. Empty means all of them.
-const WANTED := ["KASHYYYK", "SENATE DISTRICT", "BONEYARD"]
+const WANTED := ["CROSSFIRE", "OVERGROWTH", "FOUNDRY", "KASHYYYK"]
 
 
 func _ready() -> void:

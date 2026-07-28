@@ -2,5 +2,5 @@
 
 [ext_resource type="Script" path="res://scripts/corpse.gd" id="1_corpse"]
 
-[node name="Corpse" type="RigidBody3D"]
+[node name="Corpse" type="Node3D"]
 script = ExtResource("1_corpse")

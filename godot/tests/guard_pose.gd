@@ -17,10 +17,10 @@ func _ready() -> void:
 
 	var anim: AnimationPlayer = c.anim_player
 	var hands := {
-		"R": c.get_node("Hips/Spine/ShoulderR/ElbowR"),
-		"L": c.get_node("Hips/Spine/ShoulderL/ElbowL"),
+		"R": c.get_node(CharacterModel.PATHS["eR"]),
+		"L": c.get_node(CharacterModel.PATHS["eL"]),
 	}
-	var gun: Node3D = c.get_node("Hips/Spine/HeldGun")
+	var gun: Node3D = c.get_node(CharacterModel.PATHS["gun"])
 	var reach := CharacterModel.LOWER_ARM + CharacterModel.HAND_REACH
 	# Probe the hand and the ankle along the rig's OWN bone directions, which is
 	# where _build_body puts the meshes. Measuring straight down -Y instead asks
@@ -28,8 +28,8 @@ func _ready() -> void:
 	# solver at 0.0 mm while the actual hands hung 8-14 cm off the weapon.
 	var at: Dictionary = c._joint_offsets()
 	var feet := {
-		"L": c.get_node("Hips/HipL/KneeL"),
-		"R": c.get_node("Hips/HipR/KneeR"),
+		"L": c.get_node(CharacterModel.PATHS["kL"]),
+		"R": c.get_node(CharacterModel.PATHS["kR"]),
 	}
 
 	var worst_grip := 0.0

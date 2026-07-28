@@ -115,6 +115,18 @@ func _spawn_blast(pos: Vector3) -> void:
 	mat.emission_energy_multiplier = 6.0
 	flash.material_override = mat
 	flash.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	# A REAL LIGHT on the blast, not just a glowing ball. An explosion that does
+	# not light the ground it goes off on reads as a decal pasted over the scene —
+	# and this is the one moment in a match where a big dynamic light is
+	# unarguably worth its cost, because it happens rarely and everyone looks at
+	# it. Shadows off: a blast is over in a fifth of a second and four shadow
+	# passes for it would be the most expensive frame in the match.
+	var light := OmniLight3D.new()
+	light.omni_range = _splash * 3.0
+	light.light_energy = 8.0
+	light.light_color = Color(1.0, 0.6, 0.25)
+	light.shadow_enabled = false
+	flash.add_child(light)
 	# Placed after add_child: global_position on a node outside the tree is
 	# silently treated as local and errors.
 	get_tree().current_scene.add_child(flash)
