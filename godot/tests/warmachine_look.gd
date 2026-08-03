@@ -12,6 +12,7 @@ extends Node3D
 ## Shots land in user:// (~/.local/share/godot/app_userdata/QuadSquad/).
 
 const VEHICLE := preload("res://scenes/actors/vehicle.tscn")
+const GUNSHIP := preload("res://scripts/gunship.gd")
 
 
 func _ready() -> void:
@@ -26,12 +27,18 @@ func _ready() -> void:
 	man.set_render_layers(1)
 	man.position = Vector3(-1.0, 0, 6.4)
 
-	var laat := await _spawn("laat", 0, Vector3(2.0, 0, -1.0))
+	# THE GUNSHIP IS NOT A VEHICLE ANY MORE — it flies itself and you ride the ball
+	# turret (see gunship.gd). Built here without `begin()`, which would seat a
+	# player and start the circuit; this only needs the airframe.
+	var laat: Node3D = GUNSHIP.new()
+	add_child(laat)
+	laat.team = 0
+	laat._build()
+	laat.global_position = Vector3(3.0, 7.5, -2.0)
 	var atst := await _spawn("atst", 2, Vector3(-1.5, 0, 2.5))
 	var barc := await _spawn("", 0, Vector3(-4.0, 0, -2.0))
-	print("  LAAT %.1f m long, AT-ST %.1f m tall, BARC %.1f m long" % [
-		laat._row["hull"].z, atst._row["hull"].y + atst._row["hover"],
-		barc._row["hull"].z])
+	print("  AT-ST %.1f m tall, BARC %.1f m long" % [
+		atst._row["hull"].y + atst._row["hover"], barc._row["hull"].z])
 
 	var cam := Camera3D.new()
 	add_child(cam)
@@ -46,7 +53,7 @@ func _ready() -> void:
 	# ...and each alone, front three-quarter, because a group shot cannot show
 	# whether one of them reads from its own front.
 	for pair in [[laat, "laat"], [atst, "atst"]]:
-		var v: Vehicle = pair[0]
+		var v: Node3D = pair[0]
 		cam.position = v.global_position + Vector3(6.0, -4.2, 9.0)
 		cam.look_at(v.global_position + Vector3.UP * 0.6, Vector3.UP)
 		await _frames(10)

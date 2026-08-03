@@ -261,19 +261,32 @@ once. The per-system sections below assume them rather than repeating them.
   makes. **CALL-IN** (recon, orbital strike, a walker delivered to you) happens somewhere else and you
   carry on being what you were; **BECOME** (Juggernaut, Force master) happens to YOU and the rest of
   that life is played as something else.
-- **EVERY REWARD FIRES THE MOMENT IT IS EARNED AND TAKES NO BUTTON.** Not for want of a design — CoD
-  hands you a key — but because there is no free one: A jump, B swap, X gadget, Y sustain, LB gadget 2,
-  R3 crouch. A triggered reward needs a seventh face button, a chord or a screen, and all three cost
-  more than the timing choice is worth at a couch where three other people are still playing.
+- **A REWARD IS OFFERED, NOT APPLIED** — D-UP takes it, D-DOWN turns it down (`reward_accept` /
+  `reward_decline`, and the prompt names them through `Controls.label` so it follows a rebind). **The
+  reason DECLINE is a real answer and not a politeness is that some of these COST you something**: a
+  BECOME replaces the build you chose and are in the middle of using, and the gunship takes you off the
+  ground for twenty seconds while your side is holding a post. Forcing that on somebody at the moment
+  they are doing best is the opposite of a reward. **The offer is spent when it is MADE, not when it is
+  taken**, or every further kill re-offers the thing you just refused.
+- **D-UP and D-DOWN were SECOND bindings on gadget 1 and gadget 2.** Both keep their face button and
+  lose only a duplicate; the reward had no control at all and could not be offered without one.
 - **A BECOME REWARD'S ROW IS AN ORDINARY PRESET** in the same format as every AI build and authored
   class (`Loadout.preset_build`, the public door onto `_build_from`). So a reward that names a gun the
   catalogue does not sell in that slot is **silently disarmed** exactly like any other preset, and
   `tests/streaks.gd` asks the same strict question `kit_rules` asks — *did you get the gun you asked for?*
-- **GATING USES THE CATALOGUE'S OWN KEYS** (`kits`, `teams`, `universe`) and **checks the universe
-  FIRST**, exactly as `Loadout._allows_entry` does: team 0 is the Republic in Star Wars and somebody
-  else entirely in Halo, so a team index alone cannot express "the Republic's gunship". A gated reward
-  is not a bonus for that class, it is **that class's own** — everybody reaches RECON and ORBITAL and
-  the rest belong to somebody.
+- **A REWARD BELONGS TO A FACTION AND TO NOTHING ELSE** (`factions`, a `{universe: [teams]}` map; no
+  key means everybody). It was gated on KIT as well, which meant **the prize depended on what you had
+  bought that life** — two players on the same side were fighting for different rewards, and switching
+  class silently changed the ladder under you. A faction is picked once and is the same answer for all
+  eight of that side's classes. Stated as a MAP rather than a `universe` + `teams` pair because a
+  reward can belong to different sides in different settings (the Juggernaut is the CIS's and the
+  Rebels' in Star Wars and everybody's in Halo), and the pair cannot express that without two rows
+  that then drift. **An absent universe is a refusal, not a fallthrough** — team 0 is the Republic in
+  Star Wars and somebody else in Halo. Every Star Wars side ends up with exactly FOUR rewards, which
+  `tests/streaks.gd` asserts: a faction with fewer than the one across the map is a balance bug
+  nothing else would report.
+- **ALL FOUR STAR WARS SIDES REACH A FORCE MASTER**, because which one you get is ALLEGIANCE and not
+  class — Republic and Rebels draw a Jedi, Separatists and Empire a Sith.
 - **JEDI AND SITH ARE ONE ROW**, not two (`preset_by_team` overriding parts of the base `preset`). Same
   mechanism, two names and two bodies; stating them twice is how the two would drift.
 - **A TRANSFORMATION MUST PRESERVE THE STREAK *AND* THE TAKEN-SET.** `_apply_loadout` resets both
@@ -295,6 +308,23 @@ once. The per-system sections below assume them rather than repeating them.
   `Bot._call_mortar_strike` asks. **Re-aimed every salvo**, since a group moves off a fixed point inside
   seven seconds and a barrage landing where the enemy WAS is the most frustrating possible version.
   Nothing re-implements ballistics: the rounds are `mortar_shell.gd`, which already solves its own arc.
+- **THE GUNSHIP IS NOT A VEHICLE AND YOU DO NOT DRIVE IT** (`gunship.gd`). A LAAT is not remembered
+  for being piloted, it is remembered for the two glass balls on its flanks with a trooper sealed in
+  each one hosing green fire downward — so the airframe flies its own circuit and the player rides the
+  BALL TURRET. Handing them the stick would make it a slow speeder with good armour. Every answer
+  `Vehicle` exists to give is about a machine you meet on the ground and climb into (the interact edge,
+  the team gate on the mount, the hover ray, the driver bleed, blocking a spawn marker) and not one of
+  them applies to something that arrives in the air and leaves on a timer. What it DOES reuse is the
+  seating — `enter_vehicle`/`exit_vehicle` already hide the body, kill its collision and slave it to a
+  seat, which is the hard part.
+- **THE TURRET IS ON THE INSIDE OF THE TURN.** Not a detail: it is the entire reason a circling gunship
+  works, because the guns stay pointed at the middle and the gunner is looking at the battle for the
+  whole lap instead of half of it. **`Player.enter_vehicle` ASKS for the seat (`seat()`) rather than
+  pathing to it** — a speeder's is a direct child, a gunship's is buried inside a ball that yaws and
+  pitches.
+- **DO NOT RETURN THE GUNNER THROUGH `clear_of_bodies`.** It avoids LIVE players and the gunner is one,
+  so it shoves them clear of the very spot it is meant to put them back on (measured: 12.8 m). Their
+  body has been hidden and collision-less for the whole ride, so nothing took the ground from them.
 - **THE WAR MACHINES ARE DELIVERED, NOT BECOME** — parked beside you, and you climb in. That keeps the
   whole vehicle story exactly as it is (mounting on the interact edge, the team gate on the ACTION, the
   driver bleed, dying at the controls, being a combatant bots shoot at); a vehicle that materialised

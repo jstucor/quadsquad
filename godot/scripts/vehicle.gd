@@ -110,20 +110,6 @@ const VEHICLES := {
 ## dying at the controls, being a combatant bots shoot at. A first pass that
 ## reuses all of that beats a walker that has to answer them again.
 const STREAK_VEHICLES := {
-	"laat": {
-		"name": "LAAT GUNSHIP",
-		"build": "laat",
-		# The toughest thing in the game and the one that ignores the map: it
-		# flies over the cover everybody else fights around, which is what a
-		# 10-kill reward should feel like. Slow to turn, so it cannot also duel.
-		"health": 900.0,
-		"top_speed": 21.0,
-		"accel": 8.0,
-		"turn": 1.2,
-		"hover": 7.5,          # well clear of anything on the ground
-		"gun": Weapon.Class.HMG,
-		"hull": Vector3(3.10, 1.30, 6.40),
-	},
 	"atst": {
 		"name": "AT-ST WALKER",
 		"build": "atst",
@@ -605,7 +591,6 @@ func _build_model() -> void:
 		"stap": _build_stap(steel, poly, trim, lit)
 		"speeder_bike": _build_speeder_bike(steel, poly, trim, lit)
 		"airspeeder": _build_airspeeder(steel, poly, trim, lit)
-		"laat": _build_laat(steel, poly, trim, lit)
 		"atst": _build_atst(steel, poly, trim, lit)
 		_: _build_barc(steel, poly, trim, lit)
 
@@ -711,50 +696,6 @@ func _build_airspeeder(steel: Material, poly: Material, trim: Material, lit: Mat
 ## the only thing about the shape anybody actually remembers. Everything sits
 ## HIGH and WIDE, so from the ground it fills the sky rather than the lane — the
 ## opposite silhouette to every speeder, which is the point of a reward.
-## Built for the THREE-QUARTER-FROM-BELOW view, because that is the only angle
-## anybody sees it from: it is the one vehicle in the game that is always
-## overhead. The first version was a flat slab 1.05 m deep on a 6.4 m body, which
-## from underneath is a rectangle with boxes on it — a gunship needs VERTICAL
-## structure or it has no silhouette at all from the ground.
-func _build_laat(steel: Material, poly: Material, trim: Material, lit: Material) -> void:
-	# The hull is a TALL slab, and the nose DROOPS off the front of it. That step
-	# down is most of the read: a level box has one profile from the side and a
-	# hull with a dropped snout is instantly a flying thing with a front.
-	_box(Vector3(1.90, 1.45, 4.40), Vector3(0, 1.15, 0.55), steel)          # hull
-	_box(Vector3(1.60, 1.05, 1.70), Vector3(0, 0.82, -2.10), steel)         # snout
-	_box(Vector3(1.30, 0.62, 0.80), Vector3(0, 0.72, -3.05), poly)          # cockpit
-	_box(Vector3(1.05, 0.22, 0.34), Vector3(0, 0.98, -3.36), trim)          # brow
-	_box(Vector3(0.78, 0.18, 0.18), Vector3(0, 0.62, -3.42), lit, false)    # chin lamp
-	# A dorsal spine standing PROUD of the hull, so the thing has a top edge from
-	# below rather than reading as a single extruded box.
-	_box(Vector3(0.90, 0.50, 2.60), Vector3(0, 2.00, 0.90), steel)
-	_box(Vector3(0.60, 0.26, 0.90), Vector3(0, 2.35, 1.70), poly)
-	for sx: float in [-1.0, 1.0]:
-		# THE WING IS MOUNTED HIGH AND HANGS ITS POD LOW, which is what puts a
-		# vertical member outboard on both sides — the single biggest thing
-		# separating this silhouette from a brick.
-		var wing := Node3D.new()
-		_body.add_child(wing)
-		wing.position = Vector3(sx * 1.05, 1.80, 0.30)
-		wing.rotation = Vector3(0.0, 0.0, sx * -0.16)     # swept slightly up
-		_box(Vector3(1.60, 0.24, 2.10), Vector3(sx * 0.75, 0, 0), steel, true, wing)
-		_box(Vector3(0.70, 0.18, 1.40), Vector3(sx * 1.75, -0.05, -0.10), steel, true, wing)
-		# The pylon DOWN to the engine pod. Vertical, and the reason the wing
-		# does not read as a shelf.
-		_box(Vector3(0.34, 0.85, 0.60), Vector3(sx * 1.55, -0.52, 0.10), poly, true, wing)
-		_box(Vector3(0.66, 0.66, 2.00), Vector3(sx * 1.55, -1.05, 0.35), poly, true, wing)
-		_box(Vector3(0.44, 0.44, 0.20), Vector3(sx * 1.55, -1.05, 1.42), lit, false, wing)
-		# The gunner bay, proud of the flank at the door — the one detail of a
-		# LAAT everybody can actually name.
-		_box(Vector3(0.62, 0.70, 0.90), Vector3(sx * 1.10, 0.95, -1.20), trim)
-		# ...and a missile rack under the wing root, for something small and
-		# repeated to give the whole hull a sense of size.
-		_box(Vector3(0.30, 0.28, 1.30), Vector3(sx * 0.92, 0.42, 0.20), poly)
-		# Landing skid, so it has somewhere to sit when it sets down beside you.
-		_box(Vector3(0.18, 0.60, 2.20), Vector3(sx * 0.80, 0.14, 0.70), poly)
-	_ribs(poly, 4, 0.34, 1.30, 0.62)
-
-
 ## EMPIRE — AT-ST WALKER. A HEAD ON LEGS, and the whole silhouette is that it has
 ## no body: a hunched command pod with a visor slit, two chin guns, and two legs
 ## that hang below it with nothing in between. It is the only thing in the game

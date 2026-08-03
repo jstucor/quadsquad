@@ -12,6 +12,7 @@ extends Node
 ## back, and a Juggernaut that re-earns itself heals to full on every kill.
 
 const PLAYER := preload("res://scenes/actors/player.tscn")
+const GUNSHIP := preload("res://scripts/gunship.gd")
 
 var _fails: Array[String] = []
 ## Which check functions reached their last line — see the note in `_ready`.
@@ -29,12 +30,13 @@ func _ready() -> void:
 	_check_gates()
 	_check_thresholds()
 	await _check_become()
+	await _check_gunship()
 	# EVERY SECTION MUST HAVE FINISHED. A GDScript error aborts the enclosing
 	# function silently (house rule 6), so a bad call halfway down a check skips
 	# the rest of its assertions and the run still reports success — which is
 	# exactly what happened here the first time, on a mistyped GameState call.
 	# Each check signs off at its own end and this counts the signatures.
-	var want := ["table", "gates", "thresholds", "become"]
+	var want := ["table", "gates", "thresholds", "become", "gunship"]
 	for name in want:
 		if not _done.has(name):
 			_fails.append("the `%s` checks did not run to the end — something in "
@@ -70,7 +72,7 @@ func _check_table() -> void:
 						% [name, id])
 			Streaks.Kind.BECOME:
 				_ok(row.has("preset"), "%s is a BECOME with no preset" % name)
-			Streaks.Kind.RECON, Streaks.Kind.BOMBARDMENT:
+			Streaks.Kind.RECON, Streaks.Kind.BOMBARDMENT, Streaks.Kind.GUNSHIP:
 				_ok(row.has("duration"), "%s has no duration" % name)
 			_:
 				_fails.append("%s has an unknown kind" % name)
@@ -93,44 +95,128 @@ func _check_table() -> void:
 ## THE GATES. Checked from both directions: the owner gets it and nobody else
 ## does. Only the second direction catches a `kits` key that was never read.
 func _check_gates() -> void:
-	print("\n-- a gated reward belongs to somebody in particular --")
+	print("\n-- a reward belongs to a FACTION and to nothing else --")
 	GameState.universe = Loadout.Universe.STAR_WARS
+	var sides := ["REPUBLIC", "SEPARATIST", "EMPIRE", "REBEL"]
+	var got: Array = []
+	for t in 4:
+		got.append(_names(Streaks.available(t)))
+		print("  %-12s %s" % [sides[t], str(got[t])])
 
-	var force := _names(Streaks.available(Loadout.Kit.FORCE, 0))
-	var clone := _names(Streaks.available(Loadout.Kit.CLONE, 0))
-	var wook := _names(Streaks.available(Loadout.Kit.WOOKIEE, 0))
-	print("  republic force adept : %s" % str(force))
-	print("  republic clone       : %s" % str(clone))
-	print("  republic wookiee     : %s" % str(wook))
+	# THE FORCE IS ALLEGIANCE, NOT CLASS: all four sides reach a master, and which
+	# one they get is the side's answer.
+	for t in 4:
+		_ok(got[t].has("FORCE MASTER"), "%s cannot reach a Force master" % sides[t])
+	for t in 4:
+		var preset := Streaks.become_preset(_row("FORCE MASTER"), t)
+		var want := "JEDI MASTER" if t in [0, 3] else "SITH MASTER"
+		_ok(str(preset["name"]) == want,
+			"%s should draw a %s, got %s" % [sides[t], want, preset["name"]])
 
-	_ok(force.has("FORCE MASTER"), "the Force adept cannot earn a Force master")
-	_ok(not clone.has("FORCE MASTER"), "a clone was offered a Force master")
-	_ok(wook.has("JUGGERNAUT"), "the Wookiee cannot earn a Juggernaut")
-	_ok(not force.has("JUGGERNAUT"), "the Force adept was offered a Juggernaut")
-	# Everybody reaches the two universal ones, or the reward is a class perk.
-	for who in [force, clone, wook]:
-		_ok(who.has("RECON SWEEP") and who.has("ORBITAL STRIKE"),
-			"a class cannot reach the universal rewards: %s" % str(who))
+	# The two machines are one side's each; the Juggernaut covers the other two,
+	# so every side ends up with four rewards.
+	_ok(got[0].has("LAAT GUNSHIP"), "the Republic cannot earn its gunship")
+	_ok(got[2].has("AT-ST WALKER"), "the Empire cannot earn its walker")
+	_ok(not got[2].has("LAAT GUNSHIP"), "the Empire was offered a LAAT")
+	_ok(not got[0].has("AT-ST WALKER"), "the Republic was offered an AT-ST")
+	_ok(got[1].has("JUGGERNAUT") and got[3].has("JUGGERNAUT"),
+		"the two sides with no machine should get the Juggernaut")
+	_ok(not got[0].has("JUGGERNAUT") and not got[2].has("JUGGERNAUT"),
+		"a side with a machine also got the Juggernaut")
+	# EVERY SIDE GETS THE SAME NUMBER. A faction with fewer rewards than the one
+	# across the map from it is a balance bug nothing else would report.
+	for t in 4:
+		_ok(got[t].size() == 4,
+			"%s has %d rewards; every side should have 4" % [sides[t], got[t].size()])
 
-	# TEAM gating: the Republic flies a gunship, the Empire walks.
-	_ok(clone.has("LAAT GUNSHIP"), "the Republic cannot earn its gunship")
-	_ok(not clone.has("AT-ST WALKER"), "the Republic was offered an AT-ST")
-	var imp := _names(Streaks.available(Loadout.Kit.CLONE, 2))
-	_ok(imp.has("AT-ST WALKER"), "the Empire cannot earn its walker")
-	_ok(not imp.has("LAAT GUNSHIP"), "the Empire was offered a LAAT")
-	print("  empire               : %s" % str(imp))
+	# NO KIT ANYWHERE. The whole point of the rework: what you bought this life
+	# must not change what you are playing for.
+	for row in Streaks.REWARDS:
+		_ok(not row.has("kits"),
+			"%s still gates on KIT — rewards are faction-only" % row["name"])
 
-	# UNIVERSE gating, which is the one a team index alone cannot express: team 0
-	# is the Republic in Star Wars and somebody else entirely in Halo.
+	# UNIVERSE, which a team index alone cannot express: team 0 is the Republic in
+	# Star Wars and somebody else entirely in Halo.
 	GameState.universe = Loadout.Universe.HALO
-	var spartan := _names(Streaks.available(Loadout.Kit.SPARTAN, 0))
-	print("  halo spartan         : %s" % str(spartan))
-	_ok(not spartan.has("LAAT GUNSHIP"),
-		"a Spartan on team 0 was offered a Republic gunship")
-	_ok(not spartan.has("FORCE MASTER"), "a Spartan was offered the Force")
-	_ok(spartan.has("RECON SWEEP"), "a Spartan cannot earn a recon sweep")
+	var halo := _names(Streaks.available(0))
+	print("  %-12s %s" % ["HALO t0", str(halo)])
+	_ok(not halo.has("LAAT GUNSHIP"), "a Halo side was offered a Republic gunship")
+	_ok(not halo.has("FORCE MASTER"), "a Halo side was offered the Force")
+	_ok(halo.has("RECON SWEEP") and halo.has("ORBITAL STRIKE"),
+		"a Halo side cannot reach the universal rewards")
+	_ok(halo.has("JUGGERNAUT"), "a Halo side cannot reach the Juggernaut")
 	GameState.universe = Loadout.Universe.STAR_WARS
 	_done["gates"] = true
+
+
+func _row(name: String) -> Dictionary:
+	for r in Streaks.REWARDS:
+		if str(r["name"]) == name:
+			return r
+	return {}
+
+
+## THE GUNSHIP IS THE ONE REWARD THAT TAKES YOU OFF THE MAP, so the thing that
+## matters is that it puts you back. A ride that ends with the player still
+## hidden, still collision-less and still slaved to a freed airframe is a
+## spectator for the rest of the match — and it would look exactly like a crash.
+func _check_gunship() -> void:
+	print("\n-- the gunship flies itself and gives you back --")
+	GameState.match_live = true
+	GameState.map_center = Vector3.ZERO
+	var p: Player = PLAYER.instantiate()
+	add_child(p)
+	await get_tree().process_frame
+	p.team = 0
+	p.pending = Loadout.new()
+	p._apply_loadout()
+	await get_tree().process_frame
+	var stood_at := Vector3(11.0, 0.0, -4.0)
+	p.global_position = stood_at
+
+	var ship: Node3D = GUNSHIP.new()
+	add_child(ship)
+	ship.begin(p, 0, 1.2)
+	await get_tree().physics_frame
+	_ok(p.in_vehicle(), "the gunner is not seated")
+	_ok(not p.model.visible, "the gunner's body is still visible")
+	var up := ship.global_position.y
+	_ok(up > 20.0, "the gunship is at %.0f m — it should be at altitude" % up)
+
+	# IT FLIES ITSELF. Nobody is steering, so the only proof it is on a circuit is
+	# that it MOVED and stayed at the same height and radius.
+	var was := ship.global_position
+	for i in 30:
+		await get_tree().physics_frame
+	var now: Vector3 = ship.global_position
+	_ok(was.distance_to(now) > 1.0,
+		"the gunship did not move (%.2f m in half a second)" % was.distance_to(now))
+	_ok(absf(now.y - up) < 0.5, "the gunship did not hold its altitude")
+	var r1 := Vector2(was.x, was.z).length()
+	var r2 := Vector2(now.x, now.z).length()
+	_ok(absf(r1 - r2) < 1.0,
+		"the gunship is not on a circle (radius %.1f then %.1f)" % [r1, r2])
+	print("  seated, circling at %.0f m up and %.0f m out" % [now.y, r2])
+
+	# ...and it hands them back on the ground they called it from.
+	for i in 140:
+		await get_tree().physics_frame
+	_ok(not is_instance_valid(ship) or ship.is_queued_for_deletion(),
+		"the gunship outlived its duration")
+	_ok(not p.in_vehicle(), "the gunner was never let out")
+	_ok(p.model.visible, "the gunner got their body back")
+	_ok(not p.get_node("CollisionShape3D").disabled,
+		"the gunner got their collision back")
+	# HORIZONTALLY. There is no floor in this scene, so the returned body falls
+	# from the moment it is handed back — which says nothing about whether it was
+	# put down in the right PLACE, and that is the only thing being asked.
+	var here := p.global_position
+	var back := Vector2(here.x - stood_at.x, here.z - stood_at.z).length()
+	_ok(back < 3.0,
+		"put down %.1f m across from where they called it" % back)
+	print("  returned %.1f m across from where it was called" % back)
+	p.queue_free()
+	_done["gunship"] = true
 
 
 func _names(rows: Array[Dictionary]) -> Array:
@@ -144,7 +230,7 @@ func _names(rows: Array[Dictionary]) -> Array:
 ## body already past a threshold when the list is built must not collect it.
 func _check_thresholds() -> void:
 	print("\n-- thresholds are crossed, one at a time --")
-	var rows := Streaks.available(Loadout.Kit.CLONE, 0)
+	var rows := Streaks.available(0)
 	_ok(Streaks.earned(rows, 3, 4).get("name", "") == "RECON SWEEP",
 		"crossing 4 kills did not pay the recon sweep")
 	_ok(Streaks.earned(rows, 4, 5).is_empty(),
@@ -173,9 +259,13 @@ func _check_become() -> void:
 	var p: Player = PLAYER.instantiate()
 	add_child(p)
 	await get_tree().process_frame
-	p.team = 0
+	# TEAM 3 (the Rebels), because the Juggernaut is a FACTION reward now and the
+	# Republic does not get it — it gets the gunship. Deliberately deployed on an
+	# ORDINARY kit, which is the point of the rework: what you bought this life
+	# must not decide what you are playing for.
+	p.team = 3
 	p.pending = Loadout.new()
-	p.pending.adopt_kit(Loadout.Kit.WOOKIEE)
+	p.pending.adopt_kit(Loadout.Kit.CLONE)
 	p._apply_loadout()
 	await get_tree().process_frame
 
@@ -184,10 +274,20 @@ func _check_become() -> void:
 		p.credit_kill()
 	await get_tree().process_frame
 
+	# A REWARD IS OFFERED, NOT APPLIED. Nothing may have happened yet.
+	_ok(not p.pending_reward().is_empty(), "6 kills offered nothing")
+	_ok(str(p.pending_reward().get("name", "")) == "JUGGERNAUT",
+		"6 kills offered `%s`" % str(p.pending_reward().get("name", "-")))
+	_ok(p.max_health == before_health,
+		"the reward applied itself before it was accepted")
+	print("  offered `%s` and waited" % str(p.pending_reward().get("name", "-")))
+	p.accept_reward()
+	await get_tree().process_frame
+
 	_ok(p.kills_this_life == 6,
 		"the streak was reset by the transformation: %d, want 6" % p.kills_this_life)
 	_ok(p.loadout.build_name == "JUGGERNAUT",
-		"6 kills on a Wookiee did not become a Juggernaut (got `%s`)"
+		"6 kills on a Rebel did not become a Juggernaut (got `%s`)"
 			% p.loadout.build_name)
 	_ok(p.max_health > before_health,
 		"the Juggernaut is not tougher than what it replaced (%.0f vs %.0f)"
@@ -208,4 +308,26 @@ func _check_become() -> void:
 		"a Juggernaut re-earned itself and healed to %.0f" % p.health)
 	print("  a 7th kill does not re-issue it (health stayed %.0f)" % p.health)
 	p.queue_free()
+
+	# DECLINING SPENDS THE OFFER. Otherwise every further kill re-offers the thing
+	# you just said no to, which is the most annoying possible prompt.
+	var q: Player = PLAYER.instantiate()
+	add_child(q)
+	await get_tree().process_frame
+	q.team = 3
+	q.pending = Loadout.new()
+	q.pending.adopt_kit(Loadout.Kit.CLONE)
+	q._apply_loadout()
+	await get_tree().process_frame
+	var kept := q.max_health
+	for i in 6:
+		q.credit_kill()
+	q.decline_reward()
+	_ok(q.pending_reward().is_empty(), "declining left the offer up")
+	_ok(q.max_health == kept, "declining applied the reward anyway")
+	q.credit_kill()
+	_ok(q.pending_reward().is_empty(),
+		"the declined reward was offered again on the next kill")
+	print("  declined, and not re-offered on the next kill")
+	q.queue_free()
 	_done["become"] = true

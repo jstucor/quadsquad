@@ -38,6 +38,7 @@ const LIGHTNING_SCENE := preload("res://scenes/fx/lightning_arc.tscn")
 const VEHICLE_SCENE := preload("res://scenes/actors/vehicle.tscn")
 const RECON_SWEEP := preload("res://scripts/recon_sweep.gd")
 const ORBITAL_STRIKE := preload("res://scripts/orbital_strike.gd")
+const GUNSHIP := preload("res://scripts/gunship.gd")
 const ROCKET_SCENE := preload("res://scenes/fx/rocket.tscn")
 const SCAN_DART_SCENE := preload("res://scripts/scan_dart.gd")
 
@@ -643,7 +644,9 @@ func credit_kill() -> void:
 ## The table and the design are in `scripts/streaks.gd`. What lives here is the
 ## three lines that notice one was earned and the switch that grants it.
 
-signal streak_earned(name: String, blurb: String)
+## Raised when one is OFFERED, and again (with an empty name) when the offer is
+## resolved either way, so the HUD prompt can take itself down.
+signal streak_offered(name: String, blurb: String)
 
 ## What this life can earn, resolved ONCE at deploy. Class and side cannot change
 ## under a life, so asking the table on every one of thirteen rounds a second
@@ -656,8 +659,24 @@ var _streak_taken := {}
 
 
 func _refresh_streaks() -> void:
-	_streak_rewards = Streaks.available(loadout.kit, team)
+	_streak_rewards = Streaks.available(team)
 	_streak_taken.clear()
+
+
+## A REWARD IS OFFERED, NOT APPLIED. It waits on the pad's D-UP or D-DOWN, and
+## until one of those is pressed nothing has happened.
+##
+## THE REASON IS THAT SOME OF THESE COST YOU SOMETHING. A BECOME reward replaces
+## the build you chose and are in the middle of using — an ambusher on a scoped
+## rifle does not necessarily want to be a Juggernaut, and the gunship takes you
+## off the ground for twenty seconds while your side is holding a post. Forcing
+## those on somebody at the moment they are doing best is the opposite of a
+## reward. So DECLINE is a real answer and not a politeness: it costs the reward
+## and keeps the life.
+##
+## It also solves what the first version had no answer for — a reward landing
+## mid-firefight with no say in the timing.
+var _offer: Dictionary = {}
 
 
 func _check_streak(before: int, after: int) -> void:
@@ -666,10 +685,52 @@ func _check_streak(before: int, after: int) -> void:
 	var row := Streaks.earned(_streak_rewards, before, after)
 	if row.is_empty() or _streak_taken.has(row["name"]):
 		return
+	# Taken the moment it is OFFERED, not when it is accepted: declining spends
+	# the offer. Otherwise every further kill re-offers the thing you just said
+	# no to, which is the most annoying possible prompt.
 	_streak_taken[row["name"]] = true
-	_grant_streak(row)
-	streak_earned.emit(str(row["name"]), str(row.get("blurb", "")))
+	_offer = row
+	streak_offered.emit(str(row["name"]), str(row.get("blurb", "")))
 	Audio.play("streak")
+
+
+## Poll the two answers. Read from the ordinary per-frame input path rather than
+## from `_input`, like every other control this game has — four players are on
+## four pads and an InputMap action is device-wide.
+func _update_reward_offer() -> void:
+	if _offer.is_empty():
+		return
+	if _edge("reward_accept"):
+		accept_reward()
+	elif _edge("reward_decline"):
+		decline_reward()
+
+
+## Take what is on offer. PUBLIC and separate from the control read, so the
+## button and a test exercise the same path — an accept simulated by calling
+## `_grant_streak` directly would not prove the offer is cleared.
+func accept_reward() -> void:
+	if _offer.is_empty():
+		return
+	var row := _offer
+	_offer = {}
+	streak_offered.emit("", "")
+	_grant_streak(row)
+
+
+## Turn it down. The offer is spent either way (see `_check_streak`), so this
+## costs the reward and keeps the life — which is the whole reason it exists.
+func decline_reward() -> void:
+	if _offer.is_empty():
+		return
+	_offer = {}
+	streak_offered.emit("", "")
+	Audio.play("ui_back")
+
+
+## What is on the table, for the HUD. Empty when there is nothing to answer.
+func pending_reward() -> Dictionary:
+	return _offer
 
 
 func _grant_streak(row: Dictionary) -> void:
@@ -687,6 +748,10 @@ func _grant_streak(row: Dictionary) -> void:
 			strike.begin(self, team, float(row.get("duration", 6.0)))
 		Streaks.Kind.VEHICLE:
 			_deliver_vehicle(str(row.get("vehicle", "")))
+		Streaks.Kind.GUNSHIP:
+			var ship: Node3D = GUNSHIP.new()
+			get_tree().current_scene.add_child(ship)
+			ship.begin(self, team, float(row.get("duration", 20.0)))
 		Streaks.Kind.BECOME:
 			_become(row)
 
@@ -1182,6 +1247,12 @@ func _die(attacker: Node = null) -> void:
 	# is about to need it and `_enter_buy_screen` is where the body stops being
 	# able to answer. Kept as a reference AND a name: the reference drives the
 	# camera while the killer is alive, the name outlives them.
+	# The offer dies with the life that earned it — same rule as the streak, and
+	# without it a player deploys with a prompt still on screen for a reward the
+	# next life did not earn.
+	if not _offer.is_empty():
+		_offer = {}
+		streak_offered.emit("", "")
 	_killer = attacker if attacker != self else null
 	_killer_name = GameState.combatant_name(attacker) if _killer != null else ""
 	# NETWORKED: THE SCORE IS THE HOST'S AND ONLY THE HOST'S. A client running
@@ -1493,7 +1564,12 @@ func enter_vehicle(v: Node3D) -> void:
 	# A mount is a TELEPORT, not a walk. Without this the renderer smears the body
 	# from wherever it was standing to the seat across one frame — the same rule
 	# every respawn and every corpse landing follows.
-	global_position = v.get_node("Seat").global_position
+	# ASKED FOR, NOT PATHED TO. A speeder's seat is a direct child; a gunship's is
+	# buried inside a ball turret that yaws and pitches, and `get_node("Seat")`
+	# finds neither reliably. The vehicle knows where its own seat is.
+	var seat: Node3D = v.seat() if v.has_method("seat") else v.get_node_or_null("Seat")
+	if seat != null:
+		global_position = seat.global_position
 	reset_physics_interpolation()
 
 
@@ -1553,6 +1629,7 @@ func _process_mounted(delta: float) -> void:
 		var look := _stick(JOY_AXIS_RIGHT_X, JOY_AXIS_RIGHT_Y)
 		_apply_look(-look * STICK_LOOK_SPEED * _sens_mult * delta)
 	_update_regen(delta)
+	_update_reward_offer()
 	_update_anim(Vector2.ZERO, false)
 
 
@@ -1602,6 +1679,7 @@ func _physics_process(delta: float) -> void:
 	pickup_pressed = _interact_pressed()
 	_update_gear()
 	_update_regen(delta)
+	_update_reward_offer()
 	_update_aim(delta)
 	_update_guard(delta)
 	_update_crouch(delta)

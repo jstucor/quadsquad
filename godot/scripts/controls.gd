@@ -40,6 +40,11 @@ const ACTIONS: Array[Dictionary] = [
 	{"id": "sustain", "name": "GADGET 3", "pad": true},
 	{"id": "map", "name": "MAP / STRIKE", "pad": true},
 	{"id": "interact", "name": "PICK UP", "pad": true},
+	# A KILL STREAK REWARD IS OFFERED, NOT APPLIED. Two controls rather than one,
+	# because "not now" and "no" are different answers and a single toggle makes
+	# the second one impossible to express — see Streaks.
+	{"id": "reward_accept", "name": "TAKE REWARD", "pad": true},
+	{"id": "reward_decline", "name": "DECLINE REWARD", "pad": true},
 	{"id": "forward", "name": "MOVE FORWARD", "pad": false},
 	{"id": "back", "name": "MOVE BACK", "pad": false},
 	{"id": "left", "name": "MOVE LEFT", "pad": false},
@@ -59,6 +64,8 @@ const DEFAULT_KEYS := {
 	"sustain": {"key": KEY_R},
 	"map": {"key": KEY_M},
 	"interact": {"key": KEY_E},
+	"reward_accept": {"key": KEY_V},
+	"reward_decline": {"key": KEY_B},
 	"forward": {"key": KEY_W},
 	"back": {"key": KEY_S},
 	"left": {"key": KEY_A},
@@ -92,12 +99,15 @@ const DEFAULT_PAD := {
 	"switch": [{"kind": Kind.BUTTON, "index": JOY_BUTTON_B}],
 	"sustain": [{"kind": Kind.BUTTON, "index": JOY_BUTTON_Y},
 		{"kind": Kind.BUTTON, "index": JOY_BUTTON_DPAD_RIGHT}],
-	"gadget": [{"kind": Kind.BUTTON, "index": JOY_BUTTON_X},
-		{"kind": Kind.BUTTON, "index": JOY_BUTTON_DPAD_UP}],
-	"grenade": [{"kind": Kind.BUTTON, "index": JOY_BUTTON_LEFT_SHOULDER},
-		{"kind": Kind.BUTTON, "index": JOY_BUTTON_DPAD_DOWN}],
+	# D-UP AND D-DOWN USED TO BE SECOND BINDINGS ON THESE TWO. They are the reward
+	# prompt's now — both gadgets keep their face button and lose only a duplicate,
+	# where the reward had no control at all and could not be offered without one.
+	"gadget": [{"kind": Kind.BUTTON, "index": JOY_BUTTON_X}],
+	"grenade": [{"kind": Kind.BUTTON, "index": JOY_BUTTON_LEFT_SHOULDER}],
 	"map": [{"kind": Kind.BUTTON, "index": JOY_BUTTON_BACK}],
 	"interact": [{"kind": Kind.BUTTON, "index": JOY_BUTTON_DPAD_LEFT}],
+	"reward_accept": [{"kind": Kind.BUTTON, "index": JOY_BUTTON_DPAD_UP}],
+	"reward_decline": [{"kind": Kind.BUTTON, "index": JOY_BUTTON_DPAD_DOWN}],
 }
 
 # Pads report a normalised layout, so naming the buttons is a fixed table rather

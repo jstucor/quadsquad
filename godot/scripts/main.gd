@@ -895,7 +895,7 @@ func _add_streak_reward(hud: Control, player: Player) -> void:
 	box.offset_top = 16.0
 	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	box.alignment = BoxContainer.ALIGNMENT_CENTER
-	box.modulate.a = 0.0
+	box.visible = false
 	hud.add_child(box)
 
 	var title := Label.new()
@@ -912,20 +912,39 @@ func _add_streak_reward(hud: Control, player: Player) -> void:
 	blurb.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	box.add_child(blurb)
 
+	# THE PROMPT NAMES ITS BUTTONS THROUGH `Controls.label` and never in text, so
+	# it follows a rebind instead of going stale (house rule 16). `label()` is
+	# player-facing and takes the device, so player 3's pad says what player 3's
+	# pad is actually bound to.
+	var keys := Label.new()
+	keys.add_theme_font_size_override("font_size",
+		15 if GameState.human_players == 1 else 11)
+	keys.add_theme_color_override("font_color", Color(0.78, 0.86, 1.0))
+	keys.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	box.add_child(keys)
+
 	# A METHOD-BOUND handler would need per-player state to find its own labels,
 	# so this is a lambda — legal here because the signal belongs to the PLAYER,
 	# which is freed with the scene, not to an autoload (house rule 11).
-	player.streak_earned.connect(func(name: String, text: String) -> void:
+	player.streak_offered.connect(func(name: String, text: String) -> void:
+		# An EMPTY name means the offer was resolved — accepted or declined — and
+		# the prompt takes itself down. One signal for both edges, because the HUD
+		# does not care which answer was given.
+		if name == "":
+			box.visible = false
+			return
 		title.text = name
 		blurb.text = text
+		keys.text = "%s  TAKE     %s  DECLINE" % [
+			Controls.label(player.input_device, "reward_accept"),
+			Controls.label(player.input_device, "reward_decline")]
+		box.visible = true
 		box.modulate.a = 1.0
 		box.scale = Vector2(1.18, 1.18)
 		box.pivot_offset = box.size * 0.5
 		var pop := hud.create_tween()
 		pop.tween_property(box, "scale", Vector2.ONE, 0.24) \
-			.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
-		pop.tween_interval(STREAK_BANNER_TIME)
-		pop.tween_property(box, "modulate:a", 0.0, 0.5))
+			.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT))
 
 
 ## THE DEATH CAM'S CAPTION. The camera swings onto your killer on its own

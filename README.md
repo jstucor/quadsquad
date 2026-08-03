@@ -103,20 +103,29 @@ there is no button, because there is no free one.
 
 | Reward | Kills | Who | What |
 |---|---|---|---|
-| **Recon Sweep** | 4 | anyone | Every enemy marked for your whole side, on the minimap and through walls |
-| **Juggernaut** | 6 | Wookiee, Brute, Ork, Grunt | Heavy plate, a belt-fed gun and a shield that soaks the first burst |
-| **Orbital Strike** | 8 | anyone | A battery walks fire across the enemy's densest ground, re-aimed every salvo |
-| **LAAT Gunship** | 10 | Republic | A gunship sets down beside you |
+| **Recon Sweep** | 4 | everyone | Every enemy marked for your whole side, on the minimap and through walls |
+| **Juggernaut** | 6 | CIS, Rebels (and every Halo / 40k side) | Heavy plate, a belt-fed gun and a shield that soaks the first burst |
+| **Orbital Strike** | 8 | everyone | A battery walks fire across the enemy's densest ground |
+| **LAAT Gunship** | 10 | Republic | It flies its own circuit — you ride the ball turret |
 | **AT-ST Walker** | 10 | Empire | A walker is dropped in beside you |
-| **Jedi / Sith Master** | 12 | Force adepts | Saber, guard, lightning and the physique to use them |
+| **Jedi / Sith Master** | 12 | all four Star Wars sides | Saber, guard, lightning. Jedi for the Republic and Rebels, Sith for the CIS and Empire |
+
+**Rewards belong to a FACTION, not to a class** — what you bought this life never
+changes what you are playing for, and every Star Wars side gets four.
+
+**A reward is offered, not applied**: **D-up** takes it, **D-down** turns it
+down. Declining is a real answer, because some of these cost you something — a
+transformation replaces the build you are in the middle of using, and the gunship
+takes you off the ground for twenty seconds.
 
 Two kinds, and the split is the design. A **call-in** happens somewhere else and
 you carry on being what you were. A **become** happens to *you*, and the rest of
 that life is played as something else — which is why its table row is an ordinary
 class preset in the same format as every other body in the game.
 
-The CIS and the Rebel Alliance have no war machine yet; they fall through to the
-universal rewards. That is a gap, not a design — one table row each.
+The gunship is the one reward you do not drive. A LAAT is remembered for the two
+glass balls on its flanks with a trooper sealed in each, so the airframe flies
+itself and you ride the turret.
 
 ### Classes and rosters
 

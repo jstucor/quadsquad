@@ -31,20 +31,27 @@ extends Object
 ## `Loadout.preset_build`). A new reward is a row here plus, at most, one case in
 ## `Player._grant_streak`.
 
-enum Kind { RECON, BOMBARDMENT, VEHICLE, BECOME }
+enum Kind { RECON, BOMBARDMENT, VEHICLE, BECOME, GUNSHIP }
 
-## Class and faction gating uses the SAME KEYS the catalogue already uses, so it
-## reads the same way as everything else:
+## A REWARD BELONGS TO A FACTION, AND TO NOTHING ELSE.
 ##
-##   `kits`   — only these `Loadout.Kit`s may earn it. Absent means anybody.
-##   `teams`  — only these team indices. Absent means any side.
-##   `universe` — only this `Loadout.Universe`. Absent means any setting.
+## It was gated on KIT as well, which meant the reward you could earn depended on
+## what you had bought that life — so a Republic player in a clone kit and one in
+## a Force kit were fighting for different prizes on the same side, and switching
+## class mid-match silently changed the ladder under you. A faction is the thing a
+## player picks once and identifies with, and it is the same answer for every one
+## of that side's eight classes.
 ##
-## **A gated reward is not a bonus for that class, it is that class's OWN reward**
-## — the Force adept has no orbital uplink and a Wookiee does not fly a gunship.
-## Everybody can reach RECON and ORBITAL; the rest are somebody's in particular.
+##   `factions` — {universe: [team indices]}. A universe absent from the map does
+##                not get the reward at all. NO `factions` key means everybody,
+##                in every setting.
+##
+## Stated as a MAP rather than as a `universe` + `teams` pair because a reward can
+## belong to different sides in different settings — the Juggernaut is the CIS's
+## and the Rebels' in Star Wars and everybody's in Halo — and the pair cannot
+## express that without two rows that would then drift apart.
 const REWARDS: Array[Dictionary] = [
-	# ---- everybody -----------------------------------------------------------
+	# ---- every side, every setting -------------------------------------------
 	{
 		"name": "RECON SWEEP", "kills": 4, "kind": Kind.RECON,
 		"blurb": "Your side sees every enemy for a while",
@@ -55,15 +62,18 @@ const REWARDS: Array[Dictionary] = [
 		"blurb": "A battery walks fire across the enemy's densest ground",
 		"duration": 7.0,
 	},
-	# ---- the heavy bruisers --------------------------------------------------
-	# JUGGERNAUT is a BECOME and it is deliberately the CHEAPEST of them, because
-	# what it turns you into is still a trooper: bigger, tougher, slower, holding
-	# something belt-fed. The Force master at 12 is a different thing entirely.
+	# ---- the heavy ------------------------------------------------------------
+	# In Star Wars this is the CIS's and the Rebels' — the two sides with neither
+	# a walker nor a gunship — so all four factions end up with four rewards each.
+	# Everywhere else it is the only BECOME on offer, so everybody gets it.
 	{
 		"name": "JUGGERNAUT", "kills": 6, "kind": Kind.BECOME,
 		"blurb": "Heavy plate, a heavier gun, and a shield that soaks the first burst",
-		"kits": [Loadout.Kit.WOOKIEE, Loadout.Kit.JIRALHANAE, Loadout.Kit.ORK,
-			Loadout.Kit.UNGGOY],
+		"factions": {
+			Loadout.Universe.STAR_WARS: [1, 3],
+			Loadout.Universe.HALO: [0, 1],
+			Loadout.Universe.WARHAMMER: [0, 1, 2, 3],
+		},
 		"overshield": 260.0,
 		"preset": {
 			"name": "JUGGERNAUT", "kit": Loadout.Kit.WOOKIEE,
@@ -72,18 +82,16 @@ const REWARDS: Array[Dictionary] = [
 			"unit_health": 2.2, "unit_speed": 0.82, "unit_stature": 1.14,
 		},
 	},
-	# ---- the Force -----------------------------------------------------------
-	# JEDI MASTER and SITH MASTER are ONE reward whose preset is chosen by SIDE
-	# (`preset_by_team`), not two rows. They are the same mechanism — a saber, a
-	# guard and lightning — and stating them twice is how the two would drift.
+	# ---- the Force ------------------------------------------------------------
+	# ALL FOUR STAR WARS SIDES, because which one you get is a matter of ALLEGIANCE
+	# and not of class: the Republic and the Rebel Alliance draw a Jedi, the
+	# Separatists and the Empire draw a Sith. One row and one mechanism — a saber,
+	# a guard and lightning — with the name and the body chosen by side.
 	{
 		"name": "FORCE MASTER", "kills": 12, "kind": Kind.BECOME,
 		"blurb": "A master of the Force takes the field",
-		"kits": [Loadout.Kit.FORCE],
-		"universe": Loadout.Universe.STAR_WARS,
+		"factions": {Loadout.Universe.STAR_WARS: [0, 1, 2, 3]},
 		"preset_by_team": {
-			# Republic and Rebel draw a Jedi; CIS and Empire draw a Sith. Same
-			# build, different name and blade — which is exactly the difference.
 			0: {"name": "JEDI MASTER", "style": CharacterModel.Style.JEDI},
 			3: {"name": "JEDI MASTER", "style": CharacterModel.Style.JEDI},
 			1: {"name": "SITH MASTER", "style": CharacterModel.Style.IMPERIAL_ROYAL},
@@ -99,28 +107,21 @@ const REWARDS: Array[Dictionary] = [
 			"unit_health": 2.6, "unit_speed": 1.18, "unit_jump": 1.35,
 		},
 	},
-	# ---- the war machines ----------------------------------------------------
-	# DELIVERED, NOT BECOME. It is parked beside you and you climb in, which keeps
-	# the whole vehicle story — mounting, the team gate, the driver bleed, dying
-	# at the controls — exactly as it already is (see Vehicle). A vehicle that
-	# materialised around you would need every one of those answered again.
-	#
-	# ONLY TWO SIDES HAVE ONE. The Republic's LAAT and the Empire's AT-ST are the
-	# two that were asked for; the CIS and the Rebel Alliance fall through to the
-	# universal rewards and adding theirs is one row here plus one in
-	# `Vehicle.STREAK_VEHICLES`. That is a real gap, not a design.
+	# ---- the war machines -----------------------------------------------------
+	# THE GUNSHIP IS NOT A VEHICLE YOU DRIVE. It flies itself in a circuit and you
+	# ride the BALL TURRET, which is what a LAAT is actually remembered for — see
+	# `gunship.gd`. The walker is delivered and you climb in, which keeps the whole
+	# Vehicle story untouched.
 	{
-		"name": "LAAT GUNSHIP", "kills": 10, "kind": Kind.VEHICLE,
-		"blurb": "A gunship sets down beside you",
-		"universe": Loadout.Universe.STAR_WARS,
-		"teams": [0],
-		"vehicle": "laat",
+		"name": "LAAT GUNSHIP", "kills": 10, "kind": Kind.GUNSHIP,
+		"blurb": "Ride the ball turret while it circles the field",
+		"factions": {Loadout.Universe.STAR_WARS: [0]},
+		"duration": 22.0,
 	},
 	{
 		"name": "AT-ST WALKER", "kills": 10, "kind": Kind.VEHICLE,
 		"blurb": "A walker is dropped in beside you",
-		"universe": Loadout.Universe.STAR_WARS,
-		"teams": [2],
+		"factions": {Loadout.Universe.STAR_WARS: [2]},
 		"vehicle": "atst",
 	},
 ]
@@ -131,11 +132,12 @@ const REWARDS: Array[Dictionary] = [
 ## under it, and walking the table on each of thirteen rounds a second is the
 ## kind of question house rule 5 exists about.
 ##
-## `kit` is the Loadout.Kit being played, `team` the side.
-static func available(kit: int, team: int) -> Array[Dictionary]:
+## `team` is the side. Nothing else is asked, which is the whole point — see the
+## note on `factions`.
+static func available(team: int) -> Array[Dictionary]:
 	var out: Array[Dictionary] = []
 	for row in REWARDS:
-		if not _allows(row, kit, team):
+		if not _allows(row, team):
 			continue
 		out.append(row)
 	out.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
@@ -143,17 +145,16 @@ static func available(kit: int, team: int) -> Array[Dictionary]:
 	return out
 
 
-static func _allows(row: Dictionary, kit: int, team: int) -> bool:
-	# THE UNIVERSE IS CHECKED FIRST, exactly as `Loadout._allows_entry` does it:
-	# a Star Wars gunship must not be reachable by a Spartan who happens to be on
-	# team 0, and team indices mean different sides in different settings.
-	if row.has("universe") and int(row["universe"]) != Loadout.active_universe:
+static func _allows(row: Dictionary, team: int) -> bool:
+	if not row.has("factions"):
+		return true      # everybody, everywhere
+	var by_universe: Dictionary = row["factions"]
+	# THE UNIVERSE IS LOOKED UP FIRST and an absent one is a refusal, not a
+	# fallthrough — a team index means a different side in every setting, so a
+	# Spartan on team 0 must never inherit the Republic's gunship.
+	if not by_universe.has(Loadout.active_universe):
 		return false
-	if row.has("kits") and not (row["kits"] as Array).has(kit):
-		return false
-	if row.has("teams") and not (row["teams"] as Array).has(team):
-		return false
-	return true
+	return (by_universe[Loadout.active_universe] as Array).has(team)
 
 
 ## The reward crossed by going from `before` kills to `after`, or an empty
