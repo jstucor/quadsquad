@@ -14,6 +14,10 @@ signal match_countdown(seconds: int)
 signal match_began()
 signal zone_moved(point: Vector3)     # the capture area relocated
 signal zone_state(holder: int, contested: bool, seconds_left: int)
+## A body went down and something killed it. Carries the whole entry rather than
+## the two bodies, because by the time a HUD draws it the loser is usually freed
+## — a killfeed that holds node references is a killfeed full of nulls.
+signal kill_logged(entry: Dictionary)
 
 enum Team { REPUBLIC, CIS }
 ## DEATHMATCH scores on kills; ZONES scores a point per second for whichever
@@ -555,6 +559,10 @@ func reset_match() -> void:
 	match_live = false
 	zone_active = false
 	map_shapes.clear()
+	# The record is per MATCH, so the post-match table shows this map's fighting
+	# and not the accumulated rotation.
+	kill_feed.clear()
+	player_stats.clear()
 	# A fresh world for a fresh match. Rolled here rather than at generation
 	# time so it is fixed for the whole match: every structure and prop is placed
 	# from it, and a seed that moved would tear the map apart mid-round.
@@ -917,6 +925,143 @@ func _nearest_body(pos: Vector3) -> Node3D:
 func add_frag(team: int) -> void:
 	if mode == Mode.DEATHMATCH:
 		_award(team)
+
+
+## --- The record: who killed whom, and what each human did with their match ---
+##
+## SCORING AND RECORDING ARE DIFFERENT QUESTIONS, which is why this sits beside
+## `add_frag` rather than inside it. What a kill is WORTH is a mode rule and
+## changes per mode (Zones pays nothing for one); that a kill HAPPENED is true in
+## every mode and is what the feed and the post-match screen read. Folding the
+## record into `add_frag` would have lost every kill in four modes out of five.
+
+## The last few kills, newest last. A ring rather than a growing log: the feed
+## draws a handful and a long match is thousands of deaths.
+var kill_feed: Array[Dictionary] = []
+const KILL_FEED_MAX := 6
+
+## Per-HUMAN stats for the match, keyed by `player_index`.
+##
+## HUMANS ONLY, and that is a limit of identity rather than a decision about who
+## is interesting: a Bot is freed on death and replaced by a different instance,
+## so there is nothing stable to accumulate into. A player_index outlives every
+## death its owner has. Team totals are already in `scores`.
+var player_stats: Dictionary = {}
+
+
+## The stat row for a human, created on demand so nothing has to know the roster
+## up front (players deploy at different times, and Royale never respawns them).
+func stats_for(player_index: int) -> Dictionary:
+	if not player_stats.has(player_index):
+		player_stats[player_index] = {
+			"kills": 0, "deaths": 0, "headshots": 0, "streak": 0, "best_streak": 0,
+			"team": 0, "name": "PLAYER %d" % (player_index + 1),
+		}
+	return player_stats[player_index]
+
+
+## What to call a body in the feed. ASKED, NOT REQUIRED: a combatant that never
+## grew a `combatant_name` gets its class back instead of aborting the whole
+## kill record (house rule 6 — a missing method would take the feed, the stats
+## and everything after them out with it).
+## DELIBERATELY UNTYPED. A `body: Node` parameter cannot even be CALLED with a
+## freed object — GDScript refuses the bind before the function runs, and a
+## refused call aborts whatever was recording the kill (house rule 6). The feed
+## exists precisely to describe bodies that are on their way out, so the one
+## argument it must survive is the one a type annotation makes impossible.
+func combatant_name(body) -> String:
+	if body == null or not is_instance_valid(body):
+		return "?"
+	if body.has_method("combatant_name"):
+		return str(body.combatant_name())
+	return body.get_class().to_upper()
+
+
+## A body went down. `killer` may be null (a fall, the storm), may be the victim
+## itself (own splash) and may be a teammate — the feed states all three, because
+## "who killed me" is exactly the question a death cam exists to answer and the
+## honest answer is sometimes "you did".
+##
+## Called from every `_die`, ALONGSIDE `add_frag`/`report_death` and never
+## instead of them.
+func record_kill(killer, victim, headshot := false) -> void:
+	# Typed explicitly: `killer` is untyped (see combatant_name) so the comparison
+	# has no inferable type and `:=` will not compile.
+	var suicide: bool = killer == null or killer == victim
+	var entry := {
+		"killer": "" if suicide else combatant_name(killer),
+		"killer_team": -1 if suicide else int(killer.get("team")),
+		"victim": combatant_name(victim),
+		"victim_team": int(victim.get("team")) if victim != null else -1,
+		"headshot": headshot,
+		"suicide": suicide,
+	}
+	# Only a HUMAN carries a stat row, and `stat_index` is how a body says it is
+	# one. Duck-typed rather than `is Player` so a NetPlayer proxy can answer for
+	# a human on another machine — online, the host scores kills by bodies it does
+	# not own, and those are all proxies.
+	_note_stat_index(entry, "killer_index", killer if not suicide else null)
+	_note_stat_index(entry, "victim_index", victim)
+	log_kill(entry)
+
+
+func _note_stat_index(entry: Dictionary, key: String, body) -> void:
+	if body != null and is_instance_valid(body) and body.has_method("stat_index"):
+		var idx: int = body.stat_index()
+		if idx >= 0:
+			entry[key] = idx
+
+
+## The record proper, split from `record_kill` so the wire can hand over an entry
+## it was given rather than two bodies it does not have (a client has no node for
+## a bot that died on the host).
+## `mirror` is false for an entry that ARRIVED over the wire, which is the only
+## thing stopping the host echoing back what it was just sent.
+func log_kill(entry: Dictionary, mirror := true) -> void:
+	kill_feed.append(entry)
+	while kill_feed.size() > KILL_FEED_MAX:
+		kill_feed.pop_front()
+	var friendly: bool = not bool(entry["suicide"]) \
+		and int(entry["killer_team"]) == int(entry["victim_team"])
+	# A human's own row. Teamkills and suicides cost a death and pay no kill —
+	# otherwise the quickest route up the scoreboard is a grenade at your feet.
+	if entry.has("killer_index") and not bool(entry["suicide"]) and not friendly:
+		var k: Dictionary = stats_for(int(entry["killer_index"]))
+		k["kills"] = int(k["kills"]) + 1
+		k["streak"] = int(k["streak"]) + 1
+		k["best_streak"] = maxi(int(k["best_streak"]), int(k["streak"]))
+		k["team"] = int(entry["killer_team"])
+		if bool(entry["headshot"]):
+			k["headshots"] = int(k["headshots"]) + 1
+	if entry.has("victim_index"):
+		var v: Dictionary = stats_for(int(entry["victim_index"]))
+		v["deaths"] = int(v["deaths"]) + 1
+		v["streak"] = 0        # the streak is per LIFE, so dying ends it
+		v["team"] = int(entry["victim_team"])
+	kill_logged.emit(entry)
+	# ONLINE THE FEED IS THE HOST'S, and it is mirrored out from this ONE place
+	# rather than from each `_die`. A bot dies on the host and a player dies on
+	# whichever machine owns them, so the alternative is every death path knowing
+	# how to replicate itself — which is how two machines end up with feeds that
+	# disagree about what just happened.
+	if mirror and Net.is_host() and NetSync.current != null:
+		NetSync.current.mirror_kill(entry)
+
+
+## The post-match table: every human that saw play, best first. Sorted on kills,
+## then on FEWER deaths, so two players on three kills are separated by what it
+## cost them rather than by dictionary order.
+func score_table() -> Array[Dictionary]:
+	var rows: Array[Dictionary] = []
+	for idx in player_stats:
+		var row: Dictionary = (player_stats[idx] as Dictionary).duplicate()
+		row["index"] = idx
+		rows.append(row)
+	rows.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		if int(a["kills"]) != int(b["kills"]):
+			return int(a["kills"]) > int(b["kills"])
+		return int(a["deaths"]) < int(b["deaths"]))
+	return rows
 
 
 ## Royale has no score, so the match ends the moment one side is the only one

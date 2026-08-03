@@ -251,6 +251,9 @@ func _destroy(attacker: Node) -> void:
 		GameState.add_frag(attacker.team)
 		if attacker.has_method("credit_kill"):
 			attacker.credit_kill()
+	# Destroying hardware is a kill in the feed too — it cost somebody a purchase
+	# and it is exactly the kind of thing a player wants credit for out loud.
+	GameState.record_kill(attacker, self)
 	GameState.unregister_combatant(self)
 	weapon.update_fire(false, false)
 	_wreck_left = WRECK_LINGER
@@ -281,6 +284,12 @@ func _on_body_exited(body: Node) -> void:
 ## the same `label()` a crate answers.
 func label() -> String:
 	return String(_row.get("name", "SPEEDER"))
+
+
+## The feed calls a speeder what the prompt calls it — one name for the thing,
+## whether you are about to climb on it or have just shot it down.
+func combatant_name() -> String:
+	return label()
 
 
 func _physics_process(delta: float) -> void:

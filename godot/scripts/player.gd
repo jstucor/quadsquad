@@ -241,6 +241,16 @@ var spawn_class := 0
 ## Kills on the CURRENT life. Reset on every deploy, so it reads as a streak
 ## rather than a running total.
 var kills_this_life := 0
+## --- The death cam ----------------------------------------------------------
+##
+## WHO KILLED YOU IS THE ONE THING A DEATH SCREEN CAN TEACH. The camera already
+## stayed where you fell, which shows you the floor you died on and nothing about
+## why. These three carry the answer across the death: the reference so the view
+## can TURN onto them while they are still alive, the name so the HUD can still
+## say it after they are freed, and the flag so it can say how.
+var _killer: Node = null
+var _killer_name := ""
+var _last_hit_headshot := false
 var squad: Array[Bot] = []  # the AI squadmates currently alive under this player
 var gadget := Loadout.Gadget.NONE
 ## The second gadget slot, driven by the GADGET 2 (`grenade`) control.
@@ -473,6 +483,10 @@ func take_damage(amount: float, attacker: Node = null, headshot := false) -> voi
 	if attacker != null and attacker != self and attacker.has_method("on_hit_confirmed"):
 		attacker.on_hit_confirmed(headshot, health <= 0.0)
 	if health <= 0.0:
+		# The killing blow's own flag, so the feed can say HEADSHOT. Read by `_die`
+		# on the next line rather than passed through it: `_die` is also reached
+		# from the storm and from a fall, which have no shot to describe.
+		_last_hit_headshot = headshot
 		_die(attacker)
 
 
@@ -617,6 +631,21 @@ func collect(item: Pickup) -> void:
 func credit_kill() -> void:
 	kills_this_life += 1
 	killed_someone.emit(kills_this_life)
+
+
+## The combatant contract's two answers about IDENTITY (house rule 15): what to
+## call this body in the feed, and which stat row is its own. A Bot answers the
+## first and refuses the second — it is freed on death, so it has nothing to
+## accumulate into.
+## A human is always "PLAYER N" and never the class they happen to be wearing.
+## At a couch the question the feed answers is WHO, and the class is the one
+## thing about a human that changes every life.
+func combatant_name() -> String:
+	return "PLAYER %d" % (player_index + 1)
+
+
+func stat_index() -> int:
+	return player_index
 
 
 ## False while eliminated (collision off, waiting to respawn). GameState uses it
@@ -1029,6 +1058,12 @@ func is_headshot(world_pos: Vector3) -> bool:
 func _die(attacker: Node = null) -> void:
 	if _dead:
 		return
+	# WHO KILLED ME is remembered before anything else runs, because the death cam
+	# is about to need it and `_enter_buy_screen` is where the body stops being
+	# able to answer. Kept as a reference AND a name: the reference drives the
+	# camera while the killer is alive, the name outlives them.
+	_killer = attacker if attacker != self else null
+	_killer_name = GameState.combatant_name(attacker) if _killer != null else ""
 	# NETWORKED: THE SCORE IS THE HOST'S AND ONLY THE HOST'S. A client running
 	# these three lines as well would count its own death on its own machine and
 	# again on the host, so the scoreboard everybody actually reads would move by
@@ -1045,6 +1080,9 @@ func _die(attacker: Node = null) -> void:
 			GameState.add_frag(attacker.team)
 			attacker.credit_kill()
 		GameState.report_death(team)  # CONQUEST: a death is a reinforcement spent
+		# The RECORD, not the score: this runs in every mode and for a teamkill and
+		# a suicide too, which the three lines above all decline to count.
+		GameState.record_kill(attacker, self, _last_hit_headshot)
 		GameState.check_last_standing()
 	Audio.play_at("death", global_position)
 	_spawn_corpse(attacker)
@@ -1067,7 +1105,7 @@ func _report_net_death(attacker: Node) -> void:
 		push = global_position - (attacker as Node3D).global_position
 	var id := sync.id_of(self)
 	sync.announce_death(id, push)
-	sync.report_kill(sync.id_of(attacker), team)
+	sync.report_kill(sync.id_of(attacker), id, team)
 
 
 ## Go to the buy screen. It stays up until the player presses deploy — `floor`
@@ -1147,6 +1185,10 @@ func _spawn_corpse(attacker: Node) -> void:
 
 
 func _process_dead(delta: float) -> void:
+	# The view turns onto whoever killed you WHATEVER the mode, before the Royale
+	# early-out below: in the one mode with no respawn, the death cam is the only
+	# screen you get.
+	_track_killer(delta)
 	# Royale has no respawns: once you are down you stay down, and the buy
 	# screen never arms. Main's last-side-standing check ends the match.
 	if GameState.mode == GameState.Mode.ROYALE and GameState.match_live:
@@ -1167,6 +1209,65 @@ func _process_dead(delta: float) -> void:
 		_update_buy_input(delta)
 
 
+## Swing the dead view onto the killer. The camera hangs off Head through the
+## RemoteTransform3D, so turning the body and pitching the head is all it takes —
+## the same two dials a live player steers with, which is why this needs no
+## second camera and no scene changes.
+##
+## IT TURNS RATHER THAN CUTS, and slowly (DEATH_CAM_TURN). A hard cut onto a body
+## somewhere behind you tells you nothing about WHERE it is; watching the view
+## sweep round is what places them on the map you just died on.
+##
+## It stops tracking once the killer dies or is freed, and holds the last heading
+## instead of snapping back — a view that whips away the moment your killer is
+## shot loses exactly the thing you were looking at.
+const DEATH_CAM_TURN := 2.6      # radians/s the dead view swings at
+const DEATH_CAM_HEIGHT := 1.1    # aim at the chest, not the feet
+
+
+func _track_killer(delta: float) -> void:
+	if _killer == null or not is_instance_valid(_killer):
+		return
+	if _killer.has_method("is_alive") and not _killer.is_alive():
+		return
+	if not _killer is Node3D:
+		return
+	var to: Vector3 = (_killer as Node3D).global_position \
+		+ Vector3.UP * DEATH_CAM_HEIGHT - head.global_position
+	var flat := Vector2(to.x, to.z).length()
+	if flat < 0.05:
+		return
+	var step := DEATH_CAM_TURN * delta
+	var want_yaw := atan2(-to.x, -to.z)
+	rotation.y += clampf(wrapf(want_yaw - rotation.y, -PI, PI), -step, step)
+	var want_pitch := atan2(to.y, flat)
+	_look_pitch = clampf(_look_pitch + clampf(want_pitch - _look_pitch, -step, step),
+		-PI / 2 + 0.05, PI / 2 - 0.05)
+	_refresh_head()
+
+
+## What the HUD prints on the death screen: who did it and how. Empty while
+## alive, and a plain string once dead — the killer may already be freed.
+func killer_line() -> String:
+	if not _dead or _killer_name == "":
+		return ""
+	return "KILLED BY %s%s" % [_killer_name, "  •  HEADSHOT" if _last_hit_headshot else ""]
+
+
+## 0..1 of the killer's health, or -1 when there is nothing to show (no killer,
+## or they have since died themselves). BF2 shows you what you left them on,
+## which is the difference between "outplayed" and "one more shot".
+func killer_health() -> float:
+	if _killer == null or not is_instance_valid(_killer):
+		return -1.0
+	if _killer.has_method("is_alive") and not _killer.is_alive():
+		return -1.0
+	var maxh: float = float(_killer.get("max_health"))
+	if maxh <= 0.0:
+		return -1.0
+	return clampf(float(_killer.get("health")) / maxh, 0.0, 1.0)
+
+
 func _respawn() -> void:
 	# Place the body BEFORE clearing _dead: while we still read as dead, the
 	# spawn picker skips us, so we don't treat the body we just left as an
@@ -1183,6 +1284,11 @@ func _respawn() -> void:
 	# Anything that MOVES a body rather than letting it walk has to say so.
 	reset_physics_interpolation()
 	_dead = false
+	# The last life's killer goes with the last life. Held until here rather than
+	# cleared on the deploy press, because the death screen is up until this line.
+	_killer = null
+	_killer_name = ""
+	_last_hit_headshot = false
 	# Your own deployment, so it is played flat rather than positioned: the point
 	# of it is "you are back in", not "something happened over there".
 	Audio.play("deploy")

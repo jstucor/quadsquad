@@ -17,6 +17,7 @@ const HIT_TICK := preload("res://scripts/hit_tick.gd")
 
 const MAP_VIEW := preload("res://scripts/map_view.gd")
 const MINIMAP := preload("res://scripts/minimap.gd")
+const KILL_FEED := preload("res://scripts/kill_feed.gd")
 const SETTINGS_OVERLAY := preload("res://scripts/settings_overlay.gd")
 const SPAWN_SCREEN := preload("res://scripts/spawn_screen.gd")
 const CONQUEST := preload("res://scripts/conquest.gd")
@@ -38,7 +39,12 @@ const PLAYER_COLORS: Array[Color] = [
 	Color(0.4, 0.85, 0.4),
 	Color(0.95, 0.8, 0.3),
 ]
-const MATCH_END_DELAY := 4.5  # seconds of victory banner before the next map
+## Seconds of victory banner + post-match table before the next map. It was 4.5,
+## which was enough for a banner and is not enough for a scoreboard: at a couch
+## the end-of-round table is the thing four people actually talk about, and a
+## screen that clears itself before anybody has finished reading it may as well
+## not be drawn. The rotation is not in a hurry.
+const MATCH_END_DELAY := 11.0
 
 # HUD palette.
 const HEAT_COOL_COLOR := Color(0.4, 0.8, 1.0, 0.9)
@@ -59,6 +65,8 @@ var level: Node3D
 # rotation. Player/weapon signals are exempt: they die with the same scene.
 var _score_labels: Array[Label] = []
 var _victory_banners: Array[Label] = []
+var _score_tables: Array[Label] = []
+var _killed_by: Array[Dictionary] = []
 var _next_build := 0
 var _countdown_labels: Array[Label] = []
 var _zone_labels: Array[Label] = []
@@ -531,7 +539,9 @@ func _build_hud(player: Player) -> Control:
 	_add_weapon_readout(hud, player, color)
 	_add_gear_readout(hud, player, color)
 	_add_kill_streak(hud, player)
+	_add_killed_by(hud, player)
 	_add_damage_flash(hud, player)
+	_add_kill_feed(hud)
 	if GameState.mode == GameState.Mode.ROYALE:
 		_add_storm_readout(hud, player)
 		_add_pickup_prompt(hud, player)
@@ -547,6 +557,7 @@ func _build_hud(player: Player) -> Control:
 	else:
 		hud.add_child(_build_buy_screen(player, color))
 	_add_victory_banner(hud)
+	_add_score_table(hud)
 	_add_countdown(hud)
 	if GameState.mode == GameState.Mode.ZONES:
 		_add_zone_readout(hud)
@@ -849,7 +860,77 @@ func _announce_zone_move(_point: Vector3) -> void:
 		label.add_theme_color_override("font_color", Color(1.0, 0.85, 0.4))
 
 
-## Hidden until a team wins, then shown in every viewport by _show_victory.
+## THE DEATH CAM'S CAPTION. The camera swings onto your killer on its own
+## (`Player._track_killer`); this is what names them, and it carries a bar for the
+## health you left them on — which is the whole difference between "I was
+## outclassed" and "one more shot".
+##
+## Placed high and centred, ABOVE the crosshair line, because the buy screen owns
+## the middle and bottom of a dead player's viewport and the two must not overlap.
+## Driven off `died`/`respawned` rather than polled: it is the only readout whose
+## content is fixed for the entire time it is up.
+func _add_killed_by(hud: Control, player: Player) -> void:
+	var box := VBoxContainer.new()
+	box.set_anchors_preset(Control.PRESET_CENTER_TOP)
+	box.anchor_left = 0.0
+	box.anchor_right = 1.0
+	box.offset_top = 54.0
+	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	box.alignment = BoxContainer.ALIGNMENT_CENTER
+	box.visible = false
+	hud.add_child(box)
+
+	var line := Label.new()
+	line.add_theme_font_size_override("font_size",
+		22 if GameState.human_players == 1 else 15)
+	line.add_theme_color_override("font_color", Color(1.0, 0.86, 0.86))
+	line.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	box.add_child(line)
+
+	# The killer's remaining health, as a bar rather than a number for exactly the
+	# reason the health gauge is: a number has to be read, and this one is up for
+	# two seconds while you are also shopping.
+	var bar := ProgressBar.new()
+	bar.custom_minimum_size = Vector2(
+		132.0 if GameState.human_players == 1 else 96.0, 6.0)
+	bar.show_percentage = false
+	bar.max_value = 1.0
+	bar.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	box.add_child(bar)
+
+	_killed_by.append({"player": player, "box": box, "line": line, "bar": bar})
+
+
+## The death caption is REPOINTED every frame while it is up, because the one
+## thing on it that moves is the killer's health — they are still in a fight.
+## Ticked from `_tick_overlays` with the rest of the HUD rather than as its own
+## process, so the per-frame cost of the whole HUD stays visible in one place.
+func _tick_killed_by() -> void:
+	for row in _killed_by:
+		var player: Player = row["player"]
+		if not is_instance_valid(player):
+			continue
+		var box: Control = row["box"]
+		var text: String = player.killer_line()
+		if text == "":
+			box.visible = false
+			continue
+		box.visible = true
+		var line: Label = row["line"]
+		if line.text != text:
+			line.text = text     # assigning re-shapes glyphs, so only when it moved
+		var bar: ProgressBar = row["bar"]
+		var frac := player.killer_health()
+		bar.visible = frac >= 0.0
+		if frac >= 0.0:
+			bar.value = frac
+
+
+func _add_kill_feed(hud: Control) -> void:
+	var feed: Control = KILL_FEED.new()
+	hud.add_child(feed)
+
+
 ## Kills on this life, under the player tag. It only appears once you're on the
 ## board, so a clean life has no dead HUD text. Getting a kill pops the label
 ## rather than washing the screen — the red wash means YOU are being hit.
@@ -961,6 +1042,46 @@ func _add_victory_banner(hud: Control) -> void:
 	_victory_banners.append(banner)
 
 
+## THE POST-MATCH TABLE. The banner says which side won, which is the one thing
+## everybody already knows — it was on the scoreboard all match. What nobody
+## knows is how each PERSON did, and at a couch that is the entire conversation
+## after a round.
+##
+## HUMANS ONLY, for the reason `GameState.player_stats` states: a bot is freed on
+## death, so there is nothing stable to accumulate into. Team totals are already
+## on the scoreboard above it.
+##
+## Built once and filled on victory rather than rebuilt per frame — it is up for
+## MATCH_END_DELAY and its contents cannot change, the match being over.
+func _add_score_table(hud: Control) -> void:
+	var panel := _full_rect_label("", _table_font_size(), Color(0.92, 0.92, 0.92))
+	panel.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	panel.add_theme_constant_override("line_spacing", 4)
+	panel.visible = false
+	hud.add_child(panel)
+	_score_tables.append(panel)
+
+
+func _table_font_size() -> int:
+	return 20 if GameState.human_players == 1 else 13
+
+
+## The table's text, built once for every viewport. Monospaced by PADDING rather
+## than by font, since the HUD has one font and it is proportional — the columns
+## only have to look like columns.
+func _score_table_text() -> String:
+	var rows := GameState.score_table()
+	if rows.is_empty():
+		return ""
+	var out := "\n\n\n\n"     # clear of the WINS banner, which is centred
+	out += "%-12s %5s %7s %6s %8s\n" % ["", "KILLS", "DEATHS", "HEAD", "BEST RUN"]
+	for row in rows:
+		var name: String = str(row["name"])
+		out += "%-12s %5d %7d %6d %8d\n" % [name, int(row["kills"]),
+			int(row["deaths"]), int(row["headshots"]), int(row["best_streak"])]
+	return out
+
+
 func _show_victory(team: int) -> void:
 	# WHOSE victory decides the sting, and with four players at one couch there
 	# is no single answer — so it asks the humans: if any of them is on the
@@ -976,6 +1097,10 @@ func _show_victory(team: int) -> void:
 		banner.text = "%s WINS" % GameState.team_names[team]
 		banner.add_theme_color_override("font_color", GameState.team_colors[team])
 		banner.visible = true
+	var table := _score_table_text()
+	for panel in _score_tables:
+		panel.text = table
+		panel.visible = table != ""
 
 
 ## The buy screen for one viewport: a dimmed backdrop, the budget, one row per
@@ -1321,6 +1446,7 @@ func _tick_overlays() -> void:
 	_tick_bloom()
 	_tick_minimaps()
 	_tick_buy_screens()
+	_tick_killed_by()
 	if Engine.get_process_frames() % SLOW_TICK == 0:
 		for entry in _slow_labels:
 			var label: Label = entry["label"]

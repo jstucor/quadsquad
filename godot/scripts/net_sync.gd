@@ -463,11 +463,11 @@ func announce_death(id: int, shove: Vector3) -> void:
 
 ## Somebody was killed and the score has to move. Runs the real rules on the
 ## host, wherever the kill happened.
-func report_kill(killer_id: int, victim_team: int) -> void:
+func report_kill(killer_id: int, victim_id: int, victim_team: int) -> void:
 	if Net.is_host():
-		_score_kill(killer_id, victim_team)
+		_score_kill(killer_id, victim_id, victim_team)
 	else:
-		_report_kill.rpc_id(1, killer_id, victim_team)
+		_report_kill.rpc_id(1, killer_id, victim_id, victim_team)
 
 
 @rpc("any_peer", "call_remote", "reliable")
@@ -480,9 +480,9 @@ func _take_death(id: int, shove: Vector3) -> void:
 
 
 @rpc("any_peer", "call_remote", "reliable")
-func _report_kill(killer_id: int, victim_team: int) -> void:
+func _report_kill(killer_id: int, victim_id: int, victim_team: int) -> void:
 	if Net.is_host():
-		_score_kill(killer_id, victim_team)
+		_score_kill(killer_id, victim_id, victim_team)
 
 
 ## A human finished shopping. Tallied on the host, which is the only machine that
@@ -517,7 +517,7 @@ func _note_deploy(id: int) -> void:
 ## local match uses. Nothing here re-implements a rule: `add_frag`, `report_death`
 ## and `check_last_standing` still decide what a kill is worth in each mode, and
 ## the result is mirrored out by `_on_score_changed`.
-func _score_kill(killer_id: int, victim_team: int) -> void:
+func _score_kill(killer_id: int, victim_id: int, victim_team: int) -> void:
 	var killer_team := _team_of(killer_id)
 	if GameState.mode == GameState.Mode.CONQUEST:
 		GameState.report_death(victim_team)
@@ -525,6 +525,49 @@ func _score_kill(killer_id: int, victim_team: int) -> void:
 		GameState.check_last_standing()
 	elif killer_team >= 0 and killer_team != victim_team:
 		GameState.add_frag(killer_team)
+	# THE RECORD IS THE HOST'S TOO, and then it is BROADCAST rather than derived
+	# again on each machine: a client has no body for a bot that died on the host,
+	# so it could never build the same entry from ids. One authority, one feed,
+	# and every machine's killfeed says the same thing in the same order.
+	# `log_kill` mirrors this out to every client on its own — see the note there
+	# for why the broadcast lives in one place and not in each death path.
+	GameState.log_kill(_kill_entry(killer_id, victim_id, victim_team))
+
+
+## Build a feed entry from ids. Names are resolved HERE, on the machine that has
+## the bodies, and travel as strings — the receiving end is not asked to look up
+## a body it may never have had.
+func _kill_entry(killer_id: int, victim_id: int, victim_team: int) -> Dictionary:
+	var killer: Node3D = body_for(killer_id)
+	var victim: Node3D = body_for(victim_id)
+	var suicide := killer_id < 0 or killer_id == victim_id
+	var entry := {
+		"killer": "" if suicide else GameState.combatant_name(killer),
+		"killer_team": -1 if suicide else _team_of(killer_id),
+		"victim": GameState.combatant_name(victim),
+		"victim_team": victim_team,
+		"headshot": false,
+		"suicide": suicide,
+	}
+	# A net id below BOT_ID_BASE IS a human seat, which is exactly what a stat row
+	# is keyed on — so online the table fills for every human in the session and
+	# not just the ones on this machine.
+	if not suicide and killer_id >= 0 and killer_id < BOT_ID_BASE:
+		entry["killer_index"] = killer_id
+	if victim_id >= 0 and victim_id < BOT_ID_BASE:
+		entry["victim_index"] = victim_id
+	return entry
+
+
+## Push one feed entry to every client. Called by `GameState.log_kill` on the
+## host, whatever killed whatever.
+func mirror_kill(entry: Dictionary) -> void:
+	_take_kill.rpc(entry)
+
+
+@rpc("authority", "call_remote", "reliable")
+func _take_kill(entry: Dictionary) -> void:
+	GameState.log_kill(entry, false)   # from the wire: do not echo it back
 
 
 func _team_of(id: int) -> int:

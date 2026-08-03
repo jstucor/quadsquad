@@ -60,6 +60,10 @@ func is_alive() -> bool:
 	return not _dead
 
 
+func combatant_name() -> String:
+	return "TURRET"
+
+
 func take_damage(amount: float, attacker: Node = null, headshot := false) -> void:
 	if _dead:
 		return
@@ -80,6 +84,9 @@ func _destroy(attacker: Node) -> void:
 		GameState.add_frag(attacker.team)
 		if attacker.has_method("credit_kill"):
 			attacker.credit_kill()
+	# Destroying hardware is a kill in the feed too — it cost somebody a purchase
+	# and it is exactly the kind of thing a player wants credit for out loud.
+	GameState.record_kill(attacker, self)
 	queue_free()
 
 

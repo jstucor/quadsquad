@@ -411,6 +411,18 @@ func is_alive() -> bool:
 	return not _dead
 
 
+## The feed names an AI by the CLASS it deployed as, which is the only thing
+## about it anybody could recognise — one of eight rifles walking at you is not
+## "BOT 37". No `stat_index`: a bot is freed on death and the next one is a
+## different instance, so there is no row for it to accumulate into.
+func combatant_name() -> String:
+	if line:
+		return "LINE TROOPER"
+	if loadout != null and loadout.build_name != "":
+		return loadout.build_name
+	return "TROOPER"
+
+
 ## Same contract as Player: hitscan and splash both find this by method name.
 func is_headshot(world_pos: Vector3) -> bool:
 	return world_pos.y - global_position.y >= 1.42 * _stature
@@ -438,6 +450,7 @@ func _die(attacker: Node) -> void:
 		if attacker.has_method("credit_kill"):
 			attacker.credit_kill()
 	GameState.report_death(team)  # CONQUEST: an AI death spends a reinforcement too
+	GameState.record_kill(attacker, self)
 	Audio.play_at("death", global_position)
 	var corpse := CORPSE_SCENE.instantiate()
 	get_tree().current_scene.add_child(corpse)

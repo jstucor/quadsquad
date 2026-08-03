@@ -1037,6 +1037,12 @@ const BUY_BOXES: Array[Dictionary] = [
 
 
 var kit := Kit.CLONE   # index into KITS; picks what the rest of this may be
+## What the preset this was built from was CALLED, or "" for a shopped build.
+## Set by `_build_from` off the row's own `name`, which it used to throw away —
+## so a Bot can say what it deployed as without holding an index into a table
+## that gets appended to. A shopped loadout has no name because it is not one of
+## anything: it is whatever that player bought this life.
+var build_name := ""
 var weapon := 0        # index into WEAPONS (NO_PRIMARY = sidearm only)
 ## An explicit primary Weapon.Class that overrides the WEAPONS[weapon] lookup,
 ## or -1 to use that lookup. This is how a FIXED faction preset (Conquest) can
@@ -1953,7 +1959,7 @@ static func _build_from(preset: Dictionary) -> Loadout:
 	for key in preset:
 		match key:
 			"name":
-				pass
+				built.build_name = str(preset[key])
 			"primary":
 				built.weapon = weapon_index(preset[key])
 			"sidearm":
@@ -2582,6 +2588,7 @@ func _same_as(other: Loadout) -> bool:
 ## class and not added here is a field that silently does not exist.
 func _copy_from(other: Loadout) -> void:
 	kit = other.kit
+	build_name = other.build_name
 	gadget2 = other.gadget2
 	gadget3 = other.gadget3
 	weapon = other.weapon
