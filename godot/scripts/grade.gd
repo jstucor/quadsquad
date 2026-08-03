@@ -99,6 +99,11 @@ static func apply(env: Environment, exposure := EXPOSURE,
 	#    and let the HDR threshold decide: only genuinely bright things — bolts,
 	#    blades, photoreceptors, lamp housings — bloom, which is what makes an
 	#    energy weapon look like it is emitting rather than painted.
+	# ...but whether glow runs AT ALL is a cost decision, so `Quality` gets to veto
+	# it before this configures it. Measured at the edge of noise (1.3 ms), which is
+	# why only the LOW tier takes it — and on the night maps the glow IS the muzzle
+	# flash, so it is not a saving to reach for casually.
+	Quality.apply_to_environment(env)
 	if env.glow_enabled:
 		env.glow_bloom = 0.0
 		env.glow_hdr_threshold = GLOW_THRESHOLD
@@ -202,10 +207,14 @@ static func light(l: DirectionalLight3D) -> void:
 	# ...and the light has to be told to light the FOG as well as the surfaces,
 	# or the volumetric layer sits there unlit and just greys the picture down.
 	l.light_volumetric_fog_energy = 1.0
-	# Four splits with blending across them. These maps run to 260 m, and one
-	# split over that distance is what makes near-ground shadows crawl.
-	l.directional_shadow_mode = DirectionalLight3D.SHADOW_PARALLEL_4_SPLITS
-	l.directional_shadow_blend_splits = true
+	# Two splits. These maps run to 260 m and one split over that distance is what
+	# makes near-ground shadows crawl — measured, going to one split saves nothing
+	# anyway, so there is no argument for it in either direction.
+	l.directional_shadow_mode = DirectionalLight3D.SHADOW_PARALLEL_2_SPLITS
+	# Whether the two splits are BLENDED across their boundary is a cost decision
+	# (3 ms at a four-way split) rather than a look decision, so `Quality` owns it.
+	# Everything else here is free and stays stated in this file.
+	Quality.apply_to_light(l)
 	# Normal bias rather than depth bias: depth bias detaches a shadow from the
 	# thing casting it (peter-panning), which on boxes standing on a flat floor
 	# is exactly the artifact you notice.

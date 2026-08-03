@@ -18,6 +18,30 @@ const PLAYER := preload("res://scenes/actors/player.tscn")
 
 ## Each row: the file tag, and the styles standing in it.
 const LINEUPS := [
+	# STAR WARS is the setting this game is built out of, and until now not one
+	# of its human units stood in this test — which is how twelve of them came
+	# to be sharing a single helmet. These four rows are the ones to check
+	# first: a clone, a stormtrooper, a scout and a rebel are four of the most
+	# recognisable helmets ever put on film, and if they are not instantly
+	# telling themselves apart in the _heads shot, nothing else here matters.
+	["sw_republic", [CharacterModel.Style.CLONE, CharacterModel.Style.CLONE_HEAVY,
+		CharacterModel.Style.CLONE_ARC, CharacterModel.Style.CLONE_COMMANDO]],
+	["sw_droids", [CharacterModel.Style.B1, CharacterModel.Style.B2,
+		CharacterModel.Style.DROIDEKA, CharacterModel.Style.MAGNAGUARD]],
+	["sw_droids2", [CharacterModel.Style.COMMANDO_DROID,
+		CharacterModel.Style.TACTICAL, CharacterModel.Style.GEONOSIAN]],
+	["sw_empire", [CharacterModel.Style.STORMTROOPER,
+		CharacterModel.Style.STORMTROOPER_HEAVY,
+		CharacterModel.Style.SCOUT_TROOPER, CharacterModel.Style.DEATH_TROOPER]],
+	["sw_empire2", [CharacterModel.Style.SHORETROOPER,
+		CharacterModel.Style.FLAMETROOPER, CharacterModel.Style.IMPERIAL_OFFICER,
+		CharacterModel.Style.IMPERIAL_ROYAL]],
+	["sw_rebels", [CharacterModel.Style.REBEL_TROOPER,
+		CharacterModel.Style.REBEL_VANGUARD, CharacterModel.Style.REBEL_PILOT,
+		CharacterModel.Style.REBEL_OFFICER]],
+	["sw_rebels2", [CharacterModel.Style.REBEL_COMMANDO,
+		CharacterModel.Style.WOOKIEE, CharacterModel.Style.EWOK,
+		CharacterModel.Style.JEDI]],
 	["halo_unsc", [CharacterModel.Style.SPARTAN, CharacterModel.Style.ODST,
 		CharacterModel.Style.MARINE]],
 	["halo_covenant", [CharacterModel.Style.ELITE, CharacterModel.Style.GRUNT,
@@ -71,9 +95,12 @@ func _ready() -> void:
 		# silhouette and the only part of these that is genuinely new geometry,
 		# so it gets a shot where you can actually see it: a Sangheili's split
 		# mandibles and an ork's jaw are four boxes each and either read or don't.
+		# Tight enough that a helmet fills a useful part of the frame. At the old
+		# distance this was a mid-shot of the whole body and twelve Star Wars
+		# units shared one helmet in it without anybody noticing.
 		cam.global_transform = Transform3D(Basis(),
-			Vector3(0.0, 1.62, -(0.55 + span * 0.42)))
-		cam.look_at(Vector3(0.0, 1.58, 0.0), Vector3.UP)
+			Vector3(0.0, 1.64, -(0.30 + span * 0.30)))
+		cam.look_at(Vector3(0.0, 1.60, 0.0), Vector3.UP)
 		await _frames(4)
 		await _grab("%s_heads" % row[0])
 	_clear_models()

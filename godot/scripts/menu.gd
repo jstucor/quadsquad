@@ -19,6 +19,7 @@ extends Control
 const GAME_SCENE := "res://scenes/main.tscn"
 const TEAM_SELECT_SCENE := "res://scenes/team_select.tscn"
 const SETTINGS_SCENE := "res://scenes/settings.tscn"
+const LOBBY_SCENE := "res://scenes/lobby.tscn"
 
 const BG_COLOR := Color(0.06, 0.07, 0.09)
 const ACCENT := Color(0.45, 0.72, 1.0)
@@ -34,8 +35,30 @@ var _refresh_all: Callable
 func _ready() -> void:
 	# A match captures the pointer; coming back here it has to be free again.
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	# The menu is one camera-less screen and will happily render at three hundred
+	# frames a second, which on integrated graphics heats the chip up before the
+	# match that needs it has started. Re-applied here as well as in Main so a
+	# quality change made on the settings screen takes hold without a restart.
+	Quality.active_views = 1
+	Quality.apply_global()
+	# The menu owns the menu track. Said every time this screen loads rather than
+	# once at startup, because the match changes it and coming back has to change
+	# it back — `Audio.play_music` ignores a request for what is already playing,
+	# so this is safe to repeat.
+	Audio.play_music("menu")
 	set_anchors_preset(Control.PRESET_FULL_RECT)
 	GameState.chosen_teams = []   # a fresh visit re-picks teams from scratch
+	# `-- --host` / `-- --join` walk straight into the lobby, already in a
+	# session. Checked here rather than in an autoload's _ready because it CHANGES
+	# SCENE, and doing that before the first scene has finished loading is how you
+	# get a tree with two current scenes in it.
+	#
+	# DEFERRED, because the tree is still mid-way through adding THIS scene: a
+	# scene change from inside `_ready` tries to detach a parent that is busy
+	# attaching, which errors and leaves the menu up.
+	if not Net.online() and Net.boot_from_cmdline():
+		get_tree().change_scene_to_file.call_deferred(LOBBY_SCENE)
+		return
 	_build()
 
 
@@ -73,6 +96,10 @@ func _build() -> void:
 	# than hidden on the others — the same rule VICTORY and CLASSES follow: an
 	# option that vanishes is one nobody learns exists.
 	var planet_dd := _dropdown(top, "PLANET")
+	# ...and TIME OF DAY beside it, for the same reason and with the same rule:
+	# it is the other half of choosing which world you are dropping into, and it
+	# is only the generated one that has a night to drop into.
+	var time_dd := _dropdown(top, "TIME OF DAY")
 	# TIME TO KILL is next to it because the two answer the same question — what
 	# kind of fight is this — and both change how every gun in the game feels.
 	var ttk_dd := _dropdown(top, "TIME TO KILL")
@@ -117,6 +144,11 @@ func _build() -> void:
 	column.add_child(row)
 	var rotate_btn := _chip(row, "MAP ROTATION")
 	rotate_btn.pressed.connect(_start.bind(true))
+	# MULTIPLAYER sits beside MAP ROTATION rather than above START, because it is
+	# the same size of decision as the settings around it: everything on this
+	# screen still applies, and the lobby only adds who else is playing.
+	var net_btn := _chip(row, "MULTIPLAYER")
+	net_btn.pressed.connect(_open_lobby)
 	var controls_btn := _chip(row, "CONTROLS")
 	controls_btn.pressed.connect(func() -> void:
 		get_tree().change_scene_to_file(SETTINGS_SCENE))
@@ -125,12 +157,12 @@ func _build() -> void:
 
 	_wire_focus([
 		[map_dd, mode_dd],
-		[universe_dd, planet_dd, ttk_dd],
+		[universe_dd, planet_dd, time_dd, ttk_dd],
 		[players_dd, teams_dd, size_dd],
 		[victory_dd, skill_dd, assist_dd],
 		[classes_dd],
 		[start],
-		[rotate_btn, controls_btn, quit_btn],
+		[rotate_btn, net_btn, controls_btn, quit_btn],
 	])
 
 	column.add_child(_label(
@@ -141,10 +173,13 @@ func _build() -> void:
 	# any other one displays.
 	_refresh_all = func() -> void:
 		_fill(map_dd, _map_items(), GameState.map_index)
+		map_dd.disabled = GameState.massive()
 		_fill(mode_dd, _mode_items(), GameState.mode)
 		_fill(universe_dd, _universe_items(), GameState.universe)
 		_fill(planet_dd, _planet_items(), GameState.planet + 1)   # RANDOM is item 0
 		planet_dd.disabled = not GameState.map_is_procedural()
+		_fill(time_dd, _time_items(), GameState.time_of_day)
+		time_dd.disabled = not GameState.map_is_procedural()
 		_fill(ttk_dd, _ttk_items(), GameState.ttk)
 		blurb.text = "%s   —   %s" % [GameState.map_blurb(), GameState.mode_blurb()]
 		# CONQUEST is Republic vs Separatist: exactly two sides, never a free-for-all.
@@ -152,6 +187,17 @@ func _build() -> void:
 		if conquest:
 			GameState.free_for_all = false
 			GameState.team_count = 2
+		# MASSIVE is two sides on generated ground and nothing else: the map row
+		# is pinned to the procedural world (the hand-laid arenas are eight-body
+		# maps) and the sides are fixed at two, because fifty a side across four
+		# teams is two hundred bodies and no machine here is having that.
+		var massive: bool = GameState.massive()
+		if massive:
+			GameState.free_for_all = false
+			GameState.team_count = 2
+			GameState.map_index = GameState.procedural_map_index()
+			if not GameState.MASSIVE_SIZES.has(GameState.team_size):
+				GameState.team_size = GameState.MASSIVE_DEFAULT
 		# Every dropdown is REBUILT here rather than just re-selected, because
 		# what is legal changes as you go: team size cannot drop below the humans
 		# already standing in a team, and free-for-all needs a second player.
@@ -159,7 +205,7 @@ func _build() -> void:
 		_fill(players_dd, _player_items(), GameState.human_players - GameState.MIN_HUMANS)
 		_fill(teams_dd, _team_items(), _team_choice())
 		teams_dd.set_item_disabled(_FREE_FOR_ALL_ITEM, GameState.human_players < 2)
-		teams_dd.disabled = conquest   # locked to two sides in Conquest
+		teams_dd.disabled = conquest or massive   # both are two-sided
 		var sizes := _size_items()
 		_fill(size_dd, sizes, sizes.find(_size_label(GameState.team_size)))
 		size_dd.disabled = GameState.free_for_all   # every side is one player
@@ -191,6 +237,9 @@ func _build() -> void:
 		# Item 0 is RANDOM, which is GameState.RANDOM_PLANET (-1).
 		GameState.planet = i - 1
 		_refresh_all.call())
+	time_dd.item_selected.connect(func(i: int) -> void:
+		GameState.time_of_day = i
+		_refresh_all.call())
 	universe_dd.item_selected.connect(func(i: int) -> void:
 		# Changing universe changes who the sides ARE, so a team picked on the
 		# old roster means nothing — team-select is re-run from scratch anyway,
@@ -219,7 +268,8 @@ func _build() -> void:
 		_fix_setup()
 		_refresh_all.call())
 	size_dd.item_selected.connect(func(i: int) -> void:
-		GameState.team_size = _smallest_team_size() + i
+		GameState.team_size = GameState.MASSIVE_SIZES[i] if GameState.massive() \
+			else _smallest_team_size() + i
 		_refresh_all.call())
 	skill_dd.item_selected.connect(func(i: int) -> void:
 		GameState.ai_skill = i
@@ -325,6 +375,10 @@ const SCORE_CHOICES := {
 	GameState.Mode.DEATHMATCH: [10, 25, 50, 75, 100],
 	GameState.Mode.ZONES: [60, 120, 200, 300],
 	GameState.Mode.CONQUEST: [75, 150, 250, 400],   # starting reinforcements per side
+	# MASSIVE counts kills like deathmatch, but a hundred bodies trade them far
+	# faster: twenty-five would be over before the crowd had finished walking
+	# into each other.
+	GameState.Mode.MASSIVE: [100, 200, 350, 500],
 }
 
 
@@ -346,8 +400,18 @@ func _victory_items() -> PackedStringArray:
 
 ## Team size starts at the biggest team's human headcount: a team can never be
 ## smaller than the people already standing in it.
+##
+## MASSIVE has its own ladder entirely (`GameState.MASSIVE_SIZES`): the ordinary
+## one runs to six, and the whole point of that mode is the numbers. The smaller
+## rungs are offered because the frame cost of a hundred bodies is real and
+## measured — a couch that cannot hold fifty a side should be able to play
+## twenty-five.
 func _size_items() -> PackedStringArray:
 	var out := PackedStringArray()
+	if GameState.massive():
+		for n: int in GameState.MASSIVE_SIZES:
+			out.append(_size_label(n))
+		return out
 	for n in range(_smallest_team_size(), GameState.MAX_TEAM_SIZE + 1):
 		out.append(_size_label(n))
 	return out
@@ -387,6 +451,13 @@ func _planet_items() -> PackedStringArray:
 	return out
 
 
+func _time_items() -> PackedStringArray:
+	var out := PackedStringArray()
+	for i in GameState.TIME_NAMES.size():
+		out.append(str(GameState.TIME_NAMES[i]))
+	return out
+
+
 func _ttk_items() -> PackedStringArray:
 	var out := PackedStringArray()
 	for i in GameState.TTK_NAMES.size():
@@ -416,6 +487,8 @@ func _fix_setup() -> void:
 	if GameState.human_players < 2:
 		GameState.free_for_all = false
 	GameState.team_count = clampi(GameState.team_count, 2, GameState.MAX_TEAMS)
+	if GameState.massive():
+		return   # its own ladder, and its own two-sided shape
 	if not GameState.free_for_all:
 		GameState.team_size = maxi(GameState.team_size, _smallest_team_size())
 
@@ -448,7 +521,17 @@ func _describe() -> String:
 ## START goes to the TEAM-SELECT screen first, where each player picks a side —
 ## unless it is free-for-all, where every player is already their own team and
 ## there is nothing to pick, so it drops straight into the match.
+## Leaving for the lobby drops any session that is still open. Coming back here
+## is the one unambiguous "I am done being online" in the game, and a socket left
+## up would keep answering discovery for a machine sitting on the front screen.
+func _open_lobby() -> void:
+	Audio.play("ui_accept")
+	get_tree().change_scene_to_file(LOBBY_SCENE)
+
+
 func _start(rotate: bool) -> void:
+	Audio.play("ui_accept")
+	Net.leave()   # a local match is a local match, whatever was open before
 	GameState.rotate_maps = rotate
 	GameState.chosen_teams = []   # cleared; team-select fills it, FFA leaves it
 	if GameState.free_for_all:
@@ -516,7 +599,18 @@ func _framed(b: Button) -> Button:
 		b.add_theme_stylebox_override(state,
 			_panel(PANEL_EDGE if state == "normal" else ACCENT))
 	b.mouse_entered.connect(b.grab_focus)
+	# EVERY framed control on this screen is built here, so this one line gives
+	# the whole menu a voice: a blip as the selection moves, whichever pad or
+	# key moved it. `focus_entered` rather than an input handler, because focus
+	# is the thing that actually changed and it fires for mouse, key and pad
+	# alike — the same reason `_wire_focus` states neighbours rather than
+	# trusting Godot's geometric search.
+	b.focus_entered.connect(_focus_blip)
 	return b
+
+
+func _focus_blip() -> void:
+	Audio.play("ui_move")
 
 
 func _panel(edge: Color) -> StyleBoxFlat:

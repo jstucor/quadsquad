@@ -27,7 +27,8 @@ const SHELL_GAP := 0.7        # seconds between rounds inside a burst (~7 a burs
 const SPREAD := 4.0           # metres of scatter around the called point
 const SPLASH := 4.2
 const SPLASH_DAMAGE := 68.0
-const MUZZLE_Y := 1.15        # shells leave the top of the tube
+const MUZZLE_Y := 1.13        # shells leave the top of the tube
+const TRAVERSE_SPEED := 2.4   # radians/sec the tube swings toward a new mark
 const SKY := 60.0             # how far up the ground probe starts
 
 var team: int = GameState.Team.REPUBLIC
@@ -41,11 +42,19 @@ var _firing := false        # true during the burst half of the cycle
 var _phase_left := 0.0      # seconds left in the current half
 var _next_shell := 0.0
 
-@onready var _tube: Node3D = $Tube
+var _want_yaw := 0.0
+
+## The turntable carries the tube and the bipod and swings to face the barrage;
+## the baseplate and the ammo rack are bolted to the ground and do not.
+@onready var _turntable: Node3D = $Turntable
+@onready var _tube: Node3D = $Turntable/Tube
+
+var _mats := {}
 
 
 func _ready() -> void:
 	GameState.register_combatant(self)
+	_build_model()
 
 
 func _exit_tree() -> void:
@@ -91,6 +100,13 @@ func fire_at(point: Vector3) -> void:
 		return
 	_aim = Vector3(point.x, _ground_y(point), point.z)
 	_aimed = true
+	# SWING TO FACE IT. The shells solve their own arc from the tube's origin, so
+	# where the barrel points has never affected where they land — which is
+	# exactly why it was left pointing wherever it was dropped, and why a tube
+	# shelling a hill behind it looked broken. It is cosmetic and it is the whole
+	# read: a mortar that traverses is a mortar somebody is aiming.
+	var local := to_local(_aim)
+	_want_yaw = atan2(-local.x, -local.z)
 	# A fresh mark starts a fresh burst, so re-aiming pays off immediately
 	# instead of landing in the middle of a rest phase.
 	_firing = true
@@ -121,7 +137,12 @@ func _destroy(attacker: Node) -> void:
 
 ## The bombardment cycle: burst, rest, burst, for as long as it stands.
 func _physics_process(delta: float) -> void:
-	if _dead or not _aimed:
+	if _dead:
+		return
+	if _turntable != null:
+		_turntable.rotation.y = rotate_toward(_turntable.rotation.y, _want_yaw,
+			TRAVERSE_SPEED * delta)
+	if not _aimed:
 		return
 	# The match hold applies to placed hardware too, or a barrage called in the
 	# opening seconds would land before anyone can move.
@@ -176,14 +197,118 @@ func _ground_y(point: Vector3) -> float:
 	return hit["position"].y if hit else global_position.y
 
 
+## Re-tint, never rebuild — see the same note on Turret._paint.
 func _paint(team_color: Color) -> void:
-	var body_mat := StandardMaterial3D.new()
-	body_mat.albedo_color = Color(0.24, 0.26, 0.30)
-	body_mat.metallic = 0.1  # a dark sky reflects into metal (Gotchas)
-	body_mat.roughness = 0.62
-	var trim := StandardMaterial3D.new()
-	trim.albedo_color = team_color
-	trim.metallic = 0.0
-	trim.roughness = 0.5
-	$Base.material_override = trim
-	$Tube/Barrel.material_override = body_mat
+	if _mats.is_empty():
+		return
+	_mats["trim"].albedo_color = team_color
+
+
+## --- the model ----------------------------------------------------------------
+##
+## A MORTAR IS A BASEPLATE, A BIPOD AND A TUBE, and those three masses in roughly
+## the right proportions are what the eye recognises — the same lesson as the
+## Coruscant towers, where no amount of detail rescues the wrong shapes. It used
+## to be a cone with a cylinder leaning out of it, which is a signpost.
+##
+## The three masses are also what makes it read as ARTILLERY rather than as a
+## small turret at a glance, which matters: they are bought from the same screen,
+## they are the same size, and one of them you should walk up to and shoot while
+## the other you should not. The baseplate spreads on the ground, the bipod
+## reaches forward, and the tube is the only thing on the model that is long.
+##
+## The AMMO RACK is three shells standing on the plate behind the breech. It is
+## the cheapest thing here and does the most work: it says what the machine eats,
+## and it is what a player sees while walking past their own tube between bursts.
+
+func _build_model() -> void:
+	var steel := _surface(Color(0.45, 0.47, 0.51), 0.32, 0.52)
+	var poly := _surface(Color(0.12, 0.13, 0.15), 0.82, 0.20)
+	var trim := _surface(Color(0.7, 0.7, 0.7), 0.45, 0.40)
+	_mats = {"steel": steel, "poly": poly, "trim": trim}
+	_paint(GameState.team_colors[team])
+
+	# --- the baseplate, which does not swing ----------------------------------
+	_box(Vector3(0.64, 0.10, 0.64), Vector3(0, 0.05, 0), steel)
+	for sx: float in [-1.0, 1.0]:
+		for sz: float in [-1.0, 1.0]:
+			# Spade lugs: the teeth that stop a firing plate walking backwards.
+			_box(Vector3(0.11, 0.05, 0.11), Vector3(sx * 0.24, 0.10, sz * 0.24),
+				poly, null, false)
+	_cyl(0.14, 0.09, Vector3(0, 0.12, 0), poly)   # the socket the tube sits in
+	# The rack, behind the breech (forward is -Z, so this is where a crew stands).
+	_box(Vector3(0.34, 0.05, 0.11), Vector3(0, 0.11, 0.29), poly, null, false)
+	for i in 3:
+		_cyl(0.045, 0.24, Vector3(-0.10 + i * 0.10, 0.25, 0.29), trim, null, false)
+
+	# --- the bipod, which swings with the tube --------------------------------
+	# Each leg hangs off a NODE placed at the yoke and rotated, rather than a box
+	# carrying its own compound rotation: two tilts on one box means guessing at
+	# Godot's rotation order, and the foot ends up somewhere near the ground
+	# rather than on it.
+	for sx: float in [-1.0, 1.0]:
+		var hip := Node3D.new()
+		_turntable.add_child(hip)
+		hip.position = Vector3(sx * 0.09, 0.50, -0.26)
+		hip.rotation = Vector3(0.18, 0.0, sx * -0.40)
+		_box(Vector3(0.05, 0.62, 0.07), Vector3(0, -0.31, 0), steel, hip)
+		_box(Vector3(0.15, 0.045, 0.18), Vector3(0, -0.64, 0), poly, hip, false)
+	_box(Vector3(0.26, 0.09, 0.14), Vector3(0, 0.50, -0.26), steel, _turntable)
+	# The elevating screw. A hand-turned thread on the outside of the yoke is the
+	# detail that says a person sets this thing, and it is one cylinder.
+	_cyl(0.022, 0.30, Vector3(0.15, 0.38, -0.20), steel, _turntable, false)
+
+	# --- the tube -------------------------------------------------------------
+	_cyl(0.082, 1.00, Vector3(0, 0.50, 0), steel, _tube)
+	for i in 3:
+		# REINFORCING BANDS, and they are here for scale rather than for realism:
+		# a bare cylinder could be any length, and three repeats along it are
+		# what let the eye read how long it actually is.
+		_cyl(0.098, 0.04, Vector3(0, 0.26 + i * 0.24, 0), poly, _tube, false)
+	# A LIP, not a cap. At r 0.10 over 0.10 this stepped out far enough for long
+	# enough that the tube stopped reading as a tube and started reading as a
+	# telescope — the muzzle wants to be the thinnest part of the barrel, not the
+	# fattest.
+	_cyl(0.092, 0.05, Vector3(0, 1.01, 0), steel, _tube)
+	_cyl(0.095, 0.12, Vector3(0, 0.02, 0), poly, _tube)      # breech cap
+	_cyl(0.101, 0.035, Vector3(0, 0.88, 0), trim, _tube, false)
+	_box(Vector3(0.06, 0.13, 0.05), Vector3(0.115, 0.40, 0), poly, _tube, false)
+
+
+func _surface(albedo: Color, roughness: float, spec: float) -> StandardMaterial3D:
+	var m := StandardMaterial3D.new()
+	m.albedo_color = albedo
+	m.metallic = 0.0   # see the weapon-materials note: metal reflects the sky
+	m.roughness = roughness
+	m.metallic_specular = spec
+	return m
+
+
+func _box(size: Vector3, pos: Vector3, mat: Material, into: Node3D = null,
+		shadow := true) -> MeshInstance3D:
+	var mi := MeshInstance3D.new()
+	mi.mesh = Meshes.chamfer_box(size)
+	mi.position = pos
+	mi.material_override = mat
+	if not shadow:
+		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	(into if into != null else self).add_child(mi)
+	return mi
+
+
+func _cyl(radius: float, height: float, pos: Vector3, mat: Material,
+		into: Node3D = null, shadow := true) -> MeshInstance3D:
+	var mi := MeshInstance3D.new()
+	var m := CylinderMesh.new()
+	m.top_radius = radius
+	m.bottom_radius = radius
+	m.height = height
+	m.radial_segments = 10
+	m.rings = 1
+	mi.mesh = m
+	mi.position = pos
+	mi.material_override = mat
+	if not shadow:
+		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	(into if into != null else self).add_child(mi)
+	return mi

@@ -37,6 +37,7 @@ const ACTIONS: Array[Dictionary] = [
 	{"id": "switch", "name": "SWAP WEAPON", "pad": true},
 	{"id": "gadget", "name": "GADGET 1", "pad": true},
 	{"id": "grenade", "name": "GADGET 2", "pad": true},
+	{"id": "sustain", "name": "GADGET 3", "pad": true},
 	{"id": "map", "name": "MAP / STRIKE", "pad": true},
 	{"id": "interact", "name": "PICK UP", "pad": true},
 	{"id": "forward", "name": "MOVE FORWARD", "pad": false},
@@ -55,6 +56,7 @@ const DEFAULT_KEYS := {
 	"switch": {"key": KEY_Q},
 	"gadget": {"key": KEY_F},
 	"grenade": {"key": KEY_G},
+	"sustain": {"key": KEY_R},
 	"map": {"key": KEY_M},
 	"interact": {"key": KEY_E},
 	"forward": {"key": KEY_W},
@@ -78,8 +80,18 @@ const DEFAULT_PAD := {
 	"ads": [{"kind": Kind.AXIS, "index": JOY_AXIS_TRIGGER_LEFT, "dir": 1}],
 	"jump": [{"kind": Kind.BUTTON, "index": JOY_BUTTON_A}],
 	"sprint": [{"kind": Kind.BUTTON, "index": JOY_BUTTON_LEFT_STICK}],
-	"crouch": [{"kind": Kind.BUTTON, "index": JOY_BUTTON_B}],
-	"switch": [{"kind": Kind.BUTTON, "index": JOY_BUTTON_Y}],
+	# THE FACE BUTTONS, after the third gadget slot landed. A sustained ability is
+	# something you put UP and keep — a cloak, a barrier, an overshield — so it
+	# earns a face button of its own rather than a chord, and the one it takes is
+	# the one weapon swap had (Y/triangle). Swap moves to CIRCLE (B), which is
+	# where a second "change what is in my hands" press belongs and is what the
+	# thumb is nearest. Crouch moves off B onto the right stick — which is where
+	# this project's own saved config already had it, so for its author nothing
+	# moved at all.
+	"crouch": [{"kind": Kind.BUTTON, "index": JOY_BUTTON_RIGHT_STICK}],
+	"switch": [{"kind": Kind.BUTTON, "index": JOY_BUTTON_B}],
+	"sustain": [{"kind": Kind.BUTTON, "index": JOY_BUTTON_Y},
+		{"kind": Kind.BUTTON, "index": JOY_BUTTON_DPAD_RIGHT}],
 	"gadget": [{"kind": Kind.BUTTON, "index": JOY_BUTTON_X},
 		{"kind": Kind.BUTTON, "index": JOY_BUTTON_DPAD_UP}],
 	"grenade": [{"kind": Kind.BUTTON, "index": JOY_BUTTON_LEFT_SHOULDER},
@@ -291,6 +303,13 @@ static func slot2_label(device: int) -> String:
 	return label(device, "grenade")
 
 
+## ...and the third, which is the sustained-ability slot. Named through `label`
+## like the other two, so a rebind is reflected everywhere it is printed rather
+## than going stale — nothing in UI text may name a key or a pad button directly.
+static func slot3_label(device: int) -> String:
+	return label(device, "sustain")
+
+
 static func pad_label(device: int, id: String) -> String:
 	var parts := PackedStringArray()
 	for bind in bindings_for(device, id):
@@ -476,6 +495,23 @@ static var _options := {}
 ## look the game shipped with and is funnier.
 const OPT_CLASSIC_DEATH := "classic_death"
 
+## ...and it is THREE styles now, not a flag, which is why this key exists
+## alongside the old one rather than replacing it. `classic_death` is a bool
+## sitting in real `user://controls.cfg` files on real machines; reading it as an
+## int would come back 1 and silently select ANIMATED for anybody who had ever
+## turned the classic look on. `death_style()` migrates instead.
+const OPT_DEATH_STYLE := "death_style"
+
+enum Death { RAGDOLL, ANIMATED, CLASSIC }
+const DEATH_NAMES := {
+	Death.RAGDOLL: "RAGDOLL", Death.ANIMATED: "ANIMATED", Death.CLASSIC: "CLASSIC (T-POSE)",
+}
+const DEATH_BLURBS := {
+	Death.RAGDOLL: "Physics. Lands on slopes and cover, thrown by what killed you",
+	Death.ANIMATED: "Authored. Reads cleanly, but does not know what it lands on",
+	Death.CLASSIC: "The original stiff arms-out flop",
+}
+
 
 static func option(name: String, fallback := false) -> bool:
 	ensure_loaded()
@@ -489,7 +525,115 @@ static func set_option(name: String, value: bool) -> void:
 
 
 static func classic_death() -> bool:
-	return option(OPT_CLASSIC_DEATH)
+	return death_style() == Death.CLASSIC
+
+
+## Which of the three. Migrates the old boolean the first time it is asked, so a
+## config written before there were three styles keeps the look its owner chose.
+static func death_style() -> int:
+	ensure_loaded()
+	if _options.has(OPT_DEATH_STYLE):
+		var v := int(_options[OPT_DEATH_STYLE])
+		return v if v in DEATH_NAMES else Death.RAGDOLL
+	return Death.CLASSIC if bool(_options.get(OPT_CLASSIC_DEATH, false)) \
+		else Death.RAGDOLL
+
+
+static func set_death_style(style: int) -> void:
+	ensure_loaded()
+	_options[OPT_DEATH_STYLE] = style if style in DEATH_NAMES else Death.RAGDOLL
+	# The old key is kept in step rather than dropped: nothing else reads it, but
+	# a config that disagreed with itself would pick the wrong style the moment
+	# somebody ran an older build against the same file.
+	_options[OPT_CLASSIC_DEATH] = style == Death.CLASSIC
+	save()
+
+
+static func next_death_style() -> void:
+	set_death_style((death_style() + 1) % DEATH_NAMES.size())
+
+
+## VOLUMES, 0..1, one pair for the machine. Not per device: four players share
+## one set of speakers, so there is only one answer to "how loud is the music".
+## Stored as floats in the same options section — `option()` is boolean-only, so
+## these read the dictionary directly rather than pretending to be flags.
+const OPT_MUSIC_VOLUME := "music_volume"
+const OPT_SFX_VOLUME := "sfx_volume"
+## Music sits UNDER the game by default. It is a shooter played by four people
+## in one room: the sounds that carry information — a hit, a footstep, somebody
+## reloading behind you — have to win, and a score mixed level with them is the
+## first thing a player turns off.
+const MUSIC_DEFAULT := 0.45
+const SFX_DEFAULT := 0.85
+
+
+static func volume(name: String, fallback: float) -> float:
+	ensure_loaded()
+	return clampf(float(_options.get(name, fallback)), 0.0, 1.0)
+
+
+static func set_volume(name: String, value: float) -> void:
+	ensure_loaded()
+	_options[name] = clampf(value, 0.0, 1.0)
+	save()
+
+
+## GRAPHICS QUALITY and the FRAME CAP. Machine options in the strictest sense —
+## they describe the box the game is running on, not the match or the player — so
+## they belong in this section beside the death style and the volumes.
+##
+## Stored as plain ints. `option()` is boolean-only and `volume()` clamps to 0..1,
+## so these read the dictionary directly the way the volumes do.
+const OPT_QUALITY := "graphics_quality"
+const OPT_FPS_CAP := "fps_cap"
+## AUTO, and it is the default because the right answer genuinely depends on
+## something the player should not have to know: how many ways the screen is being
+## split. Measured on the development machine, one player holds MEDIUM at a locked
+## 60 while four players on the same settings miss a quarter of their frames — so
+## AUTO resolves to MEDIUM up to two viewports and LOW at three or four. `Quality`
+## owns that resolution; this is just the stored value.
+const QUALITY_AUTO := 3
+const QUALITY_DEFAULT := QUALITY_AUTO
+## What the settings screen cycles through. AUTO first: it is the answer for
+## almost everybody and the others are for somebody who has decided otherwise.
+const QUALITY_CHOICES := [QUALITY_AUTO, 0, 1, 2]
+## The frame cap choices. 0 means "whatever the display and vsync allow".
+const FPS_CHOICES := [0, 30, 60, 120]
+## 60 by default because it is free: it only ever stops a menu rendering at three
+## hundred frames a second and heating the GPU up for nothing.
+const FPS_DEFAULT := 60
+
+
+static func graphics_quality() -> int:
+	ensure_loaded()
+	var v := int(_options.get(OPT_QUALITY, QUALITY_DEFAULT))
+	return v if v in QUALITY_CHOICES else QUALITY_DEFAULT
+
+
+static func set_graphics_quality(tier: int) -> void:
+	ensure_loaded()
+	_options[OPT_QUALITY] = tier if tier in QUALITY_CHOICES else QUALITY_DEFAULT
+	save()
+
+
+static func fps_cap() -> int:
+	ensure_loaded()
+	var v := int(_options.get(OPT_FPS_CAP, FPS_DEFAULT))
+	return v if v in FPS_CHOICES else FPS_DEFAULT
+
+
+static func set_fps_cap(fps: int) -> void:
+	ensure_loaded()
+	_options[OPT_FPS_CAP] = fps if fps in FPS_CHOICES else FPS_DEFAULT
+	save()
+
+
+static func music_volume() -> float:
+	return volume(OPT_MUSIC_VOLUME, MUSIC_DEFAULT)
+
+
+static func sfx_volume() -> float:
+	return volume(OPT_SFX_VOLUME, SFX_DEFAULT)
 
 
 # --- named profiles -----------------------------------------------------------

@@ -67,6 +67,10 @@ func _physics_process(delta: float) -> void:
 			_cap_team = -1
 			_cap_progress = 0.0
 			GameState.posts_revision += 1
+			# A post changing hands is the one Conquest event that everyone needs
+			# to notice, and the scoreboard is a corner of a quarter screen. It
+			# is positioned, so it also says roughly WHERE it went.
+			Audio.play_at("capture", global_position)
 	else:
 		# Owner present, empty, or contested: the meter secures back toward safe.
 		if _cap_progress > 0.0:

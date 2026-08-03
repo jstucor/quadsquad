@@ -122,6 +122,48 @@ const CABLE_SPEED := 17.0
 const CABLE_PULL_TIME := 0.9
 
 const RETARGET_INTERVAL := 0.35  # seconds between target searches (staggered)
+## --- LINE TROOPER --------------------------------------------------------------
+##
+## A line trooper is the body that fills a MASSIVE battle: no gadgets, one rifle
+## and a scope, and — the part that actually matters — a THINK LOOP sized for a
+## hundred of them rather than for eight.
+##
+## What an ordinary bot does per frame is fine at eight and impossible at a
+## hundred, and the three costs are not equal:
+##
+##   1. TARGET ACQUISITION was O(bodies) per bot with a RAYCAST for every
+##      candidate that was closer than the last. At a hundred bodies that is ten
+##      thousand distance checks and up to a hundred rays per sweep, per side.
+##      A line trooper reads the frame's combatant SNAPSHOT (packed arrays, no
+##      per-body property reads), takes the nearest enemy by squared distance
+##      with no rays at all, and then casts exactly ONE — at the winner.
+##   2. ROUTING. A* is globally rate limited (NavGrid.PLANS_PER_FRAME) because
+##      it is expensive, so a hundred bots asking would starve the queue for
+##      everybody and each would walk a route that was stale by the time it
+##      arrived. Line troopers do not plan at all: they walk the straight line
+##      and lean on `_watch_for_snag`, which is what handles the thing actually
+##      in their way at this density — each other.
+##   3. THE GADGET CHECKS. Six "should I use this?" tests run every frame in
+##      contact. A line trooper carries none of them, so it runs none of them —
+##      not even to find out that it has nothing to use.
+##
+## The result is a body that still walks, takes cover-ish, shoots and dies
+## convincingly, and costs a fraction of a squad bot to run.
+const LINE_RETARGET := 1.1     # seconds; a line trooper looks around slowly
+const LINE_SIGHT := 70.0       # metres it will pick a target up from
+## Aim wobble in degrees. Deliberately worse than the lowest ordinary tier: a
+## hundred of them shooting means the volume of fire is the threat, and accurate
+## line troopers make a massive battle unsurvivable rather than exciting.
+const LINE_AIM_ERROR := 5.5
+const LINE_REACTION := 0.75
+const LINE_HEALTH := 0.75      # they go down easily; that is the fantasy
+## How many physics ticks a line trooper's movement covers in one step. Two is
+## the whole of the saving and none of the visible cost; three was tried and the
+## crowd visibly ratchets when it is close to you.
+const MOVE_EVERY := 2
+## True for a body fielded as one of the crowd. Set by `setup`, never changed.
+var line := false
+var _move_phase := 0
 # With nothing to shoot, a bot pushes for the middle of the map rather than
 # standing on its spawn. Team AI have no owner to follow, so without this they
 # never move at all and a match with few humans looks broken.
@@ -174,7 +216,9 @@ const CROUCH_EASE := 7.0   # how fast the capsule follows, per second
 const UNSTICK_RADIUS := 0.8      # matches Player: never let capsules stack
 const UNSTICK_SPEED := 5.0
 const EYE_HEIGHT := 1.5
-const TARGET_AIM_HEIGHT := 1.0  # aim at the chest, not the feet
+# Where to aim on a body is GameState.aim_height() now — it is derived from how
+# tall that body actually stands, and a bot shoots at Ewoks and Super Battle
+# Droids as well as at troopers.
 const AIM_REROLL := 0.25  # seconds a given aim error is held for
 # Recoil applies to bots too, or raising it across the board would just be a
 # one-sided nerf to the humans. It's added straight onto the head, and _aim_head
@@ -190,6 +234,7 @@ enum State { HOLD, ADVANCE, ENGAGE }
 var team: int = GameState.Team.REPUBLIC
 var owner_player: Node3D          # who paid for it; the bot falls in behind them
 var health := 90.0
+var max_health := 90.0
 var loadout: Loadout              # the preset it deployed with
 ## Bots act on the FIRST gadget slot only. The Mandalorian preset carries a
 ## second one it never uses, which costs it nothing it would otherwise have.
@@ -243,6 +288,8 @@ var _crouch_t := 0.0    # 0 standing, 1 fully crouched
 var _sprinting := false
 var _gravity: float = ProjectSettings.get_setting("physics/3d/default_gravity")
 var _dead := false
+var _stature := 1.0        # how tall this unit is against a standard trooper
+var _head_base_y := -1.0   # the scene's own head height, captured on first use
 
 @onready var head: Node3D = $Head
 @onready var weapon: Weapon = $Head/Weapon
@@ -272,7 +319,7 @@ func _ready() -> void:
 	weapon.shooter = self
 	weapon.fired.connect(_on_weapon_fired)
 	# Stagger the search so a squad of four doesn't retarget on the same frame.
-	_retarget_in = randf() * RETARGET_INTERVAL
+	_retarget_in = randf() * (LINE_RETARGET if line else RETARGET_INTERVAL)
 	_strafe_dir = 1.0 if randf() < 0.5 else -1.0
 
 
@@ -282,26 +329,70 @@ func _exit_tree() -> void:
 
 ## Called by the owner right after spawning it. `build` picks which preset it
 ## deploys with; -1 rolls one at random, which is what a team fill wants.
-func setup(owner: Node3D, bot_team: int, skill_index: int, build := -1) -> void:
+func setup(owner: Node3D, bot_team: int, skill_index: int, build := -1,
+		as_line := false) -> void:
 	owner_player = owner
 	team = bot_team
+	line = as_line
 	_skill = SKILLS[clampi(skill_index, 0, SKILLS.size() - 1)]
+	if line:
+		# A LINE TROOPER DOES NOT COLLIDE WITH OTHER BODIES, and this one line is
+		# most of what makes a hundred of them possible. Measured: `move_and_slide`
+		# was 13.9 ms of a 22 ms physics tick at a hundred bodies — not the AI,
+		# the SWEEPS, because every body in a crowd tests against every other body
+		# near it and a crowd is nothing but bodies near each other.
+		#
+		# Dropping layer 2 from the MASK (keeping it on the LAYER) means they
+		# still stop at walls, are still hit by every ray, are still seen by every
+		# sight check and still block a spawn marker — they simply do not sweep
+		# against each other. What stops them standing inside one another is
+		# `_apply_unstick`, which was already doing that work with velocity and is
+		# now the only thing doing it. That is the ordinary trade for mass combat:
+		# soft bodies in the crowd, hard geometry everywhere else.
+		collision_mask = 1
+		_move_phase = randi() % MOVE_EVERY
+		# ...and it is DRAWN as one of a crowd: no shadow, and everything on it
+		# culls sooner. Set before set_style, which is what builds the meshes.
+		model.crowd = true
+		# ...and a body that cannot hit another body needs far fewer slide
+		# iterations to resolve what is left, which is a wall or the ground.
+		max_slides = 2
+		# The tier is REPLACED rather than indexed, because a line trooper is not
+		# a rung on the same ladder: it is worse than the worst of them on
+		# purpose, and it also has to be a dictionary the rest of this file can
+		# read without knowing which it got.
+		_skill = {
+			"aim_error": LINE_AIM_ERROR, "reaction": LINE_REACTION,
+			"sight": LINE_SIGHT, "hold": 16.0, "health": LINE_HEALTH,
+			"speed": 1.0, "turn": 3.0, "ads": true, "lead": false,
+		}
 	# On FACTION classes a bot fields its SIDE's roster rather than the generic
 	# trooper presets: Republic bots are clones, Separatist bots are droids.
 	# `build` is the class slot (team_build wraps it into the team's four), so
 	# Main dealing the counter out in order still fields a mix of the faction's
 	# classes. Keyed to the class SETTING, not to Conquest, so faction bots turn
 	# up wherever faction humans do.
-	if GameState.faction_classes():
+	if line:
+		# One kit for the whole crowd — see Loadout.line_build for why it is not
+		# a preset row. It also means a hundred bodies share one build's worth of
+		# decisions rather than rolling a hundred times.
+		loadout = Loadout.line_build()
+	elif GameState.faction_classes():
 		loadout = Loadout.team_build(bot_team, build if build >= 0 else randi())
 	else:
 		loadout = Loadout.bot_build(build if build >= 0 else randi())
-	var armor := loadout.armor_stats()
-	health = loadout.max_health() * float(_skill["health"])
+	# THE CEILING IS STORED, NOT RE-DERIVED. It was computed inline in two places
+	# (here and the regen), which is the same formula written twice and one edit
+	# away from a bot that heals past what it deployed with. It is also half of
+	# the combatant contract now — anything asking how hurt a body is has to be
+	# able to ask any body, and a Bot was the one that could not answer.
+	max_health = loadout.max_health() * float(_skill["health"])
+	health = max_health
 	# The class multiplies the frame here exactly as it does on a Player, so an
-	# AI Force adept closes ground as fast as a human one.
-	_speed = BASE_SPEED * float(armor["speed"]) * float(_skill["speed"]) \
-		* loadout.kit_speed()
+	# AI Force adept closes ground as fast as a human one — and an AI Droideka is
+	# as slow, as tough and as short as one you drive yourself.
+	_speed = BASE_SPEED * loadout.move_speed() * float(_skill["speed"])
+	_apply_stature(loadout.stature())
 	_since_damage = 0.0
 	model.set_style(loadout.character_style())   # clone, droid, Wookiee... per build
 	model.set_team_color(GameState.team_colors[team])
@@ -322,7 +413,7 @@ func is_alive() -> bool:
 
 ## Same contract as Player: hitscan and splash both find this by method name.
 func is_headshot(world_pos: Vector3) -> bool:
-	return world_pos.y - global_position.y >= 1.42
+	return world_pos.y - global_position.y >= 1.42 * _stature
 
 
 func take_damage(amount: float, attacker: Node = null, headshot := false) -> void:
@@ -347,6 +438,7 @@ func _die(attacker: Node) -> void:
 		if attacker.has_method("credit_kill"):
 			attacker.credit_kill()
 	GameState.report_death(team)  # CONQUEST: an AI death spends a reinforcement too
+	Audio.play_at("death", global_position)
 	var corpse := CORPSE_SCENE.instantiate()
 	get_tree().current_scene.add_child(corpse)
 	var push := Vector3.ZERO
@@ -354,11 +446,17 @@ func _die(attacker: Node) -> void:
 		push = global_position - (attacker as Node3D).global_position
 	corpse.launch(Transform3D(Basis(Vector3.UP, rotation.y), global_position),
 		GameState.team_colors[team], push,
-		loadout.character_style() if loadout != null else -1)
+		loadout.character_style() if loadout != null else -1, false, _stature)
 	if is_instance_valid(_turret):
 		_turret.queue_free()  # the engineer's turret dies with the engineer
 	if is_instance_valid(_mortar):
 		_mortar.queue_free()  # ...and so does the tube
+	# NETWORKED: bots only ever exist on the HOST, which is already the machine
+	# that owns the score — so the scoring above is right as it stands and this
+	# announces the ragdoll ONLY. The proxy itself is dropped by the queue_free
+	# below, which NetSync is watching for.
+	if Net.online() and NetSync.current != null:
+		NetSync.current.announce_death(NetSync.current.id_of(self), push)
 	GameState.check_last_standing()
 	queue_free()  # bots don't respawn; the owner re-buys them on their next deploy
 
@@ -379,8 +477,11 @@ func _physics_process(delta: float) -> void:
 	_retarget_in -= delta
 	_memory_left = maxf(_memory_left - delta, 0.0)
 	if _retarget_in <= 0.0:
-		_retarget_in = RETARGET_INTERVAL
-		_acquire_target()
+		_retarget_in = LINE_RETARGET if line else RETARGET_INTERVAL
+		if line:
+			_acquire_target_cheap()
+		else:
+			_acquire_target()
 
 	if is_instance_valid(_target) and _target.is_alive():
 		_fight(delta)
@@ -418,9 +519,96 @@ func _physics_process(delta: float) -> void:
 			velocity.y = maxf(velocity.y, _shove.y)
 			_shove.y = 0.0
 		_shove = _shove.move_toward(Vector3.ZERO, SHOVE_DECAY * delta)
-	move_and_slide()
+	# A LINE TROOPER STEPS ON ALTERNATE TICKS, at twice the velocity.
+	#
+	# With body-vs-body sweeps gone (see `collision_mask` in setup) what is left
+	# in `move_and_slide` is the cast against the WORLD — the terrain trimesh and
+	# every box on it — and at a hundred bodies that alone measured 13.6 ms of an
+	# 18 ms physics tick. It is not reducible per call; there are simply a hundred
+	# of them.
+	#
+	# So half of them run per tick. The displacement is identical (velocity is
+	# scaled by exactly the number of ticks being covered, and restored after), the
+	# THINKING still runs every tick so nothing about aim or fire changes, and what
+	# it costs is collision resolution sampled at 30 Hz instead of 60 for the
+	# crowd. At a walk that is thirteen centimetres a step. The phase is dealt at
+	# spawn so the halves stay balanced rather than every body landing on the same
+	# tick — which would just be a 30 Hz stutter with the same average.
+	if line:
+		if Engine.get_physics_frames() % MOVE_EVERY == _move_phase:
+			velocity *= MOVE_EVERY
+			move_and_slide()
+			velocity /= MOVE_EVERY
+	else:
+		move_and_slide()
 	_update_crouch(delta)
 	_animate()
+
+
+## THE LINE TROOPER'S SCAN: nearest enemy by distance, then ONE raycast.
+##
+## The ordinary scan below raycasts every candidate that is closer than the best
+## so far, which at eight bodies is a couple of rays and at a hundred is a
+## sweep of the whole field — and it does it per bot. This reads the frame's
+## snapshot instead (`GameState.sample_combatants`: packed positions and teams,
+## validated once for everybody), picks the nearest enemy in SQUARED distance
+## with no rays at all, and casts a single ray at the winner.
+##
+## What that costs is honesty about cover: if the nearest enemy is behind a rock
+## and the second nearest is in the open, an ordinary bot would have found the
+## second and a line trooper finds nobody this sweep. That is the right trade at
+## this scale — it looks like a soldier who has not spotted anyone yet, it
+## resolves a second later on the next sweep, and it turns an O(bodies) ray
+## sweep into one ray.
+func _acquire_target_cheap() -> void:
+	GameState.sample_combatants()
+	# THE NEAREST FEW, not the nearest one. Keeping only the closest candidate
+	# and casting a single ray at it was cheaper still and measurably wrong in
+	# the one situation this mode is entirely made of: in a crowd the nearest
+	# enemy is very often standing behind a FRIENDLY body, `_can_see` fails on
+	# it, and the bot finds nobody at all — measured at three of nine line
+	# troopers acquiring while standing in a firefight. Three candidates is three
+	# rays in the worst case against the ordinary scan's one per candidate, and
+	# it puts the acquisition rate back where it should be.
+	var cand: Array[Node3D] = [null, null, null]
+	var cand_sq := [INF, INF, INF]
+	var limit := _sight_range() * _sight_range()
+	var here := global_position
+	for i in GameState.live_n:
+		if GameState.live_teams[i] == team:
+			continue
+		var sq := here.distance_squared_to(GameState.live_points[i])
+		if sq >= limit or sq >= cand_sq[2]:
+			continue
+		# Insertion into three slots: cheaper than sorting, and three is few
+		# enough that the branches are the whole algorithm.
+		var body: Node3D = GameState.live_bodies[i]
+		if sq < cand_sq[0]:
+			cand_sq[2] = cand_sq[1]; cand[2] = cand[1]
+			cand_sq[1] = cand_sq[0]; cand[1] = cand[0]
+			cand_sq[0] = sq; cand[0] = body
+		elif sq < cand_sq[1]:
+			cand_sq[2] = cand_sq[1]; cand[2] = cand[1]
+			cand_sq[1] = sq; cand[1] = body
+		else:
+			cand_sq[2] = sq; cand[2] = body
+	var best: Node3D = null
+	for c in cand:
+		if c == null or c == self:
+			continue
+		if _can_see(c):
+			best = c
+			break
+	if best == null:
+		if _memory_left > 0.0 and is_instance_valid(_target) and _target.is_alive():
+			return
+		_target = null
+		return
+	_memory_left = TARGET_MEMORY
+	if best == _target:
+		return
+	_target = best
+	_reaction_left = _skill["reaction"]
 
 
 ## Nearest living enemy that's within sight and actually visible. Bots ignore
@@ -522,8 +710,31 @@ func _update_crouch(delta: float) -> void:
 	var cap := _collision.shape as CapsuleShape3D
 	if cap == null:
 		return
-	cap.height = lerpf(STAND_HEIGHT, CROUCH_HEIGHT, _crouch_t)
+	cap.height = lerpf(STAND_HEIGHT, CROUCH_HEIGHT, _crouch_t) * _stature
 	_collision.position.y = cap.height * 0.5
+
+
+## Become a unit of this size — see Player._apply_stature, which this mirrors
+## exactly (and for the same reason: what a shot has to hit must match what is
+## on screen, whichever kind of thing is driving the body).
+func _apply_stature(scale_to: float) -> void:
+	_stature = maxf(scale_to, 0.2)
+	model.scale = Vector3.ONE * _stature
+	# The aim pivot rides down with the body, or a knee-high unit fires from a
+	# muzzle floating well above its own head.
+	if head != null:
+		if _head_base_y < 0.0:
+			_head_base_y = head.position.y
+		head.position.y = _head_base_y * _stature
+	var cap := _collision.shape as CapsuleShape3D
+	if cap == null:
+		return
+	cap.height = lerpf(STAND_HEIGHT, CROUCH_HEIGHT, _crouch_t) * _stature
+	_collision.position.y = cap.height * 0.5
+
+
+func body_height() -> float:
+	return lerpf(STAND_HEIGHT, CROUCH_HEIGHT, _crouch_t) * _stature
 
 
 ## Stand back up. Called whenever the bot stops being in contact — it must not
@@ -551,8 +762,8 @@ func _can_see(other: Node3D) -> bool:
 	# body instead of an area. This is what the Trandoshan's cloak buys.
 	if GameState.is_cloaked(other):
 		return false
-	var from := global_position + Vector3.UP * EYE_HEIGHT
-	var to := other.global_position + Vector3.UP * EYE_HEIGHT * 0.6
+	var from := global_position + Vector3.UP * EYE_HEIGHT * _stature
+	var to := other.global_position + Vector3.UP * GameState.aim_height(other)
 	# Smoke has no collider (it would stop bullets too), so it is checked
 	# separately — this is what makes a smoke grenade break an AI's lock.
 	if GameState.sight_blocked(from, to):
@@ -624,12 +835,16 @@ func _fight(delta: float) -> void:
 			velocity.z = side.z * speed * circle
 	_apply_unstick()
 
-	_place_turret_if_ready(false)  # in contact: dig in where we stand
-	_place_mortar_if_ready(false)
-	_force_push_if_crowded(gap)
-	_throw_lightning_if_in_reach(gap)
-	_fire_wrist_rocket_if_useful(gap)
-	_call_mortar_strike(delta)
+	# SIX "should I use this?" TESTS, and a line trooper carries none of the six.
+	# Skipped as a block rather than each one early-returning on an empty slot:
+	# at a hundred bodies the cost being avoided is the asking, not the doing.
+	if not line:
+		_place_turret_if_ready(false)  # in contact: dig in where we stand
+		_place_mortar_if_ready(false)
+		_force_push_if_crowded(gap)
+		_throw_lightning_if_in_reach(gap)
+		_fire_wrist_rocket_if_useful(gap)
+		_call_mortar_strike(delta)
 	_reaction_left = maxf(_reaction_left - delta, 0.0)
 	var facing := Vector3.FORWARD.rotated(Vector3.UP, rotation.y)
 	var on_aim := rad_to_deg(facing.angle_to(flat.normalized())) <= FIRE_CONE_DEG
@@ -649,7 +864,8 @@ func _fight(delta: float) -> void:
 	var may_fire := in_range and on_aim and _reaction_left <= 0.0 \
 		and weapon.heat() < FIRE_HEAT_CEILING
 	weapon.update_fire(may_fire, may_fire)
-	_throw_grenade_if_useful(gap)
+	if not line:
+		_throw_grenade_if_useful(gap)
 
 
 ## Nothing to shoot. A bought squadmate falls in behind the player who paid for
@@ -661,13 +877,15 @@ func _patrol(delta: float) -> void:
 	head.rotation.y = lerpf(head.rotation.y, 0.0, clampf(delta * 3.0, 0.0, 1.0))
 
 	var goal := _patrol_goal(delta)
-	_try_cable(goal)
+	if not line:
+		_try_cable(goal)
 	var flat := goal - global_position
 	flat.y = 0.0
 	var gap := flat.length()
 	var arrive := FOLLOW_DISTANCE if _has_owner() else ROAM_ARRIVE
-	_place_turret_if_ready(gap <= TURRET_PLACE_GAP)
-	_place_mortar_if_ready(gap <= MORTAR_PLACE_GAP)
+	if not line:
+		_place_turret_if_ready(gap <= TURRET_PLACE_GAP)
+		_place_mortar_if_ready(gap <= MORTAR_PLACE_GAP)
 	if gap <= arrive:
 		velocity.x = 0.0
 		velocity.z = 0.0
@@ -713,6 +931,15 @@ func _route(goal: Vector3, delta: float) -> Vector3:
 		_sidestep_left -= delta
 		return _sidestep
 
+	# A LINE TROOPER NEVER PLANS. A* is rate limited across the whole AI because
+	# it is expensive (NavGrid.PLANS_PER_FRAME), so a hundred bots asking would
+	# starve the queue for the squad bots AND for each other, and each would then
+	# follow a route computed several seconds ago through ground that has since
+	# filled with ninety-nine other people. The straight line plus
+	# `_watch_for_snag` is both cheaper and, at this density, more honest: what
+	# is actually in a line trooper's way is the crowd, which no plan can see.
+	if line:
+		return straight
 	var nav: NavGrid = GameState.nav
 	if not nav.ready:
 		return straight
@@ -782,9 +1009,8 @@ func _regen_if_calm(delta: float) -> void:
 	_since_damage += delta
 	if _since_damage < Player.REGEN_DELAY:
 		return
-	var full := loadout.max_health() * float(_skill["health"])
-	if health < full:
-		health = minf(health + Player.REGEN_RATE * delta, full)
+	if health < max_health:
+		health = minf(health + Player.REGEN_RATE * delta, max_health)
 
 
 ## Lob one at a target that's far enough away not to catch us in the blast.
@@ -983,7 +1209,8 @@ func _fire_wrist_rocket_if_useful(gap: float) -> void:
 	var rocket := ROCKET_SCENE.instantiate()
 	get_parent().add_child(rocket)
 	var from := head.global_position
-	var dir := (_target.global_position + Vector3.UP * TARGET_AIM_HEIGHT - from).normalized()
+	var dir := (_target.global_position
+		+ Vector3.UP * GameState.aim_height(_target) - from).normalized()
 	rocket.launch(from + dir * 0.6, dir, self, Player.WRIST_ROCKET_SPLASH,
 		Player.WRIST_ROCKET_DAMAGE, Player.WRIST_ROCKET_RANGE)
 	_force_cd = float(Loadout.GADGET_COOLDOWNS[Loadout.Gadget.WRIST_ROCKET])
@@ -1071,7 +1298,8 @@ func _aim_head(delta: float) -> void:
 		var wobble := deg_to_rad(_aim_error_deg(weapon.aiming))
 		_aim_offset = Vector2(randf_range(-wobble, wobble), randf_range(-wobble, wobble))
 	var muzzle := head.global_position
-	var aim_at: Vector3 = _target.global_position + Vector3.UP * TARGET_AIM_HEIGHT
+	var aim_at: Vector3 = _target.global_position \
+		+ Vector3.UP * GameState.aim_height(_target)
 	# Fire is hitscan, so this is NOT projectile lead — it is the bot's own lag.
 	# The head lerps toward where the target is, so against anything strafing it
 	# permanently shoots a fraction of a second behind: nothing at ten metres, a
@@ -1099,18 +1327,44 @@ func _on_weapon_fired(cam_recoil: float, _kick_back: float) -> void:
 
 ## Same horizontal separation the players use: two capsules inside each other
 ## get ejected upwards by the solver and never come back down.
+## Shove apart from anybody standing in the same spot. THIS IS THE ONE PLACE IN
+## THE AI THAT IS O(BODIES) PER BODY, so it is also the one that decides whether
+## a hundred-body match is possible at all: at fifty a side it runs ten thousand
+## times a physics tick.
+##
+## It used to walk `GameState.combatants` and call `is_alive()` and read
+## `global_position` on each — three script calls per pair, ten thousand pairs,
+## which measured **28 ms a physics tick** and put the loop into a catch-up
+## spiral (five physics steps per rendered frame, 5 fps). It now reads the
+## frame's SNAPSHOT: packed arrays, validated once for everybody by
+## `sample_combatants`, so the inner loop is array reads and arithmetic with no
+## script call in it at all.
+##
+## Still O(n²) and deliberately so — a spatial hash would be the next step if the
+## body count ever goes past this, but the constant was the whole problem here,
+## not the exponent. The squared-distance test is what keeps it that way: no
+## square root and no vector allocation unless two bodies are actually touching.
 func _apply_unstick() -> void:
-	for c in GameState.combatants:
-		if c == self or not c.is_alive():
-			continue
-		var away := global_position - c.global_position
-		away.y = 0.0
-		var gap := away.length()
-		if gap >= UNSTICK_RADIUS or gap < 0.001:
-			continue
-		var push := away.normalized() * (1.0 - gap / UNSTICK_RADIUS) * UNSTICK_SPEED
-		velocity.x += push.x
-		velocity.z += push.z
+	# A line trooper only CONSUMES velocity on the tick it steps (MOVE_EVERY), so
+	# separating on the ticks in between is arithmetic thrown away — and this is
+	# the O(bodies-per-body) loop, so it is the most expensive arithmetic in the
+	# match to throw away.
+	if line and Engine.get_physics_frames() % MOVE_EVERY != _move_phase:
+		return
+	GameState.sample_combatants()
+	var here := global_position
+	var radius_sq := UNSTICK_RADIUS * UNSTICK_RADIUS
+	for i in GameState.live_n:
+		var other: Vector3 = GameState.live_points[i]
+		var dx := here.x - other.x
+		var dz := here.z - other.z
+		var sq := dx * dx + dz * dz
+		if sq >= radius_sq or sq < 0.000001:
+			continue   # too far to matter, or it is us
+		var gap := sqrt(sq)
+		var push := (1.0 - gap / UNSTICK_RADIUS) * UNSTICK_SPEED / gap
+		velocity.x += dx * push
+		velocity.z += dz * push
 
 
 ## Same idle/walk/run rule the player uses, minus the jump (bots don't jump).

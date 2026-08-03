@@ -49,9 +49,17 @@ const UNIVERSES: Array[Dictionary] = [
 		"name": "STAR WARS",
 		"blurb": "Clones, droids, Jedi and bounty hunters",
 		"kit": Kit.CLONE,          # what a class-free build (royale, starter) wears
-		"teams": ["REPUBLIC", "SEPARATIST", "MANDALORE", "HUTT CARTEL"],
+		# FOUR ERAS ON ONE FIELD, which is the point of a setting rather than a
+		# campaign: the Clone Wars pair and the Galactic Civil War pair, and any
+		# of the four can be fielded against any other.
+		"teams": ["REPUBLIC", "SEPARATIST", "EMPIRE", "REBEL ALLIANCE"],
 		"colors": [Color(0.35, 0.55, 1.0), Color(1.0, 0.40, 0.32),
-			Color(0.45, 0.85, 0.45), Color(0.95, 0.78, 0.30)],
+			Color(0.62, 0.66, 0.72), Color(0.95, 0.62, 0.22)],
+		# Clone blue against droid red is the Clone Wars, and Imperial green
+		# against Alliance orange is every space battle in the trilogy. The one
+		# universe where the SIDE really does decide the colour of a bolt.
+		"bolts": [Color(0.35, 0.65, 1.0), Color(1.0, 0.24, 0.14),
+			Color(0.38, 1.0, 0.40), Color(1.0, 0.52, 0.14)],
 	},
 	{
 		"name": "HALO",
@@ -60,6 +68,10 @@ const UNIVERSES: Array[Dictionary] = [
 		"teams": ["UNSC", "COVENANT", "BANISHED", "FORERUNNER"],
 		"colors": [Color(0.38, 0.78, 0.42), Color(0.70, 0.45, 1.0),
 			Color(1.0, 0.45, 0.22), Color(0.45, 0.85, 0.95)],
+		# Brass tracer against plasma. Most Covenant guns state their own colour
+		# and never reach this, which is the ordering working as intended.
+		"bolts": [Color(1.0, 0.86, 0.48), Color(0.45, 0.75, 1.0),
+			Color(1.0, 0.42, 0.18), Color(0.60, 0.92, 1.0)],
 	},
 	{
 		"name": "WARHAMMER 40,000",
@@ -68,6 +80,10 @@ const UNIVERSES: Array[Dictionary] = [
 		"teams": ["ULTRAMARINES", "BLOOD ANGELS", "NECRONS", "ORKS"],
 		"colors": [Color(0.30, 0.50, 1.0), Color(1.0, 0.26, 0.24),
 			Color(0.40, 0.95, 0.50), Color(0.86, 0.74, 0.22)],
+		# The two chapters are near-identical on purpose: they fire the same
+		# mass-reactive shell, and a bolter's tracer is not a chapter badge.
+		"bolts": [Color(1.0, 0.80, 0.42), Color(1.0, 0.70, 0.32),
+			Color(0.45, 1.0, 0.55), Color(1.0, 0.62, 0.22)],
 	},
 ]
 
@@ -226,7 +242,35 @@ const WEAPONS: Array[Dictionary] = [
 	{"class": Weapon.Class.GRENADE_LAUNCHER, "cost": 95, "universe": Universe.WARHAMMER},
 	{"class": Weapon.Class.ROKKIT_LAUNCHA, "cost": 105, "universe": Universe.WARHAMMER},
 	{"class": Weapon.Class.TRANSDIMENSIONAL_BEAMER, "cost": 110, "universe": Universe.WARHAMMER},
+	# --- THE FACTION GUNS -----------------------------------------------------
+	# Added to the SHOP as well as to the rosters: a weapon that only a faction
+	# class can hold is a weapon most players never see, and every one of these
+	# is a gun a custom build would want. Costs sit against the existing ladder
+	# rather than being invented — a carbine is carbine money.
+	{"class": Weapon.Class.DC15S, "cost": 45},
+	{"class": Weapon.Class.DC17M, "cost": 60},
+	{"class": Weapon.Class.DC15X, "cost": 90},
+	{"class": Weapon.Class.E5, "cost": 35},
+	{"class": Weapon.Class.E5S, "cost": 85},
+	{"class": Weapon.Class.DROIDEKA_TWIN, "cost": 85},
+	{"class": Weapon.Class.SONIC_BLASTER, "cost": 70},
+	{"class": Weapon.Class.E11, "cost": 45},
+	{"class": Weapon.Class.DLT19, "cost": 75},
+	{"class": Weapon.Class.DLT20A, "cost": 80},
+	{"class": Weapon.Class.FLAMETHROWER, "cost": 65},
+	{"class": Weapon.Class.A280C, "cost": 55},
+	{"class": Weapon.Class.CR2, "cost": 45},
+	{"class": Weapon.Class.DH447, "cost": 90},
+	{"class": Weapon.Class.M319, "cost": 75, "universe": Universe.HALO},
+	# APPENDED, so no index below moved. Both of these are here because a
+	# faction preset already NAMED them as a primary while they were sold only
+	# as sidearms (or not at all): weapon_index answers NO_PRIMARY for a gun it
+	# cannot find, so the Death Trooper and the Brute Stalker were both
+	# deploying with the free starter pistol and no error anywhere.
+	{"class": Weapon.Class.E11D, "cost": 60},
+	{"class": Weapon.Class.SPIKER, "cost": 50, "universe": Universe.HALO},
 ]
+
 const NO_PRIMARY := 0  # index of the "none" row above
 
 # SECONDARY: sidearms. Everyone carries one, and the cheapest is free, so you
@@ -254,8 +298,12 @@ const SECONDARIES: Array[Dictionary] = [
 	{"class": Weapon.Class.GAUSS_PISTOL, "cost": 0, "universe": Universe.WARHAMMER},
 	{"class": Weapon.Class.SLUGGA, "cost": 0, "universe": Universe.WARHAMMER},
 	{"class": Weapon.Class.PLASMA_PISTOL_40K, "cost": 30, "universe": Universe.WARHAMMER},
+	# The ARC trooper's pistol and the death trooper's machine pistol, both of
+	# which are sidearms that a build might genuinely prefer to a primary.
+	{"class": Weapon.Class.DC17, "cost": 30},
+	{"class": Weapon.Class.SE14R, "cost": 35},
+	{"class": Weapon.Class.SPIKER, "cost": 35, "universe": Universe.HALO},
 ]
-
 # The sidearm's own slot. Deliberately NOT the primary's three upgrades: a
 # sidearm gets one pick, and dual wield is the one that changes how it plays
 # rather than how it shoots.
@@ -353,7 +401,20 @@ enum Gadget { NONE, JETPACK, CABLE, SHIELD, ROTARY, TURRET, MORTAR,
 	TESLA_ARC, PHASE_SHIFT, TRANSLOCATION, CANOPTEK_SPYDER,
 	# ...Orks
 	WAAAGH, GROT_GUNNER, KUSTOM_FORCE_FIELD, ROKKIT_PACK, STIKKBOMB,
-	SMOKE_LAUNCHER }
+	SMOKE_LAUNCHER,
+	# --- SUSTAINED (slot 3) ---------------------------------------------------
+	# Two new MECHANISMS, appended so no existing index moves. Everything else
+	# that belongs in slot 3 already existed as a deployable or a toggle (the
+	# cloak, the barrier) and simply moved house.
+	OVERSHIELD, FURY,
+	# --- THE ROSTER REBUILD ---------------------------------------------------
+	# Aliases, mostly: a rally is a fury, a deployable cover is a barrier, a set
+	# of Geonosian wings is a jetpack. Two are genuinely new mechanisms —
+	# BIOFOAM, the game's only instant heal since the medkits went, and the
+	# DEFLECTOR, which is the Droideka's and the Jackal's shield: an overshield
+	# you cannot shoot out of.
+	BIOFOAM, DEFLECTOR, RALLY, SHOCK_TRAP, DEPLOY_COVER, WINGS, VISR,
+	THERMAL_DET, PULSE_SCAN }
 const GADGETS: Array[Dictionary] = [
 	# NONE belongs to every universe: an empty slot is an empty slot.
 	{"name": "NONE", "cost": 0, "blurb": "No gadget", "universe": ANY_UNIVERSE},
@@ -457,8 +518,8 @@ const GADGETS: Array[Dictionary] = [
 		"blurb": "Plant a beacon, then call salvos from the map screen. 14s between them"},
 	{"name": "ASSAULT CANNON", "cost": 75, "universe": Universe.WARHAMMER, "like": Gadget.ROTARY,
 		"blurb": "Toggle a spin-up rotary cannon. Huge output, but you walk"},
-	{"name": "RED THIRST", "cost": 25, "universe": Universe.WARHAMMER, "like": Gadget.DASH,
-		"blurb": "A quick burst in the way you are moving. 4s"},
+	{"name": "RED THIRST", "cost": 25, "universe": Universe.WARHAMMER, "like": Gadget.FURY,
+		"blurb": "The thirst takes you: faster, tougher, and a heavier swing. 8s"},
 	{"name": "KRAK GRENADE", "cost": 30, "universe": Universe.WARHAMMER, "like": Gadget.GRENADE_FRAG,
 		"blurb": "Lob a krak: bounces, 2s fuse, heavy splash. 6s between throws"},
 	{"name": "MELTA BOMB", "cost": 35, "universe": Universe.WARHAMMER, "like": Gadget.GRENADE_STICKY,
@@ -473,8 +534,8 @@ const GADGETS: Array[Dictionary] = [
 	{"name": "CANOPTEK SPYDER", "cost": 65, "universe": Universe.WARHAMMER, "like": Gadget.TURRET,
 		"blurb": "Drop a construct that fights for you until it's destroyed"},
 	# --- ...Orks --------------------------------------------------------------
-	{"name": "WAAAGH!", "cost": 25, "universe": Universe.WARHAMMER, "like": Gadget.DASH,
-		"blurb": "A roaring charge in the way you are moving. 4s"},
+	{"name": "WAAAGH!", "cost": 25, "universe": Universe.WARHAMMER, "like": Gadget.FURY,
+		"blurb": "Roar. Faster, harder to put down, and a heavier swing. 8s"},
 	{"name": "GROT GUNNER", "cost": 65, "universe": Universe.WARHAMMER, "like": Gadget.TURRET,
 		"blurb": "Drop a grot on a gun that fights for you until it's destroyed"},
 	{"name": "KUSTOM FORCE FIELD", "cost": 50, "universe": Universe.WARHAMMER, "like": Gadget.SHIELD,
@@ -483,8 +544,43 @@ const GADGETS: Array[Dictionary] = [
 		"blurb": "Hold the gadget button to fly. Fuel burns fast, refills on the ground"},
 	{"name": "STIKKBOMB", "cost": 25, "universe": Universe.WARHAMMER, "like": Gadget.GRENADE_FRAG,
 		"blurb": "Lob a stikkbomb: bounces, 2s fuse, heavy splash. 6s between throws"},
+	# THIS ROW HAS TO SIT HERE, because SMOKE_LAUNCHER sits here in the enum.
+	# GADGETS is indexed BY the Gadget enum — gadget_action does GADGETS[id] —
+	# so a row added to the end while its enum entry went in the middle silently
+	# shifts every row below it by one. That is exactly what had happened: twelve
+	# gadgets, OVERSHIELD through PULSE_SCAN, each resolved to the NEXT one's
+	# behaviour, cooldown, price and HUD name. A thermal detonator was a scan
+	# pulse, deployable cover was a set of Geonosian wings, and BATTLE FURY was
+	# a medkit. Nothing errored, because every one of them is a valid gadget.
 	{"name": "SMOKE LAUNCHER", "cost": 20, "universe": Universe.WARHAMMER, "like": Gadget.GRENADE_SMOKE,
 		"blurb": "Lob smoke: blinds the area, nothing sees through it. 7s"},
+	{"name": "OVERSHIELD", "cost": 55, "universe": ANY_UNIVERSE,
+		"blurb": "Raise a shell that eats damage before your health does. 8s"},
+	{"name": "BATTLE FURY", "cost": 45, "universe": ANY_UNIVERSE,
+		"blurb": "Faster, tougher and a heavier swing while it lasts. 8s"},
+	# --- THE FACTION GADGETS --------------------------------------------------
+	{"name": "BIOFOAM", "cost": 35, "universe": ANY_UNIVERSE,
+		"blurb": "Slam a canister of foam into yourself. Instant heal, then a long wait"},
+	{"name": "DEFLECTOR SHIELD", "cost": 60, "universe": ANY_UNIVERSE,
+		"blurb": "Raise a bubble that eats everything. You cannot fire out of it. 6s"},
+	{"name": "RALLY", "cost": 40, "universe": ANY_UNIVERSE, "like": Gadget.FURY,
+		"blurb": "Call the advance: faster, tougher, and a heavier swing. 8s"},
+	{"name": "SHOCK TRAP", "cost": 35, "universe": Universe.STAR_WARS,
+		"like": Gadget.SCAN_DART,
+		"blurb": "A dart that marks everyone near where it sticks, through walls"},
+	{"name": "DEPLOYABLE COVER", "cost": 50, "universe": ANY_UNIVERSE,
+		"like": Gadget.SHIELD,
+		"blurb": "Toggle a barrier that stops incoming fire. Shoot through it, but no aiming"},
+	{"name": "GEONOSIAN WINGS", "cost": 40, "universe": Universe.STAR_WARS,
+		"like": Gadget.JETPACK,
+		"blurb": "Hold the gadget button to fly. Wingbeats burn fast, refill on the ground"},
+	{"name": "VISR", "cost": 30, "universe": Universe.HALO, "like": Gadget.SCAN_DART,
+		"blurb": "Light everyone up for your fireteam, through walls"},
+	{"name": "THERMAL DETONATOR", "cost": 30, "universe": Universe.STAR_WARS,
+		"like": Gadget.GRENADE_FRAG,
+		"blurb": "The classic. Bounces, sticks to nothing, and levels a doorway"},
+	{"name": "PULSE SCAN", "cost": 30, "universe": ANY_UNIVERSE, "like": Gadget.SCAN_DART,
+		"blurb": "A sweep off your own position that marks everyone near you"},
 ]
 
 
@@ -523,6 +619,16 @@ const GADGET_COOLDOWNS := {
 	Gadget.GRENADE_STICKY: 6.0,
 	Gadget.GRENADE_SMOKE: 7.0,
 	Gadget.SCAN_DART: 12.0,
+	# THE SUSTAINED PAIR. Long cooldowns on purpose: what you are buying is a
+	# WINDOW, and a window you can open every few seconds is just a passive.
+	Gadget.OVERSHIELD: 22.0,
+	Gadget.FURY: 20.0,
+	# BIOFOAM is a long wait on purpose: health already regenerates on its own
+	# (see Player._update_regen), so what this buys is the ONE moment mid-fight
+	# where waiting is not an option, and it must never be a way to out-sustain
+	# somebody shooting you.
+	Gadget.BIOFOAM: 26.0,
+	Gadget.DEFLECTOR: 24.0,
 }
 
 ## The GrenadeType a grenade gadget throws, or -1 if the gadget is not a grenade.
@@ -538,9 +644,12 @@ const KITS: Array[Dictionary] = [
 	{
 		"name": "CLONE TROOPER",
 		"blurb": "Republic line trooper. Every rifle worth carrying and every deployable",
-		"gadgets": [Gadget.NONE, Gadget.ROTARY, Gadget.TURRET, Gadget.MORTAR,
+		"gadgets": [
+			Gadget.NONE, Gadget.ROTARY, Gadget.TURRET, Gadget.MORTAR,
 			Gadget.GRENADE_FRAG, Gadget.GRENADE_STICKY],
-		"gadget_slots": 2,
+		"gadget_slots": 3,
+		# The THIRD slot: what this class puts UP and keeps.
+		"sustain": [Gadget.NONE, Gadget.OVERSHIELD, Gadget.FURY],
 		"secondary_mods": [SecondaryMod.NONE, SecondaryMod.SCOPE, SecondaryMod.COOLING],
 		"armor": [0, 1, 2, 3],
 		"default_armor": 1,
@@ -550,9 +659,12 @@ const KITS: Array[Dictionary] = [
 	{
 		"name": "MANDALORIAN",
 		"blurb": "Flies, grapples, fires wrist rockets, and the only one who dual-wields",
-		"gadgets": [Gadget.NONE, Gadget.JETPACK, Gadget.CABLE, Gadget.WRIST_ROCKET,
+		"gadgets": [
+			Gadget.NONE, Gadget.JETPACK, Gadget.CABLE, Gadget.WRIST_ROCKET,
 			Gadget.GRENADE_FRAG, Gadget.GRENADE_STICKY],
-		"gadget_slots": 2,
+		"gadget_slots": 3,
+		# The THIRD slot: what this class puts UP and keeps.
+		"sustain": [Gadget.NONE, Gadget.CLOAK, Gadget.OVERSHIELD],
 		"secondary_mods": [SecondaryMod.NONE, SecondaryMod.SCOPE, SecondaryMod.COOLING,
 			SecondaryMod.DUAL],
 		# No heavy plate: the kit's whole identity is moving, and the jetpack
@@ -568,9 +680,13 @@ const KITS: Array[Dictionary] = [
 		# dash: fitting it lets the adept keep the dash in one slot while spending
 		# the other on a Force power, rather than choosing between a power and the
 		# dash that only appears when a slot is left empty.
-		"gadgets": [Gadget.NONE, Gadget.FORCE_PUSH, Gadget.FORCE_PULL, Gadget.FORCE_LEAP,
-			Gadget.FORCE_LIGHTNING, Gadget.DASH, Gadget.GRENADE_FRAG, Gadget.GRENADE_STICKY],
-		"gadget_slots": 2,
+		"gadgets": [
+			Gadget.NONE, Gadget.FORCE_PUSH, Gadget.FORCE_PULL, Gadget.FORCE_LEAP,
+			Gadget.FORCE_LIGHTNING, Gadget.DASH, Gadget.GRENADE_FRAG,
+			Gadget.GRENADE_STICKY],
+		"gadget_slots": 3,
+		# The THIRD slot: what this class puts UP and keeps.
+		"sustain": [Gadget.NONE, Gadget.FURY, Gadget.CLOAK],
 		"secondary_mods": [SecondaryMod.NONE, SecondaryMod.SCOPE, SecondaryMod.COOLING],
 		"armor": [0, 1],
 		"default_armor": 0,
@@ -598,8 +714,11 @@ const KITS: Array[Dictionary] = [
 		# One gadget, and it is the barrier — taken off the clone, because a
 		# shield in front of a rifleman is cover for a fire team, while a shield
 		# in front of a slow heavy is the only way that heavy crosses open ground.
-		"gadgets": [Gadget.NONE, Gadget.SHIELD, Gadget.GRENADE_FRAG, Gadget.GRENADE_STICKY],
-		"gadget_slots": 2,
+		"gadgets": [
+			Gadget.NONE, Gadget.GRENADE_FRAG, Gadget.GRENADE_STICKY],
+		"gadget_slots": 3,
+		# The THIRD slot: what this class puts UP and keeps.
+		"sustain": [Gadget.NONE, Gadget.FURY, Gadget.SHIELD],
 		# NO SCOPE on the sidearm. A scope means zero spread while aimed
 		# (Weapon.current_spread_deg), which on a PELLET weapon collapses all
 		# three quarrels onto one point — 78 damage at any range, for 20 tokens.
@@ -624,9 +743,12 @@ const KITS: Array[Dictionary] = [
 		"blurb": "Reptilian hunter. Thermal sight, smoke, and can vanish or dash. Quick and lightly armoured",
 		# CLOAK to break contact and DASH to reposition — no deployables, no
 		# barrier: the class is about being where the enemy is not.
-		"gadgets": [Gadget.NONE, Gadget.CLOAK, Gadget.DASH,
-			Gadget.GRENADE_FRAG, Gadget.GRENADE_STICKY, Gadget.GRENADE_SMOKE],
-		"gadget_slots": 2,
+		"gadgets": [
+			Gadget.NONE, Gadget.DASH, Gadget.GRENADE_FRAG, Gadget.GRENADE_STICKY,
+			Gadget.GRENADE_SMOKE],
+		"gadget_slots": 3,
+		# The THIRD slot: what this class puts UP and keeps.
+		"sustain": [Gadget.NONE, Gadget.CLOAK, Gadget.FURY],
 		"secondary_mods": [SecondaryMod.NONE, SecondaryMod.SCOPE, SecondaryMod.COOLING],
 		"armor": [0, 1, 2],
 		"default_armor": 0,
@@ -654,10 +776,12 @@ const KITS: Array[Dictionary] = [
 		"name": "SPARTAN",
 		"blurb": "MJOLNIR armour: every UNSC weapon, a shield bubble, and the health to walk in",
 		"universe": Universe.HALO,
-		"gadgets": [Gadget.NONE, Gadget.BUBBLE_SHIELD, Gadget.SENTRY_TURRET,
-			Gadget.JET_PACK, Gadget.THRUSTER_PACK, Gadget.FRAG_GRENADE_UNSC,
-			Gadget.PLASMA_GRENADE],
-		"gadget_slots": 2,
+		"gadgets": [
+			Gadget.NONE, Gadget.SENTRY_TURRET, Gadget.JET_PACK, Gadget.THRUSTER_PACK,
+			Gadget.FRAG_GRENADE_UNSC, Gadget.PLASMA_GRENADE],
+		"gadget_slots": 3,
+		# The THIRD slot: what this class puts UP and keeps.
+		"sustain": [Gadget.NONE, Gadget.OVERSHIELD, Gadget.BUBBLE_SHIELD],
 		"secondary_mods": [SecondaryMod.NONE, SecondaryMod.SCOPE, SecondaryMod.COOLING],
 		"armor": [1, 2, 3],
 		"default_armor": 2,
@@ -673,9 +797,12 @@ const KITS: Array[Dictionary] = [
 		"name": "ODST",
 		"blurb": "Orbital drop trooper. Quiet, quick, camouflaged — and thin where the Spartan is not",
 		"universe": Universe.HALO,
-		"gadgets": [Gadget.NONE, Gadget.ACTIVE_CAMO, Gadget.THRUSTER_PACK,
-			Gadget.TRACKER_DART, Gadget.TARGET_DESIGNATOR, Gadget.FRAG_GRENADE_UNSC],
-		"gadget_slots": 2,
+		"gadgets": [
+			Gadget.NONE, Gadget.THRUSTER_PACK, Gadget.TRACKER_DART,
+			Gadget.TARGET_DESIGNATOR, Gadget.FRAG_GRENADE_UNSC],
+		"gadget_slots": 3,
+		# The THIRD slot: what this class puts UP and keeps.
+		"sustain": [Gadget.NONE, Gadget.ACTIVE_CAMO, Gadget.OVERSHIELD],
 		"secondary_mods": [SecondaryMod.NONE, SecondaryMod.SCOPE, SecondaryMod.COOLING],
 		"armor": [0, 1, 2],
 		"default_armor": 0,
@@ -691,9 +818,12 @@ const KITS: Array[Dictionary] = [
 		"name": "SANGHEILI",
 		"blurb": "Covenant Elite. Plasma, camouflage, and the sword you close the distance with",
 		"universe": Universe.HALO,
-		"gadgets": [Gadget.NONE, Gadget.ACTIVE_CAMO, Gadget.THRUSTER_PACK,
-			Gadget.GRAV_LIFT, Gadget.PLASMA_CANNON, Gadget.PLASMA_GRENADE],
-		"gadget_slots": 2,
+		"gadgets": [
+			Gadget.NONE, Gadget.THRUSTER_PACK, Gadget.GRAV_LIFT,
+			Gadget.PLASMA_CANNON, Gadget.PLASMA_GRENADE],
+		"gadget_slots": 3,
+		# The THIRD slot: what this class puts UP and keeps.
+		"sustain": [Gadget.NONE, Gadget.ACTIVE_CAMO, Gadget.OVERSHIELD],
 		"secondary_mods": [SecondaryMod.NONE, SecondaryMod.SCOPE, SecondaryMod.COOLING],
 		"armor": [0, 1, 2],
 		"default_armor": 1,
@@ -713,9 +843,12 @@ const KITS: Array[Dictionary] = [
 		"name": "UNGGOY",
 		"blurb": "A Grunt. Small, fast, barely armoured, and carrying something far too big for it",
 		"universe": Universe.HALO,
-		"gadgets": [Gadget.NONE, Gadget.PLASMA_GRENADE, Gadget.GRAV_LIFT,
+		"gadgets": [
+			Gadget.NONE, Gadget.PLASMA_GRENADE, Gadget.GRAV_LIFT,
 			Gadget.THRUSTER_PACK],
-		"gadget_slots": 2,
+		"gadget_slots": 3,
+		# The THIRD slot: what this class puts UP and keeps.
+		"sustain": [Gadget.NONE, Gadget.OVERSHIELD, Gadget.FURY],
 		"secondary_mods": [SecondaryMod.NONE, SecondaryMod.COOLING],
 		"armor": [0, 1],
 		"default_armor": 0,
@@ -733,9 +866,11 @@ const KITS: Array[Dictionary] = [
 		"name": "JIRALHANAE",
 		"blurb": "A Brute. The widest thing on the field, a gravity hammer, and no interest in cover",
 		"universe": Universe.HALO,
-		"gadgets": [Gadget.NONE, Gadget.BUBBLE_SHIELD, Gadget.PLASMA_CANNON,
-			Gadget.PLASMA_GRENADE],
-		"gadget_slots": 2,
+		"gadgets": [
+			Gadget.NONE, Gadget.PLASMA_CANNON, Gadget.PLASMA_GRENADE],
+		"gadget_slots": 3,
+		# The THIRD slot: what this class puts UP and keeps.
+		"sustain": [Gadget.NONE, Gadget.FURY, Gadget.OVERSHIELD],
 		"secondary_mods": [SecondaryMod.NONE, SecondaryMod.COOLING],
 		"armor": [2, 3],
 		"default_armor": 2,
@@ -758,10 +893,12 @@ const KITS: Array[Dictionary] = [
 		"name": "ULTRAMARINE",
 		"blurb": "Codex Astartes: bolters, plasma, and the discipline to hold a firing line",
 		"universe": Universe.WARHAMMER,
-		"gadgets": [Gadget.NONE, Gadget.IRON_HALO, Gadget.AUSPEX_SCAN,
-			Gadget.ORBITAL_BOMBARDMENT, Gadget.ASSAULT_CANNON, Gadget.KRAK_GRENADE,
-			Gadget.MELTA_BOMB],
-		"gadget_slots": 2,
+		"gadgets": [
+			Gadget.NONE, Gadget.AUSPEX_SCAN, Gadget.ORBITAL_BOMBARDMENT,
+			Gadget.ASSAULT_CANNON, Gadget.KRAK_GRENADE, Gadget.MELTA_BOMB],
+		"gadget_slots": 3,
+		# The THIRD slot: what this class puts UP and keeps.
+		"sustain": [Gadget.NONE, Gadget.IRON_HALO, Gadget.OVERSHIELD],
 		"secondary_mods": [SecondaryMod.NONE, SecondaryMod.SCOPE, SecondaryMod.COOLING],
 		# Power armour or terminator plate. There is no lightly-armoured Astartes.
 		"armor": [2, 3],
@@ -780,9 +917,11 @@ const KITS: Array[Dictionary] = [
 		"name": "BLOOD ANGEL",
 		"blurb": "Jump pack and chainsword. It is built to arrive, not to shoot at you from over there",
 		"universe": Universe.WARHAMMER,
-		"gadgets": [Gadget.NONE, Gadget.JUMP_PACK, Gadget.RED_THIRST,
-			Gadget.IRON_HALO, Gadget.KRAK_GRENADE, Gadget.MELTA_BOMB],
-		"gadget_slots": 2,
+		"gadgets": [
+			Gadget.NONE, Gadget.JUMP_PACK, Gadget.KRAK_GRENADE, Gadget.MELTA_BOMB],
+		"gadget_slots": 3,
+		# The THIRD slot: what this class puts UP and keeps.
+		"sustain": [Gadget.NONE, Gadget.RED_THIRST, Gadget.IRON_HALO],
 		"secondary_mods": [SecondaryMod.NONE, SecondaryMod.SCOPE, SecondaryMod.COOLING],
 		"armor": [1, 2, 3],
 		"default_armor": 2,
@@ -801,9 +940,12 @@ const KITS: Array[Dictionary] = [
 		"name": "NECRON",
 		"blurb": "Gauss, tesla and a warscythe. Slow, relentless, and it does not flinch",
 		"universe": Universe.WARHAMMER,
-		"gadgets": [Gadget.NONE, Gadget.PHASE_SHIFT, Gadget.TESLA_ARC,
-			Gadget.TRANSLOCATION, Gadget.CANOPTEK_SPYDER],
-		"gadget_slots": 2,
+		"gadgets": [
+			Gadget.NONE, Gadget.TESLA_ARC, Gadget.TRANSLOCATION,
+			Gadget.CANOPTEK_SPYDER],
+		"gadget_slots": 3,
+		# The THIRD slot: what this class puts UP and keeps.
+		"sustain": [Gadget.NONE, Gadget.PHASE_SHIFT, Gadget.OVERSHIELD],
 		"secondary_mods": [SecondaryMod.NONE, SecondaryMod.SCOPE, SecondaryMod.COOLING],
 		"armor": [1, 2, 3],
 		"default_armor": 2,
@@ -822,10 +964,12 @@ const KITS: Array[Dictionary] = [
 		"name": "ORK",
 		"blurb": "Dakka. None of it lands, all of it hurts, and the choppa always does",
 		"universe": Universe.WARHAMMER,
-		"gadgets": [Gadget.NONE, Gadget.WAAAGH, Gadget.GROT_GUNNER,
-			Gadget.KUSTOM_FORCE_FIELD, Gadget.ROKKIT_PACK, Gadget.STIKKBOMB,
+		"gadgets": [
+			Gadget.NONE, Gadget.GROT_GUNNER, Gadget.ROKKIT_PACK, Gadget.STIKKBOMB,
 			Gadget.SMOKE_LAUNCHER],
-		"gadget_slots": 2,
+		"gadget_slots": 3,
+		# The THIRD slot: what this class puts UP and keeps.
+		"sustain": [Gadget.NONE, Gadget.WAAAGH, Gadget.KUSTOM_FORCE_FIELD],
 		"secondary_mods": [SecondaryMod.NONE, SecondaryMod.COOLING],
 		"armor": [1, 2, 3],
 		"default_armor": 2,
@@ -863,7 +1007,7 @@ enum Row {
 	KIT,
 	WEAPON, SIGHT, COOLING, GRIP, FOREGRIP,
 	SECONDARY, SECONDARY_MOD,
-	GADGET, GADGET2, ARMOR, SQUAD, SQUAD_SKILL,
+	GADGET, GADGET2, GADGET3, ARMOR, SQUAD, SQUAD_SKILL,
 }
 
 ## HOW THE BUY SCREEN IS GROUPED, and — since the rework — how it is DRIVEN.
@@ -886,7 +1030,7 @@ const BUY_BOXES: Array[Dictionary] = [
 	{"name": "PRIMARY", "rows": [Row.WEAPON, Row.SIGHT, Row.COOLING, Row.GRIP, Row.FOREGRIP]},
 	{"name": "SIDEARM", "rows": [Row.SECONDARY, Row.SECONDARY_MOD]},
 	# Two gadget slots for every class now — grenades live here too, as gadgets.
-	{"name": "GADGETS", "rows": [Row.GADGET, Row.GADGET2]},
+	{"name": "GADGETS", "rows": [Row.GADGET, Row.GADGET2, Row.GADGET3]},
 	{"name": "ARMOUR", "rows": [Row.ARMOR]},
 	{"name": "AI SQUAD", "rows": [Row.SQUAD, Row.SQUAD_SKILL]},
 ]
@@ -907,6 +1051,7 @@ var gadget := 0        # index into GADGETS, slot 0, on the GADGET 1 control
 ## control (keyboard G, pad LB by default), an ordinary rebindable binding like
 ## slot 0. Grenades are gadgets, so this is also where a grenade goes.
 var gadget2 := 0
+var gadget3 := 0
 ## Primary-only upgrades. The sidearm has its own slot and ignores these.
 var sight := Sight.NONE
 var cooling := false
@@ -919,6 +1064,24 @@ var squad_skill := 1  # index into SQUAD_SKILLS, paid per squadmate
 ## derive it from the kit. Faction (Conquest) builds set it explicitly, because a
 ## Magna Guard is a FORCE kit but must look like a droid, not a Jedi.
 var style := -1
+
+## THE UNIT'S PHYSIQUE. How fast it moves, how much it can take, how high it
+## jumps and HOW BIG IT IS. Until these existed, speed and health were per-KIT
+## only — so every faction class on the default kit was mechanically the same
+## body, and a Droideka moved exactly like a Scout Trooper. Worse, the model's
+## `bulk` varied from 0.62 to 1.62 while the CAPSULE never did, so an Ewok
+## floated inside an invisible trooper-sized cylinder and a Wookiee was 45%
+## wider than the thing you actually had to hit.
+##
+## An authored faction class states its physique OUTRIGHT and that REPLACES the
+## kit's multiplier rather than stacking on it. A Royal Guard is not "a Force
+## adept, but slower" — it is a wall, and a table you have to multiply out in
+## your head is a table nobody can balance from. 0.0 means "not stated", which
+## is what every SHOPPED build leaves them at, so the buy screen is unchanged.
+var unit_speed := 0.0
+var unit_health := 0.0
+var unit_jump := 0.0
+var unit_stature := 0.0
 
 
 # Ready-made builds the AI deploy with, so a firefight has snipers, gunners and
@@ -987,7 +1150,7 @@ const BOT_BUILDS: Array[Dictionary] = [
 	# The Trandoshan fields both of its ideas: a cloaking sniper and a
 	# smoke-and-dash rusher. Both legal for the kit; the kit_rules test checks it.
 	{"name": "STALKER", "kit": Kit.TRANDOSHAN, "weapon": 10, "secondary": 0,
-		"sight": Sight.THERMAL, "armor": 0, "gadget": Gadget.CLOAK},    # 85+30+20+45
+		"sight": Sight.THERMAL, "armor": 0, "gadget3": Gadget.CLOAK},    # 85+30+20+45
 	{"name": "SLAVER", "kit": Kit.TRANDOSHAN, "weapon": 1, "secondary": 2,
 		"sight": Sight.THERMAL, "armor": 1, "gadget": Gadget.DASH,
 		"gadget2": Gadget.GRENADE_SMOKE},                              # 40+20+30+20
@@ -996,7 +1159,7 @@ const BOT_BUILDS: Array[Dictionary] = [
 	# `secondary` 5 is the bowcaster, which is the only sidearm either may hold —
 	# get that index wrong and the kit_rules test says so.
 	{"name": "BULWARK", "kit": Kit.WOOKIEE, "weapon": 9, "secondary": 5,
-		"sight": Sight.NONE, "armor": 2, "gadget": Gadget.SHIELD},     # 80+25+50
+		"sight": Sight.NONE, "armor": 2, "gadget3": Gadget.SHIELD},     # 80+25+50
 	{"name": "DEMOLISHER", "kit": Kit.WOOKIEE, "weapon": 11, "secondary": 5,
 		"sight": Sight.NONE, "armor": 3, "gadget2": Gadget.GRENADE_FRAG},  # 110+60+30
 
@@ -1023,10 +1186,10 @@ const BOT_BUILDS: Array[Dictionary] = [
 		"cooling": true},                                              # 80+60+20
 	{"name": "SPARTAN BREACHER", "kit": Kit.SPARTAN, "primary": Weapon.Class.M90_SHOTGUN,
 		"sidearm": Weapon.Class.M6D, "sight": Sight.NONE, "armor": 2,
-		"gadget": Gadget.BUBBLE_SHIELD},                               # 60+25+50
+		"gadget3": Gadget.BUBBLE_SHIELD},                               # 60+25+50
 	{"name": "ODST SCOUT", "kit": Kit.ODST, "primary": Weapon.Class.M7_SMG,
 		"sidearm": Weapon.Class.M6D, "sight": Sight.HOLO, "armor": 0,
-		"gadget": Gadget.ACTIVE_CAMO},                                 # 40+20+20+45
+		"gadget3": Gadget.ACTIVE_CAMO},                                 # 40+20+20+45
 	{"name": "ODST SNIPER", "kit": Kit.ODST, "primary": Weapon.Class.SRS99,
 		"sidearm": Weapon.Class.M6D, "sight": Sight.SCOPE, "armor": 0,
 		"grip": true},                                                 # 85+25+20+20
@@ -1039,13 +1202,13 @@ const BOT_BUILDS: Array[Dictionary] = [
 		"gadget": Gadget.THRUSTER_PACK},                               # 55+25+25+25
 	{"name": "ELITE ZEALOT", "kit": Kit.SANGHEILI, "primary": Weapon.Class.ENERGY_SWORD,
 		"sidearm": Weapon.Class.PLASMA_PISTOL, "sight": Sight.NONE, "armor": 2,
-		"gadget": Gadget.ACTIVE_CAMO, "gadget2": Gadget.PLASMA_GRENADE},  # 60+25+45+35
+		"gadget3": Gadget.ACTIVE_CAMO, "gadget2": Gadget.PLASMA_GRENADE},  # 60+25+45+35
 	{"name": "GRUNT HEAVY", "kit": Kit.UNGGOY, "primary": Weapon.Class.FUEL_ROD,
 		"sidearm": Weapon.Class.PLASMA_PISTOL, "sight": Sight.NONE, "armor": 0,
 		"gadget2": Gadget.PLASMA_GRENADE},                             # 105+20+35
 	{"name": "BRUTE CHIEFTAIN", "kit": Kit.JIRALHANAE, "primary": Weapon.Class.GRAV_HAMMER,
 		"sidearm": Weapon.Class.MAULER, "sight": Sight.NONE, "armor": 2,
-		"gadget": Gadget.BUBBLE_SHIELD},                               # 70+30+25+50
+		"gadget3": Gadget.BUBBLE_SHIELD},                               # 70+30+25+50
 	{"name": "BRUTE GRENADIER", "kit": Kit.JIRALHANAE, "primary": Weapon.Class.BRUTE_SHOT,
 		"sidearm": Weapon.Class.MAULER, "sight": Sight.NONE, "armor": 3,
 		"gadget2": Gadget.PLASMA_GRENADE},                             # 70+30+60+35
@@ -1068,7 +1231,7 @@ const BOT_BUILDS: Array[Dictionary] = [
 		"gadget": Gadget.JUMP_PACK, "gadget2": Gadget.KRAK_GRENADE},   # 45+25+45+30
 	{"name": "DEATH COMPANY", "kit": Kit.BLOOD_ANGEL, "primary": Weapon.Class.THUNDER_HAMMER,
 		"sidearm": Weapon.Class.BOLT_PISTOL, "sight": Sight.NONE, "armor": 3,
-		"gadget": Gadget.RED_THIRST},                                  # 75+60+25
+		"gadget3": Gadget.RED_THIRST},                                  # 75+60+25
 	# --- WARHAMMER: Necrons ---------------------------------------------------
 	{"name": "NECRON WARRIOR", "kit": Kit.NECRON, "primary": Weapon.Class.GAUSS_FLAYER,
 		"sidearm": Weapon.Class.GAUSS_PISTOL, "sight": Sight.RED_DOT, "armor": 2,
@@ -1078,23 +1241,23 @@ const BOT_BUILDS: Array[Dictionary] = [
 		"grip": true},                                                 # 60+20+60+20
 	{"name": "DEATHMARK", "kit": Kit.NECRON, "primary": Weapon.Class.SYNAPTIC_DISINTEGRATOR,
 		"sidearm": Weapon.Class.GAUSS_PISTOL, "sight": Sight.SCOPE, "armor": 1,
-		"gadget": Gadget.PHASE_SHIFT},                                 # 85+25+45
+		"gadget3": Gadget.PHASE_SHIFT},                                 # 85+25+45
 	{"name": "LYCHGUARD", "kit": Kit.NECRON, "primary": Weapon.Class.WARSCYTHE,
 		"sidearm": Weapon.Class.GAUSS_PISTOL, "sight": Sight.NONE, "armor": 2,
 		"gadget": Gadget.TRANSLOCATION, "gadget2": Gadget.TESLA_ARC},  # 65+25+35+50
 	# --- WARHAMMER: Orks ------------------------------------------------------
 	{"name": "SHOOTA BOY", "kit": Kit.ORK, "primary": Weapon.Class.SHOOTA,
 		"sidearm": Weapon.Class.SLUGGA, "sight": Sight.NONE, "armor": 2,
-		"gadget": Gadget.WAAAGH, "gadget2": Gadget.STIKKBOMB},         # 45+25+25+25
+		"gadget3": Gadget.WAAAGH, "gadget2": Gadget.STIKKBOMB},         # 45+25+25+25
 	{"name": "BURNA BOY", "kit": Kit.ORK, "primary": Weapon.Class.BURNA,
 		"sidearm": Weapon.Class.SLUGGA, "sight": Sight.NONE, "armor": 2,
-		"gadget": Gadget.KUSTOM_FORCE_FIELD},                          # 55+25+50
+		"gadget3": Gadget.KUSTOM_FORCE_FIELD},                          # 55+25+50
 	{"name": "TANKBUSTA", "kit": Kit.ORK, "primary": Weapon.Class.ROKKIT_LAUNCHA,
 		"sidearm": Weapon.Class.SLUGGA, "sight": Sight.NONE, "armor": 2,
 		"gadget2": Gadget.STIKKBOMB},                                  # 105+25+25
 	{"name": "ORK NOB", "kit": Kit.ORK, "primary": Weapon.Class.POWER_KLAW,
 		"sidearm": Weapon.Class.SLUGGA, "sight": Sight.NONE, "armor": 3,
-		"gadget": Gadget.WAAAGH, "style": CharacterModel.Style.ORK_NOB},  # 70+60+25
+		"gadget3": Gadget.WAAAGH, "style": CharacterModel.Style.ORK_NOB},  # 70+60+25
 	{"name": "MEK GUNNER", "kit": Kit.ORK, "primary": Weapon.Class.BIG_SHOOTA,
 		"sidearm": Weapon.Class.SLUGGA, "sight": Sight.NONE, "armor": 3,
 		"gadget": Gadget.GROT_GUNNER},                                 # 70+60+65
@@ -1137,140 +1300,603 @@ static func bot_build(index: int) -> Loadout:
 ## preset is for.
 const FACTION_BUILDS: Array[Dictionary] = [
 	# REPUBLIC ---------------------------------------------------------------
+	# These eight were authored before the Empire and Rebel rosters, and it
+	# showed: several carried ONE ability where every later class carries three,
+	# so the Clone Wars sides were quietly the weakest thing to play. They also
+	# threw a "FRAG GRENADE" — Star Wars has a noun for that, and it is the same
+	# gadget at the same price (THERMAL_DET is an alias of GRENADE_FRAG), so
+	# this costs nothing and is what the HUD should have said all along.
+	#
+	# EVERY CLASS BELOW ALSO STATES A PHYSIQUE (unit_speed / unit_health /
+	# unit_jump / unit_stature — see the vars, near `style`). Before it existed,
+	# those numbers were per-KIT only, so all sixteen Clone Wars classes on the
+	# default kit were the SAME BODY: a Droideka moved at exactly a Scout
+	# Trooper's pace, and a B1 took exactly as much killing as a Clone Commando.
+	# The armour frame was the only thing separating any of them, and it is a
+	# purchase, not a character. The CLONE TROOPER is the yardstick and states
+	# nothing — it is 1.0 everywhere by definition, and every other number in
+	# the roster is read against it.
+	#
+	# EVERY CLASS BELOW ALSO NAMES ITS SIDEARM. `secondary: 0` is the DL-44, and
+	# it was on all thirty-two Star Wars classes: a B1 battle droid, a Geonosian
+	# and an Imperial Royal Guard all drew Han Solo's pistol. Halo and Warhammer
+	# each hand every faction its own free sidearm (M6D, plasma pistol, bolt
+	# pistol, gauss pistol, slugga) and Star Wars simply never did, because it
+	# had one faction when index 0 was chosen and now has four. Republic clones
+	# carry the DC-17 hand blaster, the Separatists the SE-14, the Empire the
+	# SE-14r and the Rebels the DH-17 — and the DL-44 stays where it belongs,
+	# with the Rebel Pathfinder. Faction presets are authored classes rather
+	# than shop builds, so the prices on those rows do not apply to them.
 	{"name": "CLONE TROOPER", "weapon": 2, "sight": Sight.RED_DOT, "cooling": true,
-		"secondary": 0, "armor": 1, "gadget2": Gadget.GRENADE_FRAG,
-		"style": CharacterModel.Style.CLONE},
-	{"name": "CLONE ENGINEER", "weapon": 6, "grip": true, "secondary": 0,
+		"sidearm": Weapon.Class.DC17, "armor": 1, "gadget2": Gadget.THERMAL_DET,
+		"gadget3": Gadget.OVERSHIELD, "style": CharacterModel.Style.CLONE},
+	{"name": "CLONE ENGINEER", "weapon": 6, "grip": true,
+		"sidearm": Weapon.Class.DC17,
 		"armor": 2, "gadget": Gadget.TURRET, "gadget2": Gadget.GRENADE_SMOKE,
+		"gadget3": Gadget.DEPLOY_COVER, "unit_speed": 1.03, "unit_health": 0.95,
 		"style": CharacterModel.Style.CLONE_ENGINEER},
 	{"name": "CLONE HEAVY", "weapon": 9, "foregrip": true, "sight": Sight.RED_DOT,
-		"secondary": 0, "armor": 3, "gadget": Gadget.SHIELD, "gadget2": Gadget.GRENADE_FRAG,
-		"style": CharacterModel.Style.CLONE_HEAVY},
-	{"name": "CLONE ARC", "weapon": 2, "sight": Sight.RED_DOT, "grip": true,
-		"secondary": 0, "secondary_mod": SecondaryMod.DUAL, "armor": 1,
-		"gadget": Gadget.SCAN_DART, "gadget2": Gadget.GRENADE_FRAG,
-		"style": CharacterModel.Style.CLONE_ARC},
+		"sidearm": Weapon.Class.DC17, "armor": 3, "gadget": Gadget.MORTAR,
+		"gadget2": Gadget.THERMAL_DET, "gadget3": Gadget.SHIELD,
+		"unit_speed": 0.88, "unit_health": 1.25, "unit_jump": 0.90,
+		"unit_stature": 1.06, "style": CharacterModel.Style.CLONE_HEAVY},
+	# TWO DC-17s, which is the ARC trooper's own silhouette and what the DUAL mod
+	# was always for. Paired DL-44s were somebody else's character entirely.
+	{"name": "CLONE SPECIALIST", "weapon": 2, "sight": Sight.RED_DOT, "grip": true,
+		"sidearm": Weapon.Class.DC17, "secondary_mod": SecondaryMod.DUAL, "armor": 1,
+		"gadget": Gadget.SCAN_DART, "gadget2": Gadget.THERMAL_DET,
+		"gadget3": Gadget.CLOAK, "unit_speed": 1.10, "unit_health": 0.90,
+		"unit_jump": 1.06, "style": CharacterModel.Style.CLONE_ARC},
 	# SEPARATIST -------------------------------------------------------------
+	# A B1 IS SUPPOSED TO DIE. It is the only unit in the game built around
+	# being outclassed: thin, a little slow, and softer than anything else that
+	# carries a rifle. That is the joke and it is also the fantasy — the side
+	# that wins with a B1 wins because there were more of them.
 	{"name": "BATTLE DROID", "weapon": 2, "sight": Sight.HOLO, "foregrip": true,
-		"secondary": 0, "armor": 0, "gadget2": Gadget.GRENADE_FRAG,
-		"style": CharacterModel.Style.B1},
+		"sidearm": Weapon.Class.REVOLVER, "armor": 0, "gadget2": Gadget.THERMAL_DET,
+		"gadget3": Gadget.OVERSHIELD, "unit_speed": 0.96, "unit_health": 0.84,
+		"unit_stature": 0.94, "style": CharacterModel.Style.B1},
+	# No grenade, on purpose: a B2 has no hands free for one. Everything it
+	# fights with is bolted to its arms — and it walks like it. Slowest thing
+	# on the Separatist roster that is not a Droideka, and the hardest to drop.
 	{"name": "SUPER BATTLE DROID", "primary_override": Weapon.Class.WRIST_CANNON,
-		"secondary": 0, "armor": 3, "gadget": Gadget.WRIST_ROCKET, "gadget2": Gadget.SHIELD,
-		"style": CharacterModel.Style.B2},
+		"sidearm": Weapon.Class.REVOLVER, "armor": 3,
+		"gadget": Gadget.WRIST_ROCKET, "gadget3": Gadget.SHIELD,
+		"unit_speed": 0.80, "unit_health": 1.60, "unit_jump": 0.75,
+		"unit_stature": 1.15, "style": CharacterModel.Style.B2},
 	# A FORCE kit for the guard, the double-jump and the intrinsic dash; the
 	# electrostaff (primary_override, a melee weapon the shop does not sell) raises
 	# that same guard, drawn as a shield in the off hand.
 	{"name": "MAGNA GUARD", "kit": Kit.FORCE, "primary_override": Weapon.Class.STAFF,
-		"secondary": 0, "armor": 2, "gadget": Gadget.DASH, "gadget2": Gadget.GRENADE_SMOKE,
-		"style": CharacterModel.Style.MAGNAGUARD},
-	{"name": "TACTICAL DROID", "weapon": NO_PRIMARY, "secondary": 3,
+		"sidearm": Weapon.Class.REVOLVER, "armor": 2,
+		"gadget": Gadget.DASH, "gadget2": Gadget.GRENADE_SMOKE,
+		"gadget3": Gadget.FURY, "unit_speed": 1.15, "unit_health": 1.05,
+		"unit_stature": 1.04, "style": CharacterModel.Style.MAGNAGUARD},
+	{"name": "TACTICAL DROID", "weapon": NO_PRIMARY,
+		"sidearm": Weapon.Class.REVOLVER,
 		"secondary_mod": SecondaryMod.SCOPE, "armor": 1,
-		"gadget": Gadget.MORTAR, "gadget2": Gadget.GRENADE_FRAG,
-		"style": CharacterModel.Style.TACTICAL},
+		"gadget": Gadget.MORTAR, "gadget2": Gadget.THERMAL_DET,
+		"gadget3": Gadget.RALLY, "unit_speed": 0.95, "unit_health": 0.85,
+		"unit_stature": 1.02, "style": CharacterModel.Style.TACTICAL},
 
 	# HALO — UNSC (8-11) ------------------------------------------------------
+	# THE PHYSIQUE CEILING IS 1.16 (about 2.1 m) AND IT IS NOT A TASTE
+	# DECISION. Stature scales the collision capsule, and every map in the game
+	# was laid out around a 1.8 m body — a unit tall enough to be a real Spartan
+	# is also a unit that cannot get under things the level says are passable,
+	# and "the Mega Nob is stuck in the doorway" is a worse bug than "the Mega
+	# Nob is a little short". Crouch still gets anybody under anything.
 	{"name": "SPARTAN-II", "kit": Kit.SPARTAN, "primary": Weapon.Class.MA5B,
 		"sidearm": Weapon.Class.M6D, "sight": Sight.RED_DOT, "armor": 2,
-		"gadget": Gadget.BUBBLE_SHIELD, "gadget2": Gadget.FRAG_GRENADE_UNSC,
+		"gadget3": Gadget.BUBBLE_SHIELD, "gadget2": Gadget.FRAG_GRENADE_UNSC,
+		"unit_speed": 1.05, "unit_health": 1.40, "unit_stature": 1.12,
 		"style": CharacterModel.Style.SPARTAN},
 	{"name": "SPARTAN HEAVY", "kit": Kit.SPARTAN, "primary": Weapon.Class.M247_HMG,
 		"sidearm": Weapon.Class.M6D, "cooling": true, "armor": 3,
 		"gadget": Gadget.SENTRY_TURRET, "gadget2": Gadget.FRAG_GRENADE_UNSC,
-		"style": CharacterModel.Style.SPARTAN},
+		# 1.55 put this on 271 HP behind a gun that empties a trooper in 0.39 s —
+		# more health than an Elite Ultra and the hardest trade in the game, on a
+		# LINE class. A Spartan Heavy should be the tough one on its own side, not
+		# tougher than the Covenant's heavies as well.
+		"unit_speed": 0.94, "unit_health": 1.28, "unit_jump": 0.90,
+		"unit_stature": 1.14, "style": CharacterModel.Style.SPARTAN},
 	{"name": "ODST", "kit": Kit.ODST, "primary": Weapon.Class.M7_SMG,
 		"sidearm": Weapon.Class.M6D, "sight": Sight.HOLO, "armor": 0,
-		"gadget": Gadget.ACTIVE_CAMO, "gadget2": Gadget.FRAG_GRENADE_UNSC,
+		"gadget3": Gadget.ACTIVE_CAMO, "gadget2": Gadget.FRAG_GRENADE_UNSC,
+		"unit_speed": 1.12, "unit_health": 0.95, "unit_jump": 1.08,
 		"style": CharacterModel.Style.ODST},
 	{"name": "MARINE MARKSMAN", "kit": Kit.ODST, "primary": Weapon.Class.M392_DMR,
 		"sidearm": Weapon.Class.M6D, "grip": true, "armor": 1,
 		"gadget": Gadget.TRACKER_DART, "gadget2": Gadget.FRAG_GRENADE_UNSC,
+		"unit_speed": 1.00, "unit_health": 0.90, "unit_stature": 0.98,
 		"style": CharacterModel.Style.MARINE},
 	# HALO — Covenant (12-15) -------------------------------------------------
 	{"name": "ELITE MINOR", "kit": Kit.SANGHEILI, "primary": Weapon.Class.PLASMA_RIFLE,
 		"sidearm": Weapon.Class.PLASMA_PISTOL, "sight": Sight.HOLO, "armor": 1,
 		"gadget": Gadget.THRUSTER_PACK, "gadget2": Gadget.PLASMA_GRENADE,
+		"unit_speed": 1.08, "unit_health": 1.25, "unit_stature": 1.10,
 		"style": CharacterModel.Style.ELITE},
 	{"name": "ELITE ZEALOT", "kit": Kit.SANGHEILI, "primary": Weapon.Class.ENERGY_SWORD,
 		"sidearm": Weapon.Class.PLASMA_PISTOL, "armor": 2,
-		"gadget": Gadget.ACTIVE_CAMO, "gadget2": Gadget.PLASMA_GRENADE,
+		"gadget3": Gadget.ACTIVE_CAMO, "gadget2": Gadget.PLASMA_GRENADE,
+		"unit_speed": 1.14, "unit_health": 1.35, "unit_stature": 1.12,
 		"style": CharacterModel.Style.ELITE},
+	# A GRUNT IS KNEE-HIGH AND EVERYONE KNOWS IT. It was standing eye to eye
+	# with a Spartan, which took the joke out of the only comedy unit in Halo
+	# and, more to the point, meant the thing carrying the fuel rod was as easy
+	# to hit as the thing carrying an assault rifle.
 	{"name": "GRUNT HEAVY", "kit": Kit.UNGGOY, "primary": Weapon.Class.FUEL_ROD,
 		"sidearm": Weapon.Class.PLASMA_PISTOL, "armor": 0,
 		"gadget": Gadget.GRAV_LIFT, "gadget2": Gadget.PLASMA_GRENADE,
+		"unit_speed": 1.02, "unit_health": 0.72, "unit_stature": 0.70,
 		"style": CharacterModel.Style.GRUNT},
+	# The LEAP is not decoration: a Chieftain carries a hammer with four metres
+	# of reach and walks at x0.78, so without something that closes ground it
+	# could be kited by literally every rifle in the game forever. The
+	# leap-and-slam is also the thing everyone remembers a Chieftain doing.
 	{"name": "BRUTE CHIEFTAIN", "kit": Kit.JIRALHANAE, "primary": Weapon.Class.GRAV_HAMMER,
-		"sidearm": Weapon.Class.MAULER, "armor": 3,
-		"gadget": Gadget.BUBBLE_SHIELD, "gadget2": Gadget.PLASMA_GRENADE,
-		"style": CharacterModel.Style.BRUTE},
+		"sidearm": Weapon.Class.MAULER, "armor": 3, "gadget": Gadget.GRAV_LIFT,
+		"gadget3": Gadget.BUBBLE_SHIELD, "gadget2": Gadget.PLASMA_GRENADE,
+		"unit_speed": 0.88, "unit_health": 1.70, "unit_jump": 0.85,
+		"unit_stature": 1.16, "style": CharacterModel.Style.BRUTE},
 
 	# WARHAMMER — Ultramarines (16-19) ----------------------------------------
+	# AN ASTARTES IS NOT A MAN IN ARMOUR. Every one of these is taller, heavier
+	# and harder to stop than anything either other universe fields at the same
+	# job, and the jump-pack classes are the only ones that also move well — a
+	# Space Marine's speed is supposed to come out of a rocket, not out of legs.
 	{"name": "TACTICAL MARINE", "kit": Kit.ULTRAMARINE, "primary": Weapon.Class.BOLTER,
 		"sidearm": Weapon.Class.BOLT_PISTOL, "sight": Sight.RED_DOT, "armor": 2,
-		"gadget": Gadget.IRON_HALO, "gadget2": Gadget.KRAK_GRENADE,
-		"style": CharacterModel.Style.ULTRAMARINE},
+		"gadget3": Gadget.IRON_HALO, "gadget2": Gadget.KRAK_GRENADE,
+		"unit_speed": 0.92, "unit_health": 1.35, "unit_jump": 0.95,
+		"unit_stature": 1.14, "style": CharacterModel.Style.ULTRAMARINE},
 	{"name": "DEVASTATOR", "kit": Kit.ULTRAMARINE, "primary": Weapon.Class.HEAVY_BOLTER,
 		"sidearm": Weapon.Class.BOLT_PISTOL, "cooling": true, "armor": 3,
 		"gadget": Gadget.ORBITAL_BOMBARDMENT, "gadget2": Gadget.KRAK_GRENADE,
-		"style": CharacterModel.Style.ULTRAMARINE},
+		"unit_speed": 0.82, "unit_health": 1.60, "unit_jump": 0.85,
+		"unit_stature": 1.16, "style": CharacterModel.Style.ULTRAMARINE},
 	{"name": "STERNGUARD", "kit": Kit.ULTRAMARINE, "primary": Weapon.Class.PLASMA_GUN,
 		"sidearm": Weapon.Class.PLASMA_PISTOL_40K, "sight": Sight.HOLO, "armor": 2,
 		"gadget": Gadget.AUSPEX_SCAN, "gadget2": Gadget.MELTA_BOMB,
+		"unit_speed": 0.92, "unit_health": 1.40, "unit_stature": 1.14,
 		"style": CharacterModel.Style.ULTRAMARINE},
 	{"name": "VANGUARD VETERAN", "kit": Kit.ULTRAMARINE, "primary": Weapon.Class.POWER_SWORD,
 		"sidearm": Weapon.Class.BOLT_PISTOL, "armor": 2,
 		"gadget": Gadget.ASSAULT_CANNON, "gadget2": Gadget.KRAK_GRENADE,
+		"gadget3": Gadget.RALLY, "unit_speed": 1.05, "unit_health": 1.25,
+		"unit_jump": 1.10, "unit_stature": 1.12,
 		"style": CharacterModel.Style.ULTRAMARINE},
 	# WARHAMMER — Blood Angels (20-23) ----------------------------------------
 	{"name": "ASSAULT MARINE", "kit": Kit.BLOOD_ANGEL, "primary": Weapon.Class.CHAINSWORD,
 		"sidearm": Weapon.Class.BOLT_PISTOL, "armor": 2,
 		"gadget": Gadget.JUMP_PACK, "gadget2": Gadget.KRAK_GRENADE,
-		"style": CharacterModel.Style.BLOOD_ANGEL},
+		"unit_speed": 1.08, "unit_health": 1.20, "unit_jump": 1.15,
+		"unit_stature": 1.12, "style": CharacterModel.Style.BLOOD_ANGEL},
 	{"name": "SANGUINARY GUARD", "kit": Kit.BLOOD_ANGEL, "primary": Weapon.Class.POWER_SWORD,
 		"sidearm": Weapon.Class.PLASMA_PISTOL_40K, "armor": 3,
-		"gadget": Gadget.JUMP_PACK, "gadget2": Gadget.RED_THIRST,
-		"style": CharacterModel.Style.BLOOD_ANGEL},
+		"gadget": Gadget.JUMP_PACK, "gadget3": Gadget.RED_THIRST,
+		"unit_speed": 1.10, "unit_health": 1.35, "unit_jump": 1.20,
+		"unit_stature": 1.14, "style": CharacterModel.Style.BLOOD_ANGEL},
 	{"name": "DEATH COMPANY", "kit": Kit.BLOOD_ANGEL, "primary": Weapon.Class.THUNDER_HAMMER,
 		"sidearm": Weapon.Class.BOLT_PISTOL, "armor": 3,
-		"gadget": Gadget.RED_THIRST, "gadget2": Gadget.MELTA_BOMB,
+		"gadget3": Gadget.RED_THIRST, "gadget2": Gadget.MELTA_BOMB,
+		"unit_speed": 1.06, "unit_health": 1.45, "unit_stature": 1.14,
 		"style": CharacterModel.Style.BLOOD_ANGEL},
 	{"name": "BA TACTICAL", "kit": Kit.BLOOD_ANGEL, "primary": Weapon.Class.BOLTER,
 		"sidearm": Weapon.Class.BOLT_PISTOL, "sight": Sight.HOLO, "armor": 2,
-		"gadget": Gadget.IRON_HALO, "gadget2": Gadget.KRAK_GRENADE,
+		"gadget3": Gadget.IRON_HALO, "gadget2": Gadget.KRAK_GRENADE,
+		"unit_speed": 0.94, "unit_health": 1.30, "unit_stature": 1.14,
 		"style": CharacterModel.Style.BLOOD_ANGEL},
 	# WARHAMMER — Necrons (24-27) ---------------------------------------------
+	# The Necrons were the last roster authored and the thinnest: four of their
+	# eight classes deployed with ONE ability where everybody else's carry three.
+	# Nothing new was needed to fix it — a Necron already owns a teleport, a
+	# phase-out and an arc weapon, and they are what the faction is.
 	{"name": "NECRON WARRIOR", "kit": Kit.NECRON, "primary": Weapon.Class.GAUSS_FLAYER,
 		"sidearm": Weapon.Class.GAUSS_PISTOL, "sight": Sight.RED_DOT, "armor": 2,
-		"gadget": Gadget.PHASE_SHIFT, "style": CharacterModel.Style.NECRON},
+		"gadget": Gadget.TRANSLOCATION, "gadget3": Gadget.PHASE_SHIFT,
+		"unit_speed": 0.86, "unit_health": 1.30, "unit_jump": 0.85,
+		"unit_stature": 1.08, "style": CharacterModel.Style.NECRON},
 	{"name": "IMMORTAL", "kit": Kit.NECRON, "primary": Weapon.Class.GAUSS_BLASTER,
 		"sidearm": Weapon.Class.GAUSS_PISTOL, "sight": Sight.HOLO, "armor": 3,
-		"gadget": Gadget.CANOPTEK_SPYDER, "style": CharacterModel.Style.NECRON},
+		"gadget": Gadget.CANOPTEK_SPYDER, "gadget3": Gadget.OVERSHIELD,
+		"unit_speed": 0.82, "unit_health": 1.55, "unit_jump": 0.80,
+		"unit_stature": 1.12, "style": CharacterModel.Style.NECRON},
 	{"name": "DEATHMARK", "kit": Kit.NECRON, "primary": Weapon.Class.SYNAPTIC_DISINTEGRATOR,
 		"sidearm": Weapon.Class.GAUSS_PISTOL, "sight": Sight.SCOPE_4X, "armor": 1,
-		"gadget": Gadget.TRANSLOCATION, "style": CharacterModel.Style.NECRON},
+		"gadget": Gadget.TRANSLOCATION, "gadget3": Gadget.PHASE_SHIFT,
+		"unit_speed": 0.95, "unit_health": 1.05, "unit_stature": 1.10,
+		"style": CharacterModel.Style.NECRON},
 	{"name": "LYCHGUARD", "kit": Kit.NECRON, "primary": Weapon.Class.WARSCYTHE,
 		"sidearm": Weapon.Class.GAUSS_PISTOL, "armor": 3,
 		"gadget": Gadget.TESLA_ARC, "gadget2": Gadget.TRANSLOCATION,
-		"style": CharacterModel.Style.NECRON_LORD},
+		"unit_speed": 0.84, "unit_health": 1.65, "unit_jump": 0.80,
+		"unit_stature": 1.14, "style": CharacterModel.Style.NECRON_LORD},
 	# WARHAMMER — Orks (28-31) ------------------------------------------------
+	# An ork is a big thick body that is nonetheless quick when it is coming at
+	# you: the boyz sit near the trooper's pace and take a lot of stopping, and
+	# the two Nobs trade almost all of that pace for being nearly unkillable.
 	{"name": "SHOOTA BOY", "kit": Kit.ORK, "primary": Weapon.Class.SHOOTA,
 		"sidearm": Weapon.Class.SLUGGA, "armor": 2,
-		"gadget": Gadget.WAAAGH, "gadget2": Gadget.STIKKBOMB,
+		"gadget3": Gadget.WAAAGH, "gadget2": Gadget.STIKKBOMB,
+		"unit_speed": 1.02, "unit_health": 1.20, "unit_stature": 1.08,
 		"style": CharacterModel.Style.ORK},
 	{"name": "BURNA BOY", "kit": Kit.ORK, "primary": Weapon.Class.BURNA,
 		"sidearm": Weapon.Class.SLUGGA, "armor": 2,
-		"gadget": Gadget.KUSTOM_FORCE_FIELD, "gadget2": Gadget.SMOKE_LAUNCHER,
+		"gadget3": Gadget.KUSTOM_FORCE_FIELD, "gadget2": Gadget.SMOKE_LAUNCHER,
+		"unit_speed": 0.98, "unit_health": 1.20, "unit_stature": 1.08,
 		"style": CharacterModel.Style.ORK},
 	{"name": "TANKBUSTA", "kit": Kit.ORK, "primary": Weapon.Class.ROKKIT_LAUNCHA,
 		"sidearm": Weapon.Class.SLUGGA, "armor": 2,
 		"gadget": Gadget.ROKKIT_PACK, "gadget2": Gadget.STIKKBOMB,
+		"unit_speed": 0.96, "unit_health": 1.20, "unit_stature": 1.08,
 		"style": CharacterModel.Style.ORK},
 	{"name": "ORK NOB", "kit": Kit.ORK, "primary": Weapon.Class.POWER_KLAW,
 		"sidearm": Weapon.Class.SLUGGA, "armor": 3,
-		"gadget": Gadget.GROT_GUNNER, "gadget2": Gadget.WAAAGH,
-		"style": CharacterModel.Style.ORK_NOB},
-]
+		"gadget": Gadget.GROT_GUNNER, "gadget3": Gadget.WAAAGH,
+		"unit_speed": 0.92, "unit_health": 1.60, "unit_jump": 0.90,
+		"unit_stature": 1.16, "style": CharacterModel.Style.ORK_NOB},
+	# =========================================================================
+	# THE SECOND HALF OF EVERY ROSTER (32+), plus two new Star Wars sides.
+	#
+	# APPENDED, never interleaved. FACTION_ROSTERS names classes by INDEX, so
+	# inserting a Republic class next to the other Republic ones would silently
+	# re-deal every roster below it — the same trap the WEAPONS table has and the
+	# same answer: add at the end and list the index.
+	# =========================================================================
 
-## Which FACTION_BUILDS indices each team may pick from, PER UNIVERSE. Team 0 is
+	# =========================================================================
+	# THE STAR WARS ROSTERS, REBUILT. Battlefront's own vocabulary: every side is
+	# four line classes (assault, heavy, officer, specialist) and four
+	# REINFORCEMENTS — the units people actually queue for. A class earns its
+	# place by playing differently, not by carrying a different-coloured rifle,
+	# so almost every one of these names a weapon or a gadget that did not exist
+	# before this pass.
+	# =========================================================================
+
+	# REPUBLIC, second four (32-35) ------------------------------------------
+	{"name": "CLONE OFFICER", "primary": Weapon.Class.DC15S,
+		"sight": Sight.RED_DOT, "sidearm": Weapon.Class.DC17, "armor": 1, "squad": 2,
+		"gadget": Gadget.TURRET, "gadget2": Gadget.THERMAL_DET,
+		"gadget3": Gadget.RALLY, "unit_speed": 1.02,
+		"style": CharacterModel.Style.CLONE_ENGINEER},
+	{"name": "CLONE SHARPSHOOTER", "primary": Weapon.Class.DC15X,
+		"sidearm": Weapon.Class.DC17, "armor": 0, "gadget": Gadget.PULSE_SCAN,
+		"gadget2": Gadget.GRENADE_SMOKE, "gadget3": Gadget.CLOAK,
+		"unit_speed": 1.08, "unit_health": 0.85, "unit_stature": 0.98,
+		"style": CharacterModel.Style.CLONE_ARC},
+	# THE REINFORCEMENTS. The ARC trooper carries a PAIR of DC-17s (the dual mod
+	# is the class, not an upgrade) and the commando the burst-fire DC-17m.
+	# They differ in the BODY too, which is what a reinforcement is for: the ARC
+	# is the fastest thing the Republic fields and the Commando the toughest.
+	{"name": "ARC TROOPER", "weapon": NO_PRIMARY,
+		"sidearm": Weapon.Class.DC17,
+		"secondary_mod": SecondaryMod.DUAL, "armor": 1,
+		"gadget": Gadget.SHOCK_TRAP, "gadget2": Gadget.DASH,
+		"gadget3": Gadget.OVERSHIELD, "unit_speed": 1.16, "unit_health": 0.95,
+		"unit_jump": 1.10, "style": CharacterModel.Style.CLONE_ARC},
+	{"name": "CLONE COMMANDO", "primary": Weapon.Class.DC17M,
+		"sight": Sight.RED_DOT, "sidearm": Weapon.Class.DC17, "armor": 3,
+		"gadget": Gadget.SCAN_DART, "gadget2": Gadget.THERMAL_DET,
+		"gadget3": Gadget.OVERSHIELD, "unit_speed": 0.95, "unit_health": 1.35,
+		"unit_stature": 1.05, "style": CharacterModel.Style.CLONE_COMMANDO},
+
+	# SEPARATIST, second four (36-39) ----------------------------------------
+	{"name": "B1 SNIPER DROID", "primary": Weapon.Class.E5S,
+		"sidearm": Weapon.Class.REVOLVER, "armor": 0, "gadget": Gadget.PULSE_SCAN,
+		"gadget2": Gadget.GRENADE_SMOKE, "gadget3": Gadget.CLOAK,
+		"unit_speed": 0.96, "unit_health": 0.84, "unit_stature": 0.94,
+		"style": CharacterModel.Style.B1},
+	# DROIDEKA: the twin repeaters and the deflector bubble, which is the unit —
+	# you do not out-shoot a destroyer, you flank it while the shield is down.
+	# SLOW IS THE WHOLE POINT. It rolls into position and then it is a turret:
+	# if you could also run from it, or it could chase you, the flank it is
+	# built to be punished by would never be worth taking. The lowest jump in
+	# the game as well — a thing on three legs does not hop.
+	# ...and the ROLL is the other half of it. A destroyer that could only ever
+	# trudge was one long walk to the fight and then a turret, which is the unit
+	# with its best trick missing: the whole reason it is a ball is that it
+	# ARRIVES. The dash is a gadget, so this costs no new mechanism — it just
+	# needed someone to notice that "rolls in fast, then cannot leave" is a far
+	# better character than "slow" on its own.
+	{"name": "DROIDEKA", "primary": Weapon.Class.DROIDEKA_TWIN,
+		"sidearm": Weapon.Class.REVOLVER, "armor": 2, "gadget": Gadget.DASH,
+		"gadget3": Gadget.DEFLECTOR,
+		"unit_speed": 0.62, "unit_health": 1.55, "unit_jump": 0.66,
+		"unit_stature": 0.88, "style": CharacterModel.Style.DROIDEKA},
+	{"name": "BX COMMANDO DROID", "kit": Kit.FORCE, "weapon": NO_PRIMARY,
+		"primary_override": Weapon.Class.VIBROSWORD,
+		"sidearm": Weapon.Class.REVOLVER, "armor": 1,
+		"gadget": Gadget.DASH, "gadget2": Gadget.GRENADE_SMOKE,
+		"gadget3": Gadget.CLOAK, "unit_speed": 1.25, "unit_health": 0.85,
+		"unit_jump": 1.15, "style": CharacterModel.Style.COMMANDO_DROID},
+	# Light enough to fly and light enough to swat: the highest jump on the
+	# roster over the second-thinnest body.
+	{"name": "GEONOSIAN WARRIOR", "primary": Weapon.Class.SONIC_BLASTER,
+		"sidearm": Weapon.Class.REVOLVER, "armor": 0, "gadget": Gadget.WINGS,
+		"gadget2": Gadget.THERMAL_DET, "gadget3": Gadget.FURY,
+		"unit_speed": 1.10, "unit_health": 0.82, "unit_jump": 1.35,
+		"unit_stature": 0.94, "style": CharacterModel.Style.GEONOSIAN},
+
+	# EMPIRE (40-47) ----------------------------------------------------------
+	{"name": "STORMTROOPER", "primary": Weapon.Class.E11,
+		"sight": Sight.RED_DOT, "sidearm": Weapon.Class.SE14R, "armor": 1,
+		"gadget2": Gadget.THERMAL_DET, "gadget3": Gadget.OVERSHIELD,
+		"style": CharacterModel.Style.STORMTROOPER},
+	{"name": "HEAVY TROOPER", "primary": Weapon.Class.DLT19,
+		"foregrip": true, "sidearm": Weapon.Class.SE14R, "armor": 3,
+		"gadget2": Gadget.THERMAL_DET, "gadget3": Gadget.DEPLOY_COVER,
+		"unit_speed": 0.88, "unit_health": 1.28, "unit_jump": 0.90,
+		"unit_stature": 1.06, "style": CharacterModel.Style.STORMTROOPER_HEAVY},
+	# The officers each carry their OWN side's rifle. All three used to be
+	# listed with the DC-15S — a Republic clone carbine in the hands of an
+	# Imperial and a Rebel officer, twenty years and one war on the wrong side.
+	{"name": "IMPERIAL OFFICER", "primary": Weapon.Class.E11,
+		"sidearm": Weapon.Class.SE14R, "armor": 1, "squad": 2, "gadget": Gadget.TURRET,
+		"gadget2": Gadget.GRENADE_SMOKE, "gadget3": Gadget.RALLY,
+		"unit_speed": 1.02, "unit_health": 0.92,
+		"style": CharacterModel.Style.IMPERIAL_OFFICER},
+	# The fastest line class either Imperial or Rebel fields, and the softest.
+	# A scout is a flanker or it is nothing, and it has to be genuinely
+	# punishing to get caught in the open as one.
+	{"name": "SCOUT TROOPER", "primary": Weapon.Class.DLT20A,
+		"sidearm": Weapon.Class.SE14R, "armor": 0, "gadget": Gadget.PULSE_SCAN,
+		"gadget2": Gadget.GRENADE_SMOKE, "gadget3": Gadget.CLOAK,
+		"unit_speed": 1.18, "unit_health": 0.82, "unit_jump": 1.18,
+		"unit_stature": 0.97, "style": CharacterModel.Style.SCOUT_TROOPER},
+	# The reinforcements: the two units the Empire is actually feared for, plus
+	# the flamer and the guard. The DEATH TROOPER is the only class in the game
+	# that is faster AND tougher than the line trooper at once — that is exactly
+	# what makes the black armour frightening, and the reason it is a
+	# reinforcement rather than something you can field eight of.
+	{"name": "DEATH TROOPER", "kit": Kit.TRANDOSHAN,
+		"primary": Weapon.Class.E11D, "sight": Sight.THERMAL,
+		"sidearm": Weapon.Class.SE14R, "armor": 2, "gadget": Gadget.SCAN_DART,
+		"gadget2": Gadget.GRENADE_SMOKE, "gadget3": Gadget.CLOAK,
+		"unit_speed": 1.06, "unit_health": 1.20, "unit_stature": 1.03,
+		"style": CharacterModel.Style.DEATH_TROOPER},
+	# The flamer has no reach at all, so the whole class is the WALK IN. It is
+	# paid for in health, not speed: arriving quickly is not the fantasy,
+	# arriving at all is.
+	{"name": "FLAMETROOPER", "primary": Weapon.Class.FLAMETHROWER,
+		"sidearm": Weapon.Class.SE14R, "armor": 2, "gadget2": Gadget.THERMAL_DET,
+		"gadget3": Gadget.OVERSHIELD, "unit_speed": 0.94, "unit_health": 1.30,
+		"unit_stature": 1.04, "style": CharacterModel.Style.FLAMETROOPER},
+	{"name": "SHORETROOPER", "primary": Weapon.Class.E11,
+		"grip": true, "sidearm": Weapon.Class.SE14R, "armor": 2, "gadget": Gadget.MORTAR,
+		"gadget2": Gadget.THERMAL_DET, "gadget3": Gadget.DEPLOY_COVER,
+		"unit_speed": 0.96, "unit_health": 1.15, "unit_stature": 1.02,
+		"style": CharacterModel.Style.SHORETROOPER},
+	# THE WALL. On the FORCE kit the Royal Guard was inheriting speed 1.2 and
+	# came out the fastest thing on the field, which is precisely backwards for
+	# the Emperor's bodyguard — an authored physique REPLACES the kit's, so
+	# these numbers are what it actually gets: slow, enormous, and the single
+	# hardest body in Star Wars to put down.
+	{"name": "ROYAL GUARD", "kit": Kit.FORCE, "weapon": NO_PRIMARY,
+		"primary_override": Weapon.Class.STAFF,
+		"sidearm": Weapon.Class.SE14R, "armor": 3,
+		"gadget": Gadget.DASH, "gadget3": Gadget.FURY,
+		"unit_speed": 0.84, "unit_health": 1.70, "unit_jump": 0.85,
+		"unit_stature": 1.08, "style": CharacterModel.Style.IMPERIAL_ROYAL},
+
+	# REBEL ALLIANCE (48-55) --------------------------------------------------
+	{"name": "REBEL TROOPER", "primary": Weapon.Class.A280C,
+		"sight": Sight.RED_DOT, "sidearm": Weapon.Class.DH17, "armor": 1,
+		"gadget2": Gadget.THERMAL_DET, "gadget3": Gadget.OVERSHIELD,
+		"style": CharacterModel.Style.REBEL_TROOPER},
+	{"name": "REBEL VANGUARD", "primary": Weapon.Class.CR2,
+		"sidearm": Weapon.Class.DH17, "armor": 2, "gadget": Gadget.DASH,
+		"gadget2": Gadget.THERMAL_DET, "gadget3": Gadget.FURY,
+		"unit_speed": 1.05, "unit_health": 1.15, "unit_stature": 1.05,
+		"style": CharacterModel.Style.REBEL_VANGUARD},
+	{"name": "REBEL OFFICER", "primary": Weapon.Class.A280C,
+		"sidearm": Weapon.Class.DH17, "armor": 1, "squad": 2, "gadget": Gadget.TURRET,
+		"gadget2": Gadget.GRENADE_SMOKE, "gadget3": Gadget.RALLY,
+		"unit_speed": 1.02, "unit_health": 0.92,
+		"style": CharacterModel.Style.REBEL_OFFICER},
+	{"name": "REBEL MARKSMAN", "primary": Weapon.Class.DH447,
+		"sidearm": Weapon.Class.DH17, "armor": 0, "gadget": Gadget.PULSE_SCAN,
+		"gadget2": Gadget.GRENADE_SMOKE, "gadget3": Gadget.CLOAK,
+		"unit_speed": 1.08, "unit_health": 0.85, "unit_stature": 0.98,
+		"style": CharacterModel.Style.REBEL_PILOT},
+	# Reinforcements: the Wookiee and the Ewok are the two the fanbase asks for
+	# by name, and the Pathfinder is the one it plays. These two are also the
+	# extremes of the whole physique table, in opposite directions — the tallest
+	# and hardest body in Star Wars against the smallest and softest.
+	# THE BOWCASTER, named rather than left to index 0. `secondary: 0` is the
+	# DL-44, so the most recognisable weapon this unit has ever carried was being
+	# replaced at deploy by Han Solo's pistol — legal, playable and the wrong
+	# character. It is a `sidearm` and not a `primary` because that is where the
+	# Wookiee kit actually sells it; what a player sees is the gun in its hands.
+	{"name": "WOOKIEE WARRIOR", "kit": Kit.WOOKIEE, "weapon": NO_PRIMARY,
+		"sidearm": Weapon.Class.BOWCASTER,
+		"armor": 3, "gadget2": Gadget.THERMAL_DET, "gadget3": Gadget.FURY,
+		"unit_speed": 0.86, "unit_health": 1.55, "unit_jump": 0.85,
+		"unit_stature": 1.16, "style": CharacterModel.Style.WOOKIEE},
+	# KNEE-HIGH AND LETHAL. The stature is not decoration: at 0.62 the capsule
+	# is about 1.1 m, so an Ewok is genuinely hard to hit, genuinely fast, and
+	# dies to about two rifle rounds. The model has been built at this bulk
+	# since it was added — it was the HITBOX that was still trooper-sized, so
+	# until now the joke was purely visual and it fought like a stormtrooper.
+	{"name": "EWOK HUNTER", "kit": Kit.FORCE, "weapon": NO_PRIMARY,
+		# The holdout: an Ewok's blaster is a thing it took off somebody.
+		"primary_override": Weapon.Class.EWOK_SPEAR,
+		"sidearm": Weapon.Class.HOLDOUT, "armor": 0,
+		"gadget": Gadget.DASH, "gadget2": Gadget.GRENADE_SMOKE,
+		"gadget3": Gadget.CLOAK, "unit_speed": 1.30, "unit_health": 0.60,
+		"unit_jump": 1.25, "unit_stature": 0.62,
+		"style": CharacterModel.Style.EWOK},
+	{"name": "REBEL PATHFINDER", "kit": Kit.TRANDOSHAN,
+		# The one class that keeps the DL-44 — a Pathfinder is the Alliance's
+		# scoundrel, and it is his pistol.
+		"primary": Weapon.Class.A280C, "sight": Sight.THERMAL,
+		"sidearm": Weapon.Class.PISTOL, "armor": 1, "gadget": Gadget.SCAN_DART,
+		"gadget2": Gadget.GRENADE_SMOKE, "gadget3": Gadget.CLOAK,
+		"unit_speed": 1.10, "unit_health": 0.90, "unit_jump": 1.08,
+		"style": CharacterModel.Style.REBEL_COMMANDO},
+	{"name": "REBEL JEDI", "kit": Kit.FORCE, "weapon": NO_PRIMARY,
+		"primary_override": Weapon.Class.SABER,
+		"sidearm": Weapon.Class.BRYAR, "armor": 1,
+		"gadget": Gadget.FORCE_PUSH, "gadget2": Gadget.FORCE_LEAP,
+		"gadget3": Gadget.FURY, "unit_speed": 1.22, "unit_health": 1.30,
+		"unit_jump": 1.20, "style": CharacterModel.Style.JEDI},
+
+	# =========================================================================
+	# HALO, REBUILT. The sandbox IS the roster here — a Halo class is defined by
+	# which of the iconic guns it walks in with, so every one of these names a
+	# different weapon and no two share a primary.
+	# =========================================================================
+
+	# HALO — UNSC, second four (56-59) ----------------------------------------
+	{"name": "SPARTAN CQC", "kit": Kit.SPARTAN, "primary": Weapon.Class.M90_SHOTGUN,
+		"sidearm": Weapon.Class.M6D, "armor": 2, "gadget": Gadget.THRUSTER_PACK,
+		"gadget2": Gadget.FRAG_GRENADE_UNSC, "gadget3": Gadget.OVERSHIELD,
+		"unit_speed": 1.10, "unit_health": 1.30, "unit_stature": 1.12,
+		"style": CharacterModel.Style.SPARTAN},
+	{"name": "ODST SNIPER", "kit": Kit.ODST, "primary": Weapon.Class.SRS99,
+		"sidearm": Weapon.Class.M6D, "armor": 0, "gadget": Gadget.VISR,
+		"gadget2": Gadget.FRAG_GRENADE_UNSC, "gadget3": Gadget.ACTIVE_CAMO,
+		"unit_speed": 1.06, "unit_health": 0.90, "unit_stature": 0.98,
+		"style": CharacterModel.Style.ODST},
+	{"name": "MARINE ROCKETEER", "kit": Kit.ODST, "primary": Weapon.Class.SPNKR,
+		"sidearm": Weapon.Class.M6D, "armor": 1, "gadget2": Gadget.FRAG_GRENADE_UNSC,
+		"gadget3": Gadget.DEPLOY_COVER, "unit_speed": 0.94, "unit_health": 1.05,
+		"style": CharacterModel.Style.MARINE},
+	{"name": "MARINE GRENADIER", "kit": Kit.ODST, "primary": Weapon.Class.M319,
+		"sidearm": Weapon.Class.M6D, "armor": 1, "gadget": Gadget.SENTRY_TURRET,
+		"gadget2": Gadget.FRAG_GRENADE_UNSC, "gadget3": Gadget.BIOFOAM,
+		"unit_speed": 0.98, "unit_health": 0.95,
+		"style": CharacterModel.Style.MARINE},
+
+	# HALO — Covenant, second four (60-63) ------------------------------------
+	{"name": "ELITE ULTRA", "kit": Kit.SANGHEILI, "primary": Weapon.Class.COV_CARBINE,
+		"sidearm": Weapon.Class.PLASMA_PISTOL, "sight": Sight.SCOPE, "armor": 3,
+		"gadget2": Gadget.PLASMA_GRENADE, "gadget3": Gadget.OVERSHIELD,
+		"unit_speed": 1.02, "unit_health": 1.45, "unit_stature": 1.14,
+		"style": CharacterModel.Style.ELITE_ULTRA},
+	{"name": "ELITE RANGER", "kit": Kit.SANGHEILI, "primary": Weapon.Class.BEAM_RIFLE,
+		"sidearm": Weapon.Class.PLASMA_PISTOL, "armor": 1,
+		"gadget": Gadget.THRUSTER_PACK, "gadget2": Gadget.PLASMA_GRENADE,
+		"gadget3": Gadget.ACTIVE_CAMO, "unit_speed": 1.12, "unit_health": 1.15,
+		"unit_jump": 1.15, "unit_stature": 1.10,
+		"style": CharacterModel.Style.ELITE},
+	# THE JACKAL: a beam rifle behind a gauntlet you cannot shoot through. The
+	# deflector is the unit, exactly as it is for the Droideka — and like the
+	# Grunt it is a small, light body, which is most of why a Kig-Yar behind
+	# that shield is so annoying to dig out.
+	{"name": "JACKAL SNIPER", "kit": Kit.UNGGOY, "primary": Weapon.Class.BEAM_RIFLE,
+		"sidearm": Weapon.Class.PLASMA_PISTOL, "armor": 1,
+		"gadget2": Gadget.PLASMA_GRENADE, "gadget3": Gadget.DEFLECTOR,
+		"unit_speed": 1.12, "unit_health": 0.78, "unit_stature": 0.88,
+		"style": CharacterModel.Style.JACKAL},
+	# The Chieftain already holds the hammer in the first four, so this is the
+	# other half of the Jiralhanae fantasy: a stalker with the spiker and camo.
+	{"name": "BRUTE STALKER", "kit": Kit.JIRALHANAE, "primary": Weapon.Class.SPIKER,
+		"sidearm": Weapon.Class.MAULER, "armor": 2,
+		"gadget2": Gadget.PLASMA_GRENADE, "gadget3": Gadget.ACTIVE_CAMO,
+		"unit_speed": 1.02, "unit_health": 1.35, "unit_stature": 1.14,
+		"style": CharacterModel.Style.BRUTE},
+
+	# 40K — Ultramarines, second four (64-67) ---------------------------------
+	{"name": "ASSAULT INTERCESSOR", "kit": Kit.ULTRAMARINE, "primary": Weapon.Class.CHAINSWORD,
+		"sidearm": Weapon.Class.BOLT_PISTOL, "armor": 2,
+		"gadget": Gadget.JUMP_PACK, "gadget2": Gadget.KRAK_GRENADE,
+		"gadget3": Gadget.IRON_HALO, "unit_speed": 1.02, "unit_health": 1.30,
+		"unit_stature": 1.12, "style": CharacterModel.Style.ULTRAMARINE},
+	{"name": "HELLBLASTER", "kit": Kit.ULTRAMARINE, "primary": Weapon.Class.PLASMA_GUN,
+		"sidearm": Weapon.Class.BOLT_PISTOL, "cooling": true, "armor": 3,
+		"gadget2": Gadget.KRAK_GRENADE, "gadget3": Gadget.OVERSHIELD,
+		"unit_speed": 0.86, "unit_health": 1.50, "unit_stature": 1.14,
+		"style": CharacterModel.Style.ULTRAMARINE},
+	{"name": "APOTHECARY", "kit": Kit.ULTRAMARINE, "primary": Weapon.Class.BOLTER,
+		"sidearm": Weapon.Class.BOLT_PISTOL, "armor": 2, "squad": 2,
+		"gadget": Gadget.AUSPEX_SCAN, "gadget2": Gadget.KRAK_GRENADE,
+		"gadget3": Gadget.IRON_HALO, "unit_speed": 0.94, "unit_health": 1.35,
+		"unit_stature": 1.14, "style": CharacterModel.Style.ULTRAMARINE},
+	{"name": "ERADICATOR", "kit": Kit.ULTRAMARINE, "primary": Weapon.Class.MELTAGUN,
+		"sidearm": Weapon.Class.BOLT_PISTOL, "armor": 3,
+		"gadget2": Gadget.MELTA_BOMB, "gadget3": Gadget.OVERSHIELD,
+		"unit_speed": 0.84, "unit_health": 1.55, "unit_stature": 1.16,
+		"style": CharacterModel.Style.ULTRAMARINE},
+
+	# 40K — Blood Angels, second four (68-71) ---------------------------------
+	{"name": "SANGUINARY PRIEST", "kit": Kit.BLOOD_ANGEL, "primary": Weapon.Class.BOLTER,
+		"sidearm": Weapon.Class.BOLT_PISTOL, "armor": 2, "squad": 2,
+		"gadget2": Gadget.KRAK_GRENADE, "gadget3": Gadget.RED_THIRST,
+		"unit_speed": 0.96, "unit_health": 1.30, "unit_stature": 1.14,
+		"style": CharacterModel.Style.BLOOD_ANGEL},
+	{"name": "BA DEVASTATOR", "kit": Kit.BLOOD_ANGEL, "primary": Weapon.Class.HEAVY_BOLTER,
+		"sidearm": Weapon.Class.BOLT_PISTOL, "cooling": true, "armor": 3,
+		"gadget2": Gadget.KRAK_GRENADE, "gadget3": Gadget.IRON_HALO,
+		"unit_speed": 0.84, "unit_health": 1.55, "unit_stature": 1.16,
+		"style": CharacterModel.Style.BLOOD_ANGEL},
+	{"name": "BA VANGUARD", "kit": Kit.BLOOD_ANGEL, "primary": Weapon.Class.POWER_SWORD,
+		"sidearm": Weapon.Class.PLASMA_PISTOL_40K, "armor": 2,
+		"gadget": Gadget.JUMP_PACK, "gadget2": Gadget.KRAK_GRENADE,
+		"gadget3": Gadget.RED_THIRST, "unit_speed": 1.08, "unit_health": 1.25,
+		"unit_jump": 1.15, "unit_stature": 1.12,
+		"style": CharacterModel.Style.BLOOD_ANGEL},
+	{"name": "BA FLAMER", "kit": Kit.BLOOD_ANGEL, "primary": Weapon.Class.FLAMER,
+		"sidearm": Weapon.Class.BOLT_PISTOL, "armor": 2,
+		"gadget2": Gadget.MELTA_BOMB, "gadget3": Gadget.IRON_HALO,
+		"unit_speed": 0.92, "unit_health": 1.35, "unit_stature": 1.14,
+		"style": CharacterModel.Style.BLOOD_ANGEL},
+
+	# 40K — Necrons, second four (72-75) --------------------------------------
+	{"name": "FLAYED ONE", "kit": Kit.NECRON, "primary": Weapon.Class.WARSCYTHE,
+		"sidearm": Weapon.Class.GAUSS_PISTOL, "armor": 1,
+		"gadget": Gadget.TRANSLOCATION, "gadget3": Gadget.PHASE_SHIFT,
+		"unit_speed": 1.05, "unit_health": 0.95, "unit_stature": 1.06,
+		"style": CharacterModel.Style.NECRON},
+	{"name": "TESLA IMMORTAL", "kit": Kit.NECRON, "primary": Weapon.Class.TESLA_CARBINE,
+		"sidearm": Weapon.Class.GAUSS_PISTOL, "armor": 2,
+		"gadget": Gadget.TESLA_ARC, "gadget3": Gadget.OVERSHIELD,
+		"unit_speed": 0.84, "unit_health": 1.45, "unit_stature": 1.12,
+		"style": CharacterModel.Style.NECRON},
+	{"name": "HEAT RAY DESTROYER", "kit": Kit.NECRON, "primary": Weapon.Class.HEAT_RAY,
+		"sidearm": Weapon.Class.GAUSS_PISTOL, "cooling": true, "armor": 3,
+		"gadget": Gadget.TESLA_ARC, "gadget3": Gadget.OVERSHIELD,
+		# A Destroyer is a hovering GUN, and the heat ray is one of the biggest
+		# bursts in the game (0.41 s, then a long cool). It does not also get to be
+		# the toughest thing the Necrons field — the Lychguard and the Lord are
+		# what stands in front of it, and at 1.60 it out-tanked both.
+		"unit_speed": 0.78, "unit_health": 1.36, "unit_jump": 0.75,
+		"unit_stature": 1.16, "style": CharacterModel.Style.NECRON},
+	# The Lord swings a staff and walked at x0.78 with nothing that closes
+	# ground: against anything holding a rifle it could never arrive, which is
+	# not a hard matchup, it is an impossible one.
+	{"name": "NECRON LORD", "kit": Kit.NECRON, "primary": Weapon.Class.STAFF_OF_LIGHT,
+		"sidearm": Weapon.Class.GAUSS_PISTOL, "armor": 3, "squad": 2,
+		"gadget": Gadget.CANOPTEK_SPYDER, "gadget2": Gadget.TRANSLOCATION,
+		"gadget3": Gadget.PHASE_SHIFT, "unit_speed": 0.88, "unit_health": 1.70,
+		"unit_stature": 1.16, "style": CharacterModel.Style.NECRON_LORD},
+
+	# 40K — Orks, second four (76-79) -----------------------------------------
+	{"name": "STORMBOY", "kit": Kit.ORK, "primary": Weapon.Class.SHOOTA,
+		"sidearm": Weapon.Class.SLUGGA, "armor": 1,
+		"gadget": Gadget.ROKKIT_PACK, "gadget2": Gadget.STIKKBOMB,
+		"gadget3": Gadget.WAAAGH, "unit_speed": 1.20, "unit_health": 1.00,
+		"unit_jump": 1.20, "unit_stature": 1.06,
+		"style": CharacterModel.Style.ORK},
+	# The single hardest body in the game to put down, and it pays the single
+	# highest price for it: a Mega Nob is slower than a Droideka.
+	{"name": "MEGA NOB", "kit": Kit.ORK, "primary": Weapon.Class.MEGA_BLASTA,
+		"sidearm": Weapon.Class.SLUGGA, "armor": 3,
+		"gadget2": Gadget.STIKKBOMB, "gadget3": Gadget.KUSTOM_FORCE_FIELD,
+		"unit_speed": 0.74, "unit_health": 1.85, "unit_jump": 0.60,
+		"unit_stature": 1.16, "style": CharacterModel.Style.ORK_NOB},
+	{"name": "KOMMANDO", "kit": Kit.ORK, "primary": Weapon.Class.CHOPPA,
+		"sidearm": Weapon.Class.SLUGGA, "armor": 1,
+		"gadget2": Gadget.SMOKE_LAUNCHER, "gadget3": Gadget.WAAAGH,
+		"unit_speed": 1.12, "unit_health": 1.05, "unit_stature": 1.04,
+		"style": CharacterModel.Style.ORK},
+	{"name": "MEK", "kit": Kit.ORK, "primary": Weapon.Class.BIG_SHOOTA,
+		"sidearm": Weapon.Class.SLUGGA, "armor": 2, "squad": 2,
+		"gadget": Gadget.GROT_GUNNER, "gadget2": Gadget.STIKKBOMB,
+		"gadget3": Gadget.KUSTOM_FORCE_FIELD, "unit_speed": 1.00,
+		"unit_health": 1.25, "unit_stature": 1.10,
+		"style": CharacterModel.Style.ORK_NOB},
+]## Which FACTION_BUILDS indices each team may pick from, PER UNIVERSE. Team 0 is
 ## the first side listed in UNIVERSES, team 1 the second, and so on. Faction
 ## classes are playable in every mode, so a three- or four-way match can ask for
 ## a roster nobody has authored: those sides WRAP onto the ones that exist rather
@@ -1278,10 +1904,22 @@ const FACTION_BUILDS: Array[Dictionary] = [
 ## universe to fill all four slots — two chapters, the Necrons and the Orks —
 ## which is what a wrap is there to make optional rather than required.
 const FACTION_ROSTERS := {
-	Universe.STAR_WARS: [[0, 1, 2, 3], [4, 5, 6, 7]],
-	Universe.HALO: [[8, 9, 10, 11], [12, 13, 14, 15]],
-	Universe.WARHAMMER: [[16, 17, 18, 19], [20, 21, 22, 23],
-		[24, 25, 26, 27], [28, 29, 30, 31]],
+	# EIGHT A SIDE. The second four of each roster live at the end of
+	# FACTION_BUILDS (32+) rather than beside the first four, so adding them
+	# moved no existing index — see the note there.
+	Universe.STAR_WARS: [
+		[0, 1, 2, 3, 32, 33, 34, 35],       # REPUBLIC
+		[4, 5, 6, 7, 36, 37, 38, 39],       # SEPARATIST
+		[40, 41, 42, 43, 44, 45, 46, 47],   # EMPIRE
+		[48, 49, 50, 51, 52, 53, 54, 55]],  # REBEL ALLIANCE
+	Universe.HALO: [
+		[8, 9, 10, 11, 56, 57, 58, 59],     # UNSC
+		[12, 13, 14, 15, 60, 61, 62, 63]],  # COVENANT
+	Universe.WARHAMMER: [
+		[16, 17, 18, 19, 64, 65, 66, 67],   # ULTRAMARINES
+		[20, 21, 22, 23, 68, 69, 70, 71],   # BLOOD ANGELS
+		[24, 25, 26, 27, 72, 73, 74, 75],   # NECRONS
+		[28, 29, 30, 31, 76, 77, 78, 79]],  # ORKS
 }
 
 
@@ -1370,6 +2008,36 @@ static func royale_start() -> Loadout:
 ## primary into WEAPONS silently changed what every player deployed with — and
 ## WHICH class comes from the universe's baseline kit, so a first deploy in Halo
 ## hands you an MA5B rather than a DC-15 the kit could not legally hold.
+## THE LINE TROOPER'S KIT: a rifle, a scope, a frame, and nothing else at all.
+##
+## It is not a preset row in BOT_BUILDS because it is not a build somebody chose
+## between — it is what ninety-odd of the hundred bodies in a MASSIVE battle
+## carry, and the whole point of it is what it does NOT have. No gadget (a
+## hundred jetpacks, turrets and mortars is not a battle, it is a fireworks
+## display, and every one of them is a per-frame "should I use this" check on a
+## body that should be thinking as little as possible), no grenades, no squad,
+## and a sidearm nobody will ever swap to.
+##
+## The SCOPE is deliberate and is the one piece of kit they do get: it is what
+## makes a line trooper shoot at a sensible range instead of walking into the
+## enemy's faces (a bot's stand-off is derived from its cone — see
+## `Bot._hold_range`), and it costs the AI nothing to carry.
+##
+## The gun comes from the universe's own default kit, so a massive battle in
+## Halo is fought with MA5Bs and one in 40k with bolters, with no table here.
+static func line_build() -> Loadout:
+	var l := starter()
+	l.sight = Sight.SCOPE
+	l.gadget = Gadget.NONE
+	l.gadget2 = Gadget.NONE
+	l.squad = 0
+	l.cooling = false
+	l.grip = false
+	l.foregrip = false
+	l.secondary_mod = SecondaryMod.NONE
+	return l
+
+
 static func starter() -> Loadout:
 	var l := Loadout.new()
 	l.adopt_kit(default_kit())
@@ -1442,7 +2110,31 @@ func kit_health() -> float:
 ## not a rule threaded through the damage code: halve everyone's health and every
 ## gun in the game kills twice as fast, with no weapon rebalanced.
 func max_health() -> float:
-	return float(armor_stats()["health"]) * kit_health() * ttk_health
+	return float(armor_stats()["health"]) * _physique(unit_health, kit_health()) * ttk_health
+
+
+## The three other halves of max_health(). Player and Bot used to compute the
+## speed inline (`armor["speed"] * kit_speed()`) in two places that had to agree;
+## they go through here now for the same reason health always has.
+func move_speed() -> float:
+	return float(armor_stats()["speed"]) * _physique(unit_speed, kit_speed())
+
+
+func jump_power() -> float:
+	return float(armor_stats()["jump"]) * _physique(unit_jump, 1.0)
+
+
+## How TALL this unit is, as a multiple of the standard trooper. It scales the
+## model, the collision capsule, the eye height and the headshot line together —
+## they are one number or they disagree, and a headshot box that does not match
+## the head on screen is the worst kind of disagreement.
+func stature() -> float:
+	return _physique(unit_stature, 1.0)
+
+
+## An authored value if the build stated one, else the shopped default.
+static func _physique(stated: float, fallback: float) -> float:
+	return stated if stated > 0.0 else fallback
 
 
 func can_dash() -> bool:
@@ -1480,6 +2172,20 @@ func allows(row: int, index: int) -> bool:
 			# nothing and would put a jetpack on both buttons.
 			var other: int = gadget2 if row == Row.GADGET else gadget
 			return index == Gadget.NONE or index != other
+		# THE THIRD SLOT HAS ITS OWN CATALOGUE, not a filtered view of the other
+		# two. A sustained ability is a different kind of thing (see gadget3_id),
+		# so a kit states which ones it may put up in a list of its own — and
+		# nothing in `gadgets` can reach this slot, nor anything here those.
+		Row.GADGET3:
+			if not in_universe(GADGETS[index], kit_universe(kit)):
+				return false
+			# A "kit"-marked entry still belongs to its owner alone — the same
+			# rule the other four catalogue rows keep. The barrier is the
+			# Wookiee's whichever slot it is fitted in.
+			var owner: Variant = GADGETS[index].get("kit", null)
+			if owner != null and owner != kit:
+				return false
+			return index in k.get("sustain", [Gadget.NONE])
 		Row.SECONDARY_MOD:
 			return index in k["secondary_mods"]
 		Row.ARMOR:
@@ -1516,6 +2222,8 @@ func row_available(row: int) -> bool:
 	match row:
 		Row.GADGET2:
 			return gadget_slots() >= 2
+		Row.GADGET3:
+			return gadget_slots() >= 3
 		Row.SIGHT, Row.COOLING, Row.GRIP, Row.FOREGRIP:
 			# Sights and cooling vanes on a sword are nothing. They are also the
 			# rows that would otherwise let a Force adept spend 65 tokens on
@@ -1605,6 +2313,11 @@ func adopt_kit(new_kit: int) -> void:
 	fresh.secondary = fresh._first_allowed(Row.SECONDARY, SECONDARIES.size())
 	fresh.gadget = Gadget.NONE
 	fresh.gadget2 = Gadget.NONE
+	# The sustained slot resets with the other two. Kept explicit rather than
+	# leaning on `Loadout.new()`'s default, so all three slots are visibly
+	# cleared in one place — a class change RESETS the build, and an ability the
+	# new class may not fit is exactly what this reset exists to prevent.
+	fresh.gadget3 = Gadget.NONE
 	_copy_from(fresh)
 
 
@@ -1615,6 +2328,10 @@ func cost() -> int:
 	total += SIGHTS[sight]["cost"]
 	total += GADGETS[gadget]["cost"]
 	total += GADGETS[gadget2]["cost"]
+	# The third slot was free until this line: unpriced, the most expensive
+	# ability in the game cost nothing and every budget check in the file was
+	# wrong by however much it was worth.
+	total += GADGETS[gadget3]["cost"]
 	total += ARMOR[armor]["cost"]
 	for up in UPGRADES:
 		if get(up["key"]):
@@ -1681,12 +2398,36 @@ func gadget2_id() -> int:
 	return gadget2 if gadget_slots() >= 2 else Gadget.NONE
 
 
-## Does this build carry a gadget that DOES `action` — in either slot, under any
+## THE THIRD SLOT, which holds a different KIND of gadget from the other two.
+##
+## Slots 1 and 2 are things you THROW or DROP: a grenade, a turret, a dart, a
+## shove. They are a press, an effect, and a cooldown. The third slot is what you
+## PUT UP AND KEEP — a cloak, a barrier, an overshield, a battle fury — where the
+## decision is not *when to press it* but *when to be under it*, and the cost is
+## that it runs on a clock whether or not it is doing you any good.
+##
+## They were never a comfortable fit in the other two: a Trandoshan spending its
+## one deployable slot on the cloak was really choosing between an ability and a
+## grenade, which is not the choice either of them is interesting for.
+func gadget3_id() -> int:
+	return gadget3 if gadget_slots() >= 3 else Gadget.NONE
+
+
+## Does this build carry a gadget that DOES `action` — in ANY slot, under any
 ## universe's name for it? Bot asks this rather than comparing raw ids, so "does
 ## this AI have a turret" is one question whether the turret is an autosentry, a
 ## canoptek spyder or a grot on a gun.
+##
+## ALL THREE SLOTS, which `Player.has_gadget` beside it has always asked and this
+## did not. Nothing changes today — every action a caller currently names is a
+## deployable or a one-shot, and the sustain catalogue is disjoint from the other
+## two (`kit_rules` asserts both directions), so no live question could reach the
+## third slot to be answered wrongly. It is fixed anyway because the failure mode
+## is silent: the first caller to ask `uses(OVERSHIELD)` would simply be told no.
 func uses(action: int) -> bool:
-	return gadget_action(gadget_id()) == action or gadget_action(gadget2_id()) == action
+	return gadget_action(gadget_id()) == action \
+		or gadget_action(gadget2_id()) == action \
+		or gadget_action(gadget3_id()) == action
 
 
 ## One line naming what this build actually deploys with — gun, sidearm, gadgets
@@ -1793,6 +2534,8 @@ func _step_unchecked(row: int, dir: int) -> void:
 			gadget = _walk(row, gadget, dir, GADGETS.size())
 		Row.GADGET2:
 			gadget2 = _walk(row, gadget2, dir, GADGETS.size())
+		Row.GADGET3:
+			gadget3 = _walk(row, gadget3, dir, GADGETS.size())
 		Row.SIGHT:
 			# Walked, not clamped: THERMAL is kit-locked, so a clamp would let
 			# anyone step onto it.
@@ -1811,20 +2554,36 @@ func _step_unchecked(row: int, dir: int) -> void:
 			squad_skill = clampi(squad_skill + dir, 0, SQUAD_SKILLS.size() - 1)
 
 
+## ...and every editable field HERE too, for a different reason with the same
+## symptom: `step()` refuses a change this reports as no change, so a row missing
+## from this comparison is a row the buy cursor cannot move. `gadget3` and
+## `foregrip` were both absent — the ABILITY row and the FRONT GRIP row could be
+## pressed all day and would never change, and neither said anything about why.
 func _same_as(other: Loadout) -> bool:
 	return kit == other.kit \
 		and weapon == other.weapon and secondary == other.secondary \
 		and secondary_mod == other.secondary_mod \
 		and gadget == other.gadget and gadget2 == other.gadget2 \
+		and gadget3 == other.gadget3 \
 		and sight == other.sight \
 		and cooling == other.cooling and grip == other.grip \
+		and foregrip == other.foregrip \
 		and armor == other.armor and squad == other.squad \
 		and squad_skill == other.squad_skill
 
 
+## EVERY EDITABLE FIELD, and the third gadget is the proof of why that matters.
+## `gadget3` was missing here, which is not "the ability is sometimes lost" — it
+## is the ability never existing at all, because NOTHING reads a Loadout without
+## copying it first. `step()` duplicates into a trial and copies the result back,
+## so the buy screen's ABILITY row wrote into a field that was then thrown away;
+## `_apply_loadout` deploys `pending.duplicate_loadout()`, so even a faction class
+## whose preset names one lost it on the way into the body. A field added to this
+## class and not added here is a field that silently does not exist.
 func _copy_from(other: Loadout) -> void:
 	kit = other.kit
 	gadget2 = other.gadget2
+	gadget3 = other.gadget3
 	weapon = other.weapon
 	primary_override = other.primary_override
 	style = other.style
@@ -1838,6 +2597,10 @@ func _copy_from(other: Loadout) -> void:
 	armor = other.armor
 	squad = other.squad
 	squad_skill = other.squad_skill
+	unit_speed = other.unit_speed
+	unit_health = other.unit_health
+	unit_jump = other.unit_jump
+	unit_stature = other.unit_stature
 
 
 ## Display: the fixed name of a row, what's currently selected on it, what that
@@ -1850,6 +2613,7 @@ func row_label(row: int) -> String:
 		Row.SECONDARY_MOD: return "SIDEARM MOD"
 		Row.GADGET: return "GADGET"
 		Row.GADGET2: return "GADGET 2"
+		Row.GADGET3: return "ABILITY"
 		Row.SIGHT: return "SIGHT"
 		Row.ARMOR: return "ARMOR"
 		Row.SQUAD: return "AI SQUAD"
@@ -1865,6 +2629,7 @@ func row_value(row: int) -> String:
 		Row.SECONDARY_MOD: return SECONDARY_MODS[secondary_mod]["name"]
 		Row.GADGET: return GADGETS[gadget]["name"]
 		Row.GADGET2: return GADGETS[gadget2]["name"]
+		Row.GADGET3: return GADGETS[gadget3]["name"]
 		Row.SIGHT: return SIGHTS[sight]["name"]
 		Row.ARMOR: return ARMOR[armor]["name"]
 		Row.SQUAD: return "x%d" % squad if squad > 0 else "none"
@@ -1880,6 +2645,7 @@ func row_cost(row: int) -> int:
 		Row.SECONDARY_MOD: return SECONDARY_MODS[secondary_mod]["cost"]
 		Row.GADGET: return GADGETS[gadget]["cost"]
 		Row.GADGET2: return GADGETS[gadget2]["cost"]
+		Row.GADGET3: return GADGETS[gadget3]["cost"]
 		Row.SIGHT: return SIGHTS[sight]["cost"]
 		Row.ARMOR: return ARMOR[armor]["cost"]
 		Row.SQUAD, Row.SQUAD_SKILL: return squad_cost()
@@ -1911,6 +2677,9 @@ func row_blurb(row: int, device: int = -1) -> String:
 		Row.GADGET2:
 			return "%s   (on slot 2: %s)" % [GADGETS[gadget2]["blurb"],
 				Controls.slot2_label(device)]
+		Row.GADGET3:
+			return "%s   (on slot 3: %s)" % [GADGETS[gadget3]["blurb"],
+				Controls.slot3_label(device)]
 		Row.SIGHT:
 			return "%s   (primary only)" % SIGHTS[sight]["blurb"]
 		Row.ARMOR:

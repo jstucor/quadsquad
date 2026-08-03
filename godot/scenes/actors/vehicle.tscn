@@ -1,0 +1,39 @@
+[gd_scene load_steps=5 format=3]
+
+[ext_resource type="Script" path="res://scripts/vehicle.gd" id="1_vehicle"]
+[ext_resource type="Script" path="res://scripts/weapon.gd" id="2_weapon"]
+
+[sub_resource type="BoxShape3D" id="HullShape"]
+size = Vector3(1.15, 0.42, 3.1)
+
+[sub_resource type="SphereShape3D" id="MountShape"]
+radius = 2.6
+
+[node name="Vehicle" type="CharacterBody3D"]
+collision_layer = 2
+collision_mask = 1
+script = ExtResource("1_vehicle")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.31, 0)
+shape = SubResource("HullShape")
+
+[node name="Body" type="Node3D" parent="."]
+
+[node name="GunPivot" type="Node3D" parent="Body"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.85, -0.9)
+
+[node name="Weapon" type="Node3D" parent="Body/GunPivot"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, -0.35)
+script = ExtResource("2_weapon")
+
+[node name="Seat" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.15, 0.3)
+
+[node name="MountArea" type="Area3D" parent="."]
+collision_layer = 0
+collision_mask = 2
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="MountArea"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.9, 0)
+shape = SubResource("MountShape")

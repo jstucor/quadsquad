@@ -32,6 +32,8 @@ var _profile_button: Button
 var _hint: Label
 var _rows := {}              # control id -> the button showing it
 var _death_button: Button    # the DEATH STYLE toggle (a game option, not a binding)
+var _quality_button: Button  # GRAPHICS quality tier — see `Quality`
+var _fps_button: Button      # the FRAME CAP, which is a smoothness setting
 
 
 func _ready() -> void:
@@ -83,9 +85,32 @@ func _build() -> void:
 	column.add_child(_spacer(6))
 	_death_button = _button("")
 	_death_button.pressed.connect(func() -> void:
-		Controls.set_option(Controls.OPT_CLASSIC_DEATH, not Controls.classic_death())
+		Controls.next_death_style()
 		_refresh())
 	column.add_child(_death_button)
+
+	# GRAPHICS QUALITY and the FRAME CAP. Both cycle rather than opening a
+	# dropdown, because this screen is a column of buttons driven by a pad and a
+	# two-or-three-value setting is not worth a list.
+	_quality_button = _button("")
+	_quality_button.pressed.connect(func() -> void:
+		var choices: Array = Controls.QUALITY_CHOICES
+		var i := choices.find(Controls.graphics_quality())
+		Controls.set_graphics_quality(choices[(i + 1) % choices.size()])
+		# Take effect immediately: the menu behind this screen is already rendering
+		# and the next match reads the same numbers on the way up.
+		Quality.apply_global()
+		_refresh())
+	column.add_child(_quality_button)
+
+	_fps_button = _button("")
+	_fps_button.pressed.connect(func() -> void:
+		var choices: Array = Controls.FPS_CHOICES
+		var i := choices.find(Controls.fps_cap())
+		Controls.set_fps_cap(choices[(i + 1) % choices.size()])
+		Quality.apply_fps_cap()
+		_refresh())
+	column.add_child(_fps_button)
 
 	var reset := _button("RESET TO DEFAULTS")
 	reset.pressed.connect(func() -> void:
@@ -135,8 +160,16 @@ func _rebuild_rows() -> void:
 func _refresh() -> void:
 	_profile_button.text = "DEVICE  %s" % _profile_name()
 	if _death_button:
-		_death_button.text = "DEATH STYLE  %s" % ("CLASSIC (T-POSE)"
-			if Controls.classic_death() else "COLLAPSE")
+		_death_button.text = "DEATH STYLE  %s" % Controls.DEATH_NAMES.get(
+			Controls.death_style(), "?")
+	if _quality_button:
+		_quality_button.text = "GRAPHICS  %s" % Quality.tier_label()
+	if _fps_button:
+		var cap := Controls.fps_cap()
+		# A cap is not a target: on a machine that cannot hold 60, capping at 30
+		# is the SMOOTHEST setting rather than a worse one, because every frame
+		# then arrives on time. Worth saying on the button.
+		_fps_button.text = "FRAME CAP  %s" % ("DISPLAY" if cap == 0 else str(cap))
 	for id in _rows:
 		var button: Button = _rows[id]
 		if id == _listening:

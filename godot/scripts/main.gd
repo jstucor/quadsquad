@@ -9,16 +9,14 @@ extends Node3D
 const PLAYER_SCENE := preload("res://scenes/actors/player.tscn")
 const BOT_SCENE := preload("res://scenes/actors/bot.tscn")
 const ZONE_SCENE := preload("res://scenes/fx/zone.tscn")
+const VEHICLE_SCENE := preload("res://scenes/actors/vehicle.tscn")
 # Hit confirmation: a marker per HUD (each player only sees their own hits) and
 # one shared pool of clicks (audio isn't split four ways the way the screen is).
 const HIT_MARKER := preload("res://scripts/hit_marker.gd")
 const HIT_TICK := preload("res://scripts/hit_tick.gd")
 
-## Multisampling per viewport. 2x rather than 4x because this is the Pi budget:
-## the scene is drawn four times already, and 2x removes most of the edge crawl
-## on flat-shaded boxes for a fraction of 4x's bandwidth. Dial it here.
-const MSAA := Viewport.MSAA_2X
 const MAP_VIEW := preload("res://scripts/map_view.gd")
+const MINIMAP := preload("res://scripts/minimap.gd")
 const SETTINGS_OVERLAY := preload("res://scripts/settings_overlay.gd")
 const SPAWN_SCREEN := preload("res://scripts/spawn_screen.gd")
 const CONQUEST := preload("res://scripts/conquest.gd")
@@ -31,6 +29,7 @@ const ROYALE_PICKUPS_PER_HA := 9.0   # items per hectare of playable ground
 const ROYALE_MIN_PICKUPS := 24
 const ROYALE_MAX_PICKUPS := 220
 const MENU_SCENE := "res://scenes/menu.tscn"
+const LOBBY_SCENE := "res://scenes/lobby.tscn"
 const AI_RESPAWN_DELAY := 4.0  # team AI come back, unlike a player's bought squad
 const MATCH_START_COUNTDOWN := 3  # seconds of GET READY once everyone has deployed
 const PLAYER_COLORS: Array[Color] = [
@@ -67,10 +66,31 @@ var _deployed := {}          # players who have finished their loadout at least 
 var _countdown_running := false
 var _hit_tick: Node          # the shared click pool
 var storm: Node3D            # the royale storm, when there is one
+var governor: FrameGovernor  # holds the frame to its interval; null unless AUTO
+var sync: NetSync            # the replication pump; null unless the match is online
+var zone: Node3D             # the ZONES capture area, when there is one
 
 
 func _ready() -> void:
 	GameState.reset_match()
+	# HOW MANY WAYS THE FRAME IS ABOUT TO BE SPLIT, before anything that spends it
+	# is built. Four cameras each render the whole world AND their own shadow map
+	# into a quarter of the screen, so the viewport count is an input to nearly
+	# every cost decision in `Quality` — and the level's own `_ready` grades its
+	# sun, which asks.
+	Quality.active_views = GameState.human_players
+	Quality.apply_global()
+	# Audio is an autoload and outlives the scene, so a looping voice whose owner
+	# went away with the last map would play for the rest of the session. Every
+	# owner releases its own on the way out; this is the backstop.
+	Audio.stop_all_loops()
+	# MASSIVE IS PROCEDURAL-MAP ONLY, enforced here as well as on the menu: the
+	# hand-laid arenas are built for eight bodies and a hundred of them in
+	# Catwalk's corridors is a traffic jam, where a generated world is a couple
+	# of hundred metres of open ground with cover scattered across it. Doing it
+	# here too means map ROTATION cannot walk a massive battle onto Hangar.
+	if GameState.massive():
+		GameState.map_index = GameState.procedural_map_index()
 	level = GameState.MAPS[GameState.map_index]["scene"].instantiate()
 	add_child(level)  # its _ready registers the team spawn points
 	# ...and now that its geometry exists, take the map screen's picture of it.
@@ -88,11 +108,24 @@ func _ready() -> void:
 	_hit_tick.name = "HitTick"
 	add_child(_hit_tick)
 
+	# THE PUMP, and it goes in before any body does. Its node PATH is what routes
+	# every RPC in the game (`/root/Main/NetSync`), so it has to exist on both
+	# machines before either one sends anything — a packet arriving for a node
+	# that is not there yet is dropped with an error naming the path and nothing
+	# about the cause. Nothing else here is aware of it: bodies register with it,
+	# and it does the rest.
+	if Net.online():
+		sync = NetSync.new()
+		add_child(sync)
+		if Net.is_host():
+			sync.all_deployed.connect(_begin_countdown)
+
 	var grid := GridContainer.new()
 	# One human is full-screen, two split left/right, three or four go 2x2.
 	grid.columns = 1 if GameState.human_players == 1 else 2
 	grid.set_anchors_preset(Control.PRESET_FULL_RECT)
 	add_child(grid)
+	var viewports: Array[SubViewport] = []
 
 	for i in GameState.human_players:
 		var container := SubViewportContainer.new()
@@ -104,19 +137,18 @@ func _ready() -> void:
 		# own_world_3d stays false: all four viewports render the root
 		# viewport's world, where the level lives.
 		var viewport := SubViewport.new()
-		# ANTI-ALIASING, and it has to be set HERE: the project setting only
-		# reaches the root viewport, and the game never renders anything into
-		# that — every pixel a player sees comes out of one of these.
+		# ANTI-ALIASING and RENDER SCALE, and they have to be set HERE: the project
+		# settings only reach the root viewport, and the game never renders anything
+		# into that — every pixel a player sees comes out of one of these.
 		#
-		# Worth more here than in most games. This scene is untextured flat-shaded
-		# boxes, so essentially ALL of its aliasing is geometric edges, which is
-		# exactly what MSAA fixes and exactly what a post-process AA smears. And
-		# each viewport is only 960x540, so the samples are cheap.
-		viewport.msaa_3d = MSAA
-		# The sky is a smooth gradient now, which is the classic thing to band on
-		# an 8-bit target. Debanding is a dither and costs nothing.
-		viewport.use_debanding = true
+		# `Quality` owns the numbers, and it is handed the viewport COUNT because
+		# every one of them is a share of the same frame: four cameras each render
+		# the whole world and their own shadow map into a quarter of the screen, so
+		# what one player at 1080p can afford is not what four can. See the
+		# measurements in that file.
+		Quality.apply_to_viewport(viewport, GameState.human_players)
 		container.add_child(viewport)
+		viewports.append(viewport)
 
 		var camera := Camera3D.new()
 		viewport.add_child(camera)
@@ -132,19 +164,39 @@ func _ready() -> void:
 		var spawn := GameState.get_spawn_point(player.team, _team_slot(i))
 		if spawn:
 			player.global_transform = spawn.global_transform
+			player.reset_physics_interpolation()   # placed, not walked
 		player.bind_camera(camera)
 		player.model.set_team_color(GameState.team_colors[player.team])
+
+		# THE BODY'S NAME ON THE WIRE, taken from this machine's share of the
+		# roster in viewport order. Registered before the HUD, so the first
+		# `_apply_loadout` (which announces what unit this is) has an id to
+		# announce it under.
+		if sync != null:
+			var mine := Net.local_ids()
+			if i < mine.size():
+				sync.own(player, mine[i])
 
 		viewport.add_child(_build_hud(player))
 		# The match waits for everyone's first deploy, so watch for it.
 		player.respawned.connect(_on_player_deployed.bind(player))
 		player.begin_deploy()  # after the HUD exists, so it sees the select screen
 
-	_fill_teams_with_ai()
-	if GameState.mode == GameState.Mode.ROYALE:
-		_start_royale()
+	# EVERYTHING BELOW IS THE MATCH RUNNING ITSELF, AND IT RUNS ON ONE MACHINE.
+	# Bots, the zone and the royale furniture all act on their own every physics
+	# frame; two machines doing that is two matches. `Net.authority()` is true
+	# offline, so the single-player path and the host path are the same path and
+	# there is no second version of any of this to keep in step.
+	if Net.authority():
+		_fill_teams_with_ai()
+		_place_vehicles()
+		if GameState.mode == GameState.Mode.ROYALE:
+			_start_royale()
 	if GameState.mode == GameState.Mode.ZONES:
-		var zone := ZONE_SCENE.instantiate()
+		# Built on EVERY machine — it is a thing you can see and stand in — but
+		# only the host's decides where it goes and who is holding it. The
+		# reference is kept because NetSync addresses it by name.
+		zone = ZONE_SCENE.instantiate()
 		zone.setup(level)
 		level.add_child(zone)  # placed after the map, so its ground rays hit
 	if GameState.mode == GameState.Mode.CONQUEST:
@@ -153,6 +205,19 @@ func _ready() -> void:
 		cq.setup(level)
 		level.add_child(cq)   # lays the command posts on its first physics frame
 		GameState.conquest = cq
+	# THE FRAME GOVERNOR, which only runs under AUTO — naming a tier is the player
+	# saying what they want, and moving the resolution under that would be ignoring
+	# them. Its ceiling is the tier's own scale, so it can give picture back but
+	# never take more than was asked for.
+	if Quality.governs():
+		governor = FrameGovernor.new()
+		governor.name = "FrameGovernor"
+		governor.setup(viewports, float(Quality.settings()["scale"]))
+		add_child(governor)
+		# Stopped OUTRIGHT for a screenshot: the look tests and the map screen judge
+		# appearance, and a resolution that moves while a picture is being taken is
+		# the one thing that would make those tests unrepeatable.
+		governor.process_mode = Node.PROCESS_MODE_PAUSABLE
 	# One tick for every viewport's overlays. A METHOD of this node, like the
 	# score/victory wiring below, so the connection dies with the map instead of
 	# outliving it the way a lambda would.
@@ -164,6 +229,58 @@ func _ready() -> void:
 	GameState.match_won.connect(_show_victory)
 	GameState.match_won.connect(_on_match_won)
 	_refresh_scores()
+
+
+## ONE SPEEDER PER SIDE, PARKED AT THAT SIDE'S SPAWN — and only in STAR WARS.
+## `Vehicle.spawns_for` is the single place that rule lives, so this loop is
+## simply empty in Halo and Warhammer and no caller tests the universe itself.
+##
+## Parked at the spawn rather than scattered on the map, for two reasons. It is
+## the side's OWN vehicle (the mount check refuses an enemy's), so anywhere else
+## is either a walk nobody makes or a gift to whoever spawns nearest it; and a
+## speeder sitting where you deploy makes taking it a decision you make every
+## life rather than a thing you find once.
+##
+## ROYALE gets none: everybody drops in as a plain trooper with what they can
+## scavenge, and a faction speeder is neither. MASSIVE gets none either — a
+## hundred bodies is already the whole frame budget, and that mode is about being
+## one rifle in a crowd, not about outrunning it.
+func _place_vehicles() -> void:
+	if GameState.mode == GameState.Mode.ROYALE or GameState.massive():
+		return
+	# NOT ONLINE, YET. A vehicle is a combatant that a player climbs INSIDE — its
+	# position, its hull health, whether it is occupied and by whom are all state
+	# that would have to be replicated and arbitrated, and none of it is. Placed
+	# on the host alone (which is what `Net.authority()` above would give) it is
+	# worse than absent: the host would drive a speeder the client cannot see, and
+	# get shot at by a machine that does not know why.
+	if Net.online():
+		return
+	var teams: Array = Vehicle.spawns_for(Loadout.active_universe)
+	for t: int in teams:
+		if t >= GameState.active_teams():
+			continue   # a 2-team match fields two speeders, not four
+		var spawn := GameState.get_spawn_point(t)
+		if spawn == null:
+			continue
+		var v: Vehicle = VEHICLE_SCENE.instantiate()
+		level.add_child(v)
+		v.setup(t)
+		# Off to the side of the marker and lifted clear: a speeder standing ON a
+		# spawn point is a body-blocked spawn every respawn, and one dropped at
+		# the exact analytic ground height starts inside the collision mesh (the
+		# heightfield sag this map's SPAWN_LIFT already exists for).
+		var side := spawn.global_transform.basis.x.normalized()
+		v.global_position = spawn.global_position + side * VEHICLE_SPAWN_OFFSET \
+			+ Vector3.UP * VEHICLE_SPAWN_LIFT
+		v.rotation.y = spawn.global_rotation.y
+		v.reset_physics_interpolation()   # placed, not driven
+
+
+## Far enough from the marker that it never blocks a deploy, close enough that it
+## is obviously yours.
+const VEHICLE_SPAWN_OFFSET := 4.0
+const VEHICLE_SPAWN_LIFT := 1.0
 
 
 ## Battle royale setup: the storm, and the gear to fight over. Both go in the
@@ -235,7 +352,22 @@ func _on_player_deployed(player: Player) -> void:
 	if GameState.match_live or _countdown_running:
 		return
 	_deployed[player] = true
+	# NETWORKED: the match waits for everyone in the SESSION, not for everyone on
+	# this sofa — otherwise the first machine to finish shopping starts fighting
+	# while the others are still on the buy screen. A machine reports its players
+	# in and then waits: the host's tally is what fires `_begin_countdown`, and
+	# the countdown itself is broadcast from there (see NetSync).
+	if Net.online():
+		if sync != null:
+			sync.report_deploy(sync.id_of(player))
+		return
 	if _deployed.size() < GameState.human_players:
+		return
+	_begin_countdown()
+
+
+func _begin_countdown() -> void:
+	if GameState.match_live or _countdown_running:
 		return
 	_countdown_running = true
 	_tick_countdown(MATCH_START_COUNTDOWN)
@@ -246,7 +378,13 @@ func _tick_countdown(seconds: int) -> void:
 	if seconds <= 0:
 		GameState.match_live = true
 		GameState.match_began.emit()
+		# The battle track starts when the match does, not when the map loads:
+		# the buy screen and the countdown belong to the menu's calm, and the
+		# cut on "GO" is worth more than a few seconds of extra music.
+		Audio.play_music("battle")
+		Audio.play("ui_accept", 4.0)
 		return
+	Audio.play("countdown")
 	get_tree().create_timer(1.0).timeout.connect(_tick_countdown.bind(seconds - 1))
 
 
@@ -263,23 +401,77 @@ func _team_slot(index: int) -> int:
 ## bots, not a player's bought squad: they have no owner and they respawn, so a
 ## 1v1 with a team size of 4 stays a 4v4 all match.
 func _fill_teams_with_ai() -> void:
+	if GameState.massive():
+		_fill_massive()
+		return
 	for team in GameState.active_teams():
 		for n in GameState.ai_needed(team):
 			_spawn_team_bot(team)
 
 
-func _spawn_team_bot(team: int) -> void:
+## HOW MANY OF THE HUNDRED ARE PROPER BOTS. The crowd is line troopers, but a
+## battle of nothing but line troopers has no texture — nobody digs in, nobody
+## drops a turret, nothing ever gets shelled. A few per side carry the ordinary
+## presets and behave like the AI everywhere else in the game.
+const MASSIVE_VETERANS := 3
+
+
+## A HUNDRED BODIES CANNOT BE BUILT ON ONE FRAME. Each one is a character model
+## (thirty-odd meshes) plus a weapon, and `tests/perf.tscn` prices that at about
+## 0.6 ms — so a hundred at once is a sixty-millisecond freeze right where the
+## match starts, which is the single most noticeable place to put one.
+##
+## They are dealt out over frames instead, a batch at a time. Nothing waits on
+## them: `match_live` is already gated on the humans deploying and the countdown
+## (which is three seconds), so the crowd finishes assembling while the countdown
+## runs and nobody ever sees a half-empty field.
+const SPAWN_BATCH := 6
+
+
+func _fill_massive() -> void:
+	var want: Array[int] = []
+	for team in GameState.active_teams():
+		for n in GameState.ai_needed(team):
+			want.append(team)
+	_massive_queue = want
+	_deal_massive()
+
+
+var _massive_queue: Array[int] = []
+var _massive_done := 0
+
+
+func _deal_massive() -> void:
+	if not is_inside_tree() or level == null or not is_instance_valid(level):
+		return
+	for i in mini(SPAWN_BATCH, _massive_queue.size()):
+		var team: int = _massive_queue.pop_front()
+		# The veterans come off the FRONT of each side's share, so a side always
+		# has its handful even if the match ends before the crowd is finished.
+		_spawn_team_bot(team, _massive_done >= GameState.active_teams()
+			* MASSIVE_VETERANS)
+		_massive_done += 1
+	if not _massive_queue.is_empty():
+		get_tree().process_frame.connect(_deal_massive, CONNECT_ONE_SHOT)
+
+
+func _spawn_team_bot(team: int, as_line := false) -> void:
 	if level == null or not is_instance_valid(level):
 		return
 	var bot: Bot = BOT_SCENE.instantiate()
 	level.add_child(bot)
 	# Deal the presets out in order so a team fields a mix rather than seven
 	# rolls of the same dice.
-	bot.setup(null, team, GameState.ai_skill, _next_build)
+	bot.setup(null, team, GameState.ai_skill, _next_build, as_line)
 	_next_build += 1
 	var spawn := GameState.get_spawn_point(team)
 	if spawn:
 		bot.global_transform = GameState.clear_of_bodies(spawn.global_transform)
+		bot.reset_physics_interpolation()
+	# AFTER setup, because `own_bot` immediately announces what unit this is and
+	# the answer comes from the loadout setup just built.
+	if sync != null:
+		sync.own_bot(bot)
 	bot.tree_exited.connect(_on_team_bot_lost.bind(team))
 
 
@@ -293,7 +485,12 @@ func _on_team_bot_lost(team: int) -> void:
 	# can never be decided.
 	if GameState.mode == GameState.Mode.ROYALE:
 		return
-	get_tree().create_timer(AI_RESPAWN_DELAY).timeout.connect(_spawn_team_bot.bind(team))
+	# In a massive battle every REPLACEMENT is a line trooper, whatever it
+	# replaced: the handful of veterans are a seasoning dealt at the start, not a
+	# quota to maintain, and a side that has been fighting for two minutes should
+	# be down to riflemen.
+	get_tree().create_timer(AI_RESPAWN_DELAY).timeout.connect(
+		_spawn_team_bot.bind(team, GameState.massive()))
 
 
 func _on_match_won(_team: int) -> void:
@@ -303,6 +500,14 @@ func _on_match_won(_team: int) -> void:
 ## After the victory banner: rotation mode moves to the next map on the roster,
 ## a single-map pick drops back to the menu so someone can choose again.
 func _next_map() -> void:
+	# NETWORKED, EVERYBODY GOES BACK TO THE LOBBY. Rotating would need all four
+	# machines to load the same next map at the same moment and re-handshake
+	# every body on it, which is the whole match-start sequence run again with
+	# nobody watching for it to fail. The lobby already does that sequence, and
+	# it does it with a screen in front of it saying so.
+	if Net.online():
+		get_tree().change_scene_to_file(LOBBY_SCENE)
+		return
 	if not GameState.rotate_maps:
 		get_tree().change_scene_to_file(MENU_SCENE)
 		return
@@ -318,6 +523,7 @@ func _build_hud(player: Player) -> Control:
 	hud.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var color: Color = PLAYER_COLORS[player.player_index]
 
+	_add_minimap(hud, player, color)
 	_add_player_tag(hud, player, color)
 	_add_reticle(hud, player)
 	_add_scoreboard(hud)
@@ -351,12 +557,25 @@ func _build_hud(player: Player) -> Control:
 	return hud
 
 
+## The minimap owns the top-left corner now, and the player tag moves BELOW it
+## rather than beside it: the scoreboard is a centred full-rect label, so on a
+## quarter-screen viewport at 13pt it starts far enough left that a tag pushed
+## sideways runs straight into "REPUBLIC 0". Under the map there is nothing.
+func _add_minimap(hud: Control, player: Player, color: Color) -> void:
+	var map: Control = MINIMAP.new()
+	hud.add_child(map)
+	map.setup(player, color)
+	_minimaps.append(map)
+
+
 func _add_player_tag(hud: Control, player: Player, color: Color) -> void:
 	var tag := Label.new()
 	tag.text = "P%d" % (player.player_index + 1)
 	tag.add_theme_font_size_override("font_size", 28)
 	tag.add_theme_color_override("font_color", color)
-	tag.position = Vector2(14, 8)
+	var below: float = MINIMAP.INSET.y + float(MINIMAP.SIZES.get(
+		GameState.human_players, 116.0)) + 2.0
+	tag.position = Vector2(MINIMAP.INSET.x, below)
 	hud.add_child(tag)
 
 
@@ -525,18 +744,19 @@ func _refresh_scores(_team := 0, _score := 0) -> void:
 		label.text = text
 
 
+## Health, bottom left: the NUMBER and the BAR together (`HealthGauge`). It was
+## the number alone, which is exact and unreadable — the thing that actually gets
+## looked at here is looked at from the corner of the eye, mid-fight, on a
+## quarter of a screen, and a bar is the only form that survives that.
 func _add_health(hud: Control, player: Player, color: Color) -> void:
-	var health := Label.new()
-	health.add_theme_font_size_override("font_size", 22)
-	health.add_theme_color_override("font_color", color)
-	health.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
-	health.offset_left = 14.0
-	health.offset_top = -40.0
-	hud.add_child(health)
-	var refresh := func(hp: float) -> void:
-		health.text = "HP %d" % maxi(roundi(hp), 0)
-	player.health_changed.connect(refresh)
-	refresh.call(player.health)
+	var gauge := HealthGauge.new()
+	gauge.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
+	gauge.offset_left = 14.0
+	gauge.offset_top = -42.0
+	gauge.offset_right = 14.0 + 190.0
+	gauge.offset_bottom = -42.0 + HealthGauge.BAR_H
+	hud.add_child(gauge)
+	gauge.setup(player, color)
 
 
 ## Weapon name plus the heat bar that stands in for ammo.
@@ -672,73 +892,65 @@ func _add_damage_flash(hud: Control, player: Player) -> void:
 	player.respawned.connect(func() -> void: flash.modulate.a = 0.0)
 
 
-## Consumables you're carrying, above the weapon name. Hidden when you bought
-## none, so a gun-only build has no dead HUD text.
+## WHAT YOU CAN DO RIGHT NOW, as a row of round gauges above the weapon name
+## rather than as a line of text. Both gadget slots (a Mandalorian carries two,
+## and reporting only slot 0 hid half of what they bought), plus the dash and the
+## saber guard, which are not gadgets but are read exactly the same way by a
+## player and so get the same widget rather than a second kind of readout.
+##
+## The gauges are rebuilt on a WEAPON SWAP and a deploy rather than kept in step,
+## because what a player is carrying only changes at those two moments — and the
+## guard gauge exists only while a blade is in hand.
+##
+## SQUAD stays as text: it is a count of bought AI, not an ability, and it has no
+## charge state to draw.
 func _add_gear_readout(hud: Control, player: Player, color: Color) -> void:
-	var gear := Label.new()
-	gear.add_theme_font_size_override("font_size", 15)
-	gear.add_theme_color_override("font_color", Color(color, 0.85))
-	gear.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
-	gear.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-	gear.offset_left = -220.0
-	gear.offset_top = -64.0
-	gear.offset_right = -14.0
-	gear.offset_bottom = -46.0
-	hud.add_child(gear)
-	var refresh := func() -> void:
-		var parts: Array[String] = []
-		# BOTH gadget slots, not just the first: a Mandalorian carries two and
-		# reporting only slot 0 hides half of what they bought.
-		for slot in 2:
-			var line := _gadget_readout(player, slot)
-			if line != "":
-				parts.append(line)
-		# The saber guard, whenever a blade is in hand. Exhaustion you cannot see
-		# is exhaustion you cannot play around, and this is the only thing that
-		# tells you how much block you have left.
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 8)
+	row.alignment = BoxContainer.ALIGNMENT_END
+	row.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
+	row.offset_left = -260.0
+	row.offset_top = -46.0 - AbilityGauge.DIAM
+	row.offset_right = -14.0
+	row.offset_bottom = -46.0
+	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	hud.add_child(row)
+
+	var squad := Label.new()
+	squad.add_theme_font_size_override("font_size", 15)
+	squad.add_theme_color_override("font_color", Color(color, 0.85))
+	squad.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
+	squad.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	squad.offset_left = -220.0
+	squad.offset_top = -64.0 - AbilityGauge.DIAM
+	squad.offset_right = -14.0
+	squad.offset_bottom = -46.0 - AbilityGauge.DIAM
+	hud.add_child(squad)
+
+	var rebuild := func() -> void:
+		for child in row.get_children():
+			row.remove_child(child)
+			child.queue_free()
+		for slot in 3:
+			if Loadout.gadget_action(player.gadget_in(slot)) == Loadout.Gadget.NONE:
+				continue
+			var g := AbilityGauge.new()
+			row.add_child(g)
+			g.setup(player, color, AbilityGauge.KIND_GADGET, slot)
 		if player.loadout.can_dash():
-			var dcd := player.dash_cooldown()
-			parts.append("DASH READY" if dcd <= 0.0 else "DASH %ds" % ceili(dcd))
+			var d := AbilityGauge.new()
+			row.add_child(d)
+			d.setup(player, color, AbilityGauge.KIND_DASH)
 		if player.weapon.is_melee():
-			parts.append("GUARD SPENT" if player.guard_broken()
-				else "GUARD %d%%" % roundi(player.guard_level() * 100.0))
-		if player.squad.size() > 0:
-			parts.append("SQUAD x%d" % player.squad.size())
-		gear.text = "   ".join(parts)
-	player.gear_changed.connect(func() -> void: refresh.call())
-	player.squad_changed.connect(func(_alive: int) -> void: refresh.call())
-	player.block_changed.connect(func(_l: float, _b: bool) -> void: refresh.call())
-	player.weapon_changed.connect(func(_n: String) -> void: refresh.call())
-	refresh.call()
-
-
-## One gadget slot's line, or "" when the slot is empty. Each gadget reports the
-## thing you actually need from it: fuel, or seconds until you may use it again.
-func _gadget_readout(player: Player, slot: int) -> String:
-	var fitted := player.gadget_in(slot)
-	# Switch on what it DOES so a jump pack reads its fuel like a jetpack, but
-	# NAME it by what was actually bought — the HUD is the one place a Blood
-	# Angel should read "JUMP PACK" rather than the mechanism's name.
-	var id := Loadout.gadget_action(fitted)
-	match id:
-		Loadout.Gadget.NONE:
-			return ""
-		Loadout.Gadget.JETPACK:
-			return "JET %d%%" % roundi(player.jet_fuel * 100.0)
-		Loadout.Gadget.CABLE:
-			var cd := player.cable_cooldown()
-			return "CABLE READY" if cd <= 0.0 else "CABLE %ds" % ceili(cd)
-		Loadout.Gadget.CLOAK:
-			# While it is up, count the seconds of invisibility left; otherwise
-			# fall through to the shared cooldown line below.
-			if player.cloak_left() > 0.0:
-				return "CLOAKED %ds" % ceili(player.cloak_left())
-	var name: String = Loadout.GADGETS[fitted]["name"]
-	# The force powers run on their own cooldown, so they can say when they are up.
-	if Loadout.GADGET_COOLDOWNS.has(id):
-		var left := player.gadget_cooldown(slot)
-		return name if left <= 0.0 else "%s %ds" % [name, ceili(left)]
-	return name
+			var b := AbilityGauge.new()
+			row.add_child(b)
+			b.setup(player, color, AbilityGauge.KIND_GUARD)
+		squad.text = "" if player.squad.is_empty() \
+			else "SQUAD x%d" % player.squad.size()
+	player.squad_changed.connect(func(_alive: int) -> void: rebuild.call())
+	player.weapon_changed.connect(func(_n: String) -> void: rebuild.call())
+	player.respawned.connect(func() -> void: rebuild.call())
+	rebuild.call()
 
 
 func _add_victory_banner(hud: Control) -> void:
@@ -750,6 +962,16 @@ func _add_victory_banner(hud: Control) -> void:
 
 
 func _show_victory(team: int) -> void:
+	# WHOSE victory decides the sting, and with four players at one couch there
+	# is no single answer — so it asks the humans: if any of them is on the
+	# winning side the room hears the fanfare, and if none is, it hears the other
+	# one. Music stops either way; a banner over a battle loop reads as a bug.
+	Audio.play_music("")
+	var ours := false
+	for c in GameState.combatants:
+		if c is Player and is_instance_valid(c) and c.team == team:
+			ours = true
+	Audio.play("victory" if ours else "defeat")
 	for banner in _victory_banners:
 		banner.text = "%s WINS" % GameState.team_names[team]
 		banner.add_theme_color_override("font_color", GameState.team_colors[team])
@@ -1072,6 +1294,7 @@ func _add_scan(hud: Control, player: Player) -> void:
 
 var _scan_overlays: Array[Control] = []
 var _scan_was_live := false
+var _minimaps: Array = []              # [Control] — untyped so should_redraw() dispatches
 ## Overlays and readouts that would otherwise sit on process_frame redrawing
 ## themselves sixty times a second to produce the same picture. See _tick_overlays.
 var _thermal_overlays: Array = []      # [{c: Control, player: Player}]
@@ -1096,6 +1319,7 @@ func _tick_overlays() -> void:
 	_tick_scans()
 	_tick_thermal()
 	_tick_bloom()
+	_tick_minimaps()
 	_tick_buy_screens()
 	if Engine.get_process_frames() % SLOW_TICK == 0:
 		for entry in _slow_labels:
@@ -1116,6 +1340,16 @@ func _tick_buy_screens() -> void:
 			cursor.queue_redraw()
 		if BoxScreen.resolve(entry["player"], entry["boxes"]):
 			(entry["refresh"] as Callable).call()
+
+
+## PER VIEWPORT, not globally, and that is the opposite of the scan overlay
+## deliberately: the scan's "is anything live" is one answer for everybody, where
+## a minimap's picture moves when ITS OWN player moves. One player sprinting must
+## not cost the other three a redraw of a picture that has not changed.
+func _tick_minimaps() -> void:
+	for m in _minimaps:
+		if is_instance_valid(m) and m.should_redraw():
+			m.queue_redraw()
 
 
 func _tick_scans() -> void:

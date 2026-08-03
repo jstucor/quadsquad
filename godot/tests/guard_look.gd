@@ -55,7 +55,7 @@ func _ready() -> void:
 
 	# The new power, mid-bolt: it lasts a third of a second, so the frame has to
 	# be grabbed right after it is thrown.
-	me._force_cd = [0.0, 0.0]
+	me._force_cd = [0.0, 0.0, 0.0]   # one per gadget slot, and there are three
 	me._use_gadget(0)
 	await _shot("5_lightning", 3)
 

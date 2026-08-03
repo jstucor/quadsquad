@@ -18,12 +18,15 @@ config/icon="res://icon.png"
 [autoload]
 
 MCPGameBridge="res://addons/godot_mcp/game_bridge/mcp_game_bridge.gd"
+Net="*res://scripts/net.gd"
 GameState="*res://scripts/game_state.gd"
+Audio="*res://scripts/audio.gd"
 
 [display]
 
 window/size/viewport_width=1920
 window/size/viewport_height=1080
+window/vsync/vsync_mode=2
 
 [editor_plugins]
 
@@ -41,6 +44,11 @@ port_override=6550
 3d_physics/layer_1="world"
 3d_physics/layer_2="players"
 3d_physics/layer_3="projectiles"
+
+[physics]
+
+3d/physics_engine="Jolt Physics"
+common/physics_interpolation=true
 
 [rendering]
 

@@ -1,0 +1,6 @@
+[gd_scene load_steps=2 format=3 uid="uid://cdeathclip0001"]
+
+[ext_resource type="Script" path="res://tests/death_clip.gd" id="1_dc"]
+
+[node name="DeathClip" type="Node"]
+script = ExtResource("1_dc")

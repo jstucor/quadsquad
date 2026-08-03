@@ -26,23 +26,40 @@ enum Team { REPUBLIC, CIS }
 ## REINFORCEMENT tickets, and each death spends one; the side that runs its
 ## tickets to zero loses. You deploy AT a post your side holds, chosen on the
 ## spawn screen — so losing your posts is losing your footholds on the map.
-enum Mode { DEATHMATCH, ZONES, ROYALE, CONQUEST }
+##
+## MASSIVE is the scale mode: two sides of fifty, almost all of them LINE
+## TROOPERS — AI with no gadgets, one weapon and a scope, a weaker eye and a much
+## cheaper think loop (see Bot.line). It plays by deathmatch rules because at
+## that body count the rules are not the point: what a player is there for is
+## being one rifle in a hundred, and any objective would just be a place the
+## crowd stands. It is PROCEDURAL-MAP ONLY — the hand-laid arenas are built for
+## eight bodies and a hundred of them in Catwalk's corridors is a traffic jam,
+## where a generated world is 220 m of open ground with cover scattered over it.
+enum Mode { DEATHMATCH, ZONES, ROYALE, CONQUEST, MASSIVE }
 const MODE_NAMES := {
 	Mode.DEATHMATCH: "DEATHMATCH", Mode.ZONES: "ZONES", Mode.ROYALE: "BATTLE ROYALE",
-	Mode.CONQUEST: "CONQUEST",
+	Mode.CONQUEST: "CONQUEST", Mode.MASSIVE: "MASSIVE BATTLE",
 }
 const MODE_BLURBS := {
 	Mode.DEATHMATCH: "First to %d kills",
 	Mode.ZONES: "Hold the area. A point a second, new area every %ds, first to %d",
 	Mode.ROYALE: "No respawns. Scavenge your gear, outlast the storm, last side wins",
 	Mode.CONQUEST: "Capture command posts to spawn on. Hold more to bleed the enemy's %d reinforcements to zero",
+	Mode.MASSIVE: "%d a side on generated ground. Line troopers carry a rifle and nothing else — first to %d kills",
 }
+## How many bodies a side fields in MASSIVE, and the sizes the menu offers. Fifty
+## is the headline and the reason the mode exists; the smaller ones are here
+## because the frame cost is real and measured (see the perf notes in CLAUDE.md)
+## and a couch that cannot hold fifty should be able to play thirty.
+const MASSIVE_SIZES := [15, 25, 35, 50]
+const MASSIVE_DEFAULT := 50
 
 # DEFAULT victory threshold per mode: kills, seconds of control, being the last
 # side left (one "point", awarded once), or the reinforcement pool each side
 # starts Conquest with. The menu lets you raise or lower all but royale's —
 # score_targets holds the chosen values, seeded from here.
-const SCORE_LIMITS := {Mode.DEATHMATCH: 25, Mode.ZONES: 60, Mode.ROYALE: 1, Mode.CONQUEST: 150}
+const SCORE_LIMITS := {Mode.DEATHMATCH: 25, Mode.ZONES: 60, Mode.ROYALE: 1,
+	Mode.CONQUEST: 150, Mode.MASSIVE: 200}
 ## The victory thresholds actually in force, chosen on the menu. Seeded from the
 ## defaults; ROYALE's is fixed (last side standing is not a number you tune).
 ## The offered choices live on the menu (SCORE_CHOICES there), not here.
@@ -113,6 +130,32 @@ var team_colors: Array[Color] = [
 	Color(0.95, 0.78, 0.30),  # gold
 ]
 
+## WHAT A SIDE'S GUNFIRE LOOKS LIKE, which is not the same question as what its
+## scoreboard chip looks like — hence a second array rather than reusing
+## team_colors. The Empire's chip is grey plate and its bolts are green; a grey
+## tracer would be no tracer at all.
+##
+## It is a fall-through, not an override: a weapon that states its own `flash`
+## colour keeps it (see Weapon.bolt_color), so plasma stays plasma and gauss
+## stays green in anybody's hands. What this decides is the colour of the
+## ORDINARY blaster rows, which every side shares — and for those the issuing
+## army is exactly what picks the colour.
+var bolt_colors: Array[Color] = [
+	Color(0.35, 0.65, 1.0),
+	Color(1.0, 0.24, 0.14),
+	Color(0.38, 1.0, 0.40),
+	Color(1.0, 0.52, 0.14),
+]
+
+
+## The bolt colour for a side, safe against a team index that is out of range
+## (nothing should ask, but a stray team would otherwise take the whole shot
+## down with it — an out-of-bounds index aborts the enclosing function).
+func bolt_color(team: int) -> Color:
+	if team < 0 or team >= bolt_colors.size():
+		return bolt_colors[0]
+	return bolt_colors[team]
+
 ## --- UNIVERSE ----------------------------------------------------------------
 ##
 ## Which SETTING the match is played in: which classes exist, which sides they
@@ -133,6 +176,7 @@ var universe := Loadout.Universe.STAR_WARS:
 		# typed, so every `team_colors[t]` call site keeps its Color.
 		team_names.assign(u["teams"])
 		team_colors.assign(u["colors"])
+		bolt_colors.assign(u["bolts"])
 
 ## --- TIME TO KILL -------------------------------------------------------------
 ##
@@ -171,6 +215,33 @@ const RANDOM_PLANET := -1
 var planet := RANDOM_PLANET
 var planet_seed := 0
 
+## TIME OF DAY, which is a property of the WORLD and not of the map roster — so
+## it lives here beside the planet and applies to the generated world only. The
+## hand-laid arenas each author their own lighting as part of being that map; a
+## generated world is a table row, and night is another row.
+##
+## It is not a darkness filter over the day palette. Turning the sun down takes
+## the whole picture to mud and puts the cover boxes into unreadable black, which
+## this project has already recorded as a *gameplay* bug once (see the sky
+## ambient note in THE GRADE). Night is a second palette per planet — see
+## `PlanetMap.PLANETS`' `"night"` block — lit cold and low so that the things
+## which are genuinely bright, the muzzle flashes and the blasts, are the
+## brightest things on the map instead of competing with a sun.
+enum TimeOfDay {DAY, NIGHT}
+const TIME_NAMES := {TimeOfDay.DAY: "DAY", TimeOfDay.NIGHT: "NIGHT"}
+const TIME_BLURBS := {
+	TimeOfDay.DAY: "The world under its own sun",
+	TimeOfDay.NIGHT: "Fought by muzzle flash — the guns light the ground",
+}
+var time_of_day := TimeOfDay.DAY
+
+
+## Is the match being fought in the dark? Asked by anything that behaves
+## differently at night — the flash reach, the impact sparks — so none of them
+## has to know that only the generated world has a night in the first place.
+func is_night() -> bool:
+	return time_of_day == TimeOfDay.NIGHT and map_is_procedural()
+
 
 ## Which world the generator should actually build this match: the menu choice,
 ## or a roll if it is set to RANDOM.
@@ -190,9 +261,15 @@ func map_is_procedural() -> bool:
 func map_blurb() -> String:
 	if not map_is_procedural():
 		return str(MAPS[map_index]["blurb"])
+	var night := is_night()
 	if planet == RANDOM_PLANET:
+		if night:
+			return "A world rolled at the drop, fought in the dark"
 		return "A world rolled at the drop. Every match is a new one"
-	return str(PlanetMap.PLANETS[chosen_planet()]["blurb"])
+	var line := str(PlanetMap.PLANETS[chosen_planet()]["blurb"])
+	if night:
+		line += ", after dark"
+	return line
 
 
 var ttk := Ttk.MEDIUM:
@@ -295,7 +372,25 @@ const MAX_TEAM_SIZE := 6
 ## How many sides are actually in this match. Free-for-all is one team per
 ## human, so it needs no separate branch anywhere else in the game.
 func active_teams() -> int:
-	return human_players if free_for_all else mini(team_count, MAX_TEAMS)
+	if free_for_all:
+		# NETWORKED, a free-for-all is one side per human IN THE SESSION, not one
+		# per viewport on this machine — `human_players` is the split-screen count
+		# and always was. Reading it here would give a two-machine free-for-all
+		# two sides on each machine and put half of everybody on somebody else's.
+		return session_humans() if Net.online() else human_players
+	return mini(team_count, MAX_TEAMS)
+
+
+## HOW MANY HUMANS ARE IN THE MATCH, across every machine. Offline that is the
+## split-screen count and nothing changes; online it is the session roster.
+##
+## The distinction this draws is the one the whole networked design rests on:
+## `human_players` means VIEWPORTS ON THIS MACHINE and is per-machine forever
+## (it sizes the grid, it prices the frame in `Quality`, it picks the minimap
+## size). Anything about the MATCH — how many sides there are, how many AI fill
+## a team, who is on it — has to ask this instead.
+func session_humans() -> int:
+	return Net.player_count() if Net.online() else human_players
 
 
 ## Teams the players PICKED on the team-select screen, one per human player.
@@ -308,6 +403,13 @@ var chosen_teams: Array[int] = []
 ## screen when there is a valid one, else dealt round-robin — so 4 humans across
 ## 2 teams is 2v2, across 3 is 2/1/1, and free-for-all is one each.
 func team_for_player(index: int) -> int:
+	# NETWORKED, sides are the HOST'S to deal — the team-select screen is a local
+	# arrangement between people who can see each other, and four machines cannot
+	# negotiate one. `index` is still this machine's own viewport index, so it is
+	# looked up through this machine's share of the roster.
+	if Net.online():
+		var mine := Net.local_ids()
+		return Net.team_of(mine[index]) if index < mine.size() else 0
 	if index < chosen_teams.size():
 		var pick := chosen_teams[index]
 		if pick >= 0 and pick < active_teams():
@@ -315,7 +417,13 @@ func team_for_player(index: int) -> int:
 	return index % active_teams()
 
 
+## How many humans are on a side. NETWORKED this walks the session roster, which
+## is what stops every machine filling the same side with its own AI: with two
+## machines of two, each counting only its own couch, both would see "two short
+## of a four" and the host would field eight bodies a side.
 func humans_on_team(team: int) -> int:
+	if Net.online():
+		return Net.humans_on_team(team)
 	var count := 0
 	for i in human_players:
 		if team_for_player(i) == team:
@@ -400,6 +508,23 @@ func default_class_mode(for_mode: int) -> int:
 	return ClassMode.FACTION if for_mode == Mode.CONQUEST else ClassMode.CUSTOM
 
 
+## Is this the massive mode? Asked by everything that has to behave differently
+## at a hundred bodies — the map roster, the AI fill, the bot's own think loop —
+## rather than each of them testing the enum, which is the same discipline
+## `faction_classes()` keeps.
+func massive() -> bool:
+	return mode == Mode.MASSIVE
+
+
+## The generated map's index in MAPS. MASSIVE is locked to it, so this is the one
+## place that has to know which row it is.
+func procedural_map_index() -> int:
+	for i in MAPS.size():
+		if MAPS[i].get("procedural", false):
+			return i
+	return 0
+
+
 ## The current mode's blurb with its own numbers already in it.
 ##
 ## How many arguments a blurb takes is part of the blurb, and only this file
@@ -416,6 +541,8 @@ func mode_blurb() -> String:
 			return MODE_BLURBS[mode] % [int(Zone.RELOCATE_EVERY), score_limit()]
 		Mode.CONQUEST:
 			return MODE_BLURBS[mode] % score_limit()
+		Mode.MASSIVE:
+			return MODE_BLURBS[mode] % [team_size, score_limit()]
 		_:
 			return MODE_BLURBS[mode]
 
@@ -431,7 +558,21 @@ func reset_match() -> void:
 	# A fresh world for a fresh match. Rolled here rather than at generation
 	# time so it is fixed for the whole match: every structure and prop is placed
 	# from it, and a seed that moved would tear the map apart mid-round.
-	planet_seed = int(Time.get_unix_time_from_system()) ^ (randi() & 0xffff)
+	#
+	# NOT WHEN THERE IS A SESSION — on EITHER side. The seed IS the map: every
+	# structure, every prop and every piece of cover is placed from it, so two
+	# machines with two seeds are two different worlds, and every symptom after
+	# that (walking into invisible buildings, taking cover behind nothing, being
+	# shot through a wall only one of you has) reads as a replication bug rather
+	# than as the map it actually is.
+	#
+	# The guard was `Net.authority()` first, which is wrong in the direction
+	# nobody looks: `Net.start_match` rolls the seed and SENDS it, and then the
+	# host changes scene and lands here — so the host, not the client, threw away
+	# the world it had just told everybody to build. Online, the seed belongs to
+	# the session and this function only ever leaves it alone.
+	if not Net.online():
+		planet_seed = int(Time.get_unix_time_from_system()) ^ (randi() & 0xffff)
 	nav = NavGrid.new()
 	map_bounds_known = false
 	smokes.clear()
@@ -524,6 +665,8 @@ func unregister_combatant(body: Node3D) -> void:
 ## the same unmoved bodies anyway.
 var live_points := PackedVector3Array()
 var live_teams := PackedInt32Array()
+## The bodies behind live_points/live_teams, same indices. See sample_combatants.
+var live_bodies: Array[Node3D] = []
 var live_n := 0
 var _live_frame := -1
 ## Grown in blocks and never shrunk, so a settled match stops reallocating.
@@ -544,6 +687,14 @@ func sample_combatants() -> void:
 			live_teams.resize(n + _LIVE_GROW)
 		live_points[n] = c.global_position
 		live_teams[n] = c.team
+		# The BODY as well as its position, so a reader can act on what it finds
+		# without a second validity pass. `live_bodies` is a plain Array (it holds
+		# references, so it cannot be packed) and is never shrunk, exactly like
+		# the other two — at a hundred bodies this is the difference between one
+		# validated walk a frame and one per bot.
+		if live_bodies.size() <= n:
+			live_bodies.resize(n + _LIVE_GROW)
+		live_bodies[n] = c
 		n += 1
 	live_n = n
 
@@ -600,6 +751,26 @@ func register_smoke(cloud: Node3D) -> void:
 
 func unregister_smoke(cloud: Node3D) -> void:
 	smokes.erase(cloud)
+
+
+## The standing height of an ordinary trooper, and where its chest is as a
+## fraction of that. Every shooter in the game used to aim at a flat 1.0 m,
+## which was exactly right while every body in the game was the same body.
+const TROOPER_HEIGHT := 1.8
+const CHEST_FRACTION := 0.56
+
+
+## HOW HIGH TO AIM AT A BODY, above its feet. Units have a stature now — an Ewok
+## stands about 1.1 m and a Super Battle Droid over 2.1 — so a fixed chest height
+## puts an AI's rounds over the small ones and into the belt of the big ones,
+## and does the same to the sight checks that decide whether they are seen at
+## all. Duck-typed like is_alive(): anything not answering body_height() is
+## assumed trooper-sized, which is what a turret or a prop should be.
+static func aim_height(body: Node) -> float:
+	var h := TROOPER_HEIGHT
+	if body != null and body.has_method("body_height"):
+		h = body.body_height()
+	return h * CHEST_FRACTION
 
 
 ## Does a sight line pass through smoke? Segment-vs-sphere, closest approach

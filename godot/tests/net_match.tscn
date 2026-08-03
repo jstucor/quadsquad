@@ -1,0 +1,6 @@
+[gd_scene load_steps=2 format=3 uid="uid://bnetmatch00001"]
+
+[ext_resource type="Script" path="res://tests/net_match.gd" id="1_nm"]
+
+[node name="NetMatch" type="Node"]
+script = ExtResource("1_nm")

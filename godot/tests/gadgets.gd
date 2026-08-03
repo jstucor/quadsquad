@@ -53,7 +53,7 @@ func _ready() -> void:
 
 	# --- a tap costs almost nothing --------------------------------------
 	print("\n== a tap ==")
-	jedi._force_cd = [0.0, 0.0]
+	jedi._force_cd = [0.0, 0.0, 0.0]   # one per gadget slot, and there are three
 	jedi._channel_left = 0.0
 	await _frames(2)
 	_hits.clear()
@@ -138,6 +138,40 @@ func _ready() -> void:
 	attacker2.global_position = nader.global_position + Vector3(0, 1, -6)
 	nader.take_damage(10.0, attacker2)
 	_expect(nader._since_damage < 0.1, "taking a hit restarts the regen delay")
+
+	# --- THE THIRD SLOT, END TO END ---------------------------------------
+	#
+	# The sustained ability, driven the whole way a real one is: fitted on a
+	# build, DEPLOYED (which is `pending.duplicate_loadout()`, the copy that used
+	# to throw the field away), then pressed on its own control. `kit_rules`
+	# catches the copy in isolation; this is the one that says a player actually
+	# gets the thing, because every step between the buy screen and the body has
+	# to survive, not just the one that was broken.
+	print("\n== the sustained slot ==")
+	var sus := _build(Loadout.Kit.CLONE, Weapon.Class.DC15S, Loadout.Gadget.NONE)
+	sus.gadget3 = Loadout.Gadget.OVERSHIELD
+	var trooper := await _spawn(sus, Vector3(40.0, 0.0, 0.0), 0)
+	await _frames(2)
+	print("  fitted %s, deployed holding %s" % [
+		Loadout.GADGETS[Loadout.Gadget.OVERSHIELD]["name"],
+		Loadout.GADGETS[trooper.gadget3]["name"]])
+	_expect(trooper.gadget3 == Loadout.Gadget.OVERSHIELD,
+		"the ability survives the deploy copy and reaches the body")
+	_expect(trooper.has_gadget(Loadout.Gadget.OVERSHIELD),
+		"...and the body answers has_gadget for it")
+	_expect(trooper.slot_of(Loadout.Gadget.OVERSHIELD) == 2,
+		"...on slot 3, which is the control it is read from")
+	trooper._use_gadget(2)
+	await _frames(1)
+	print("  pressed slot 3: pool %.0f, %.1fs left, cooldown %.1fs" % [
+		trooper._over_pool, trooper._over_left, trooper.gadget_cooldown(2)])
+	_expect(trooper._over_pool > 0.0, "pressing it actually raises the overshield")
+	_expect(trooper.gadget_cooldown(2) > 0.0, "...and charges slot 3's own cooldown")
+	# The whole reason the slot exists: it must not be reachable from the other
+	# two buttons, or the same ability sits on two controls.
+	_expect(trooper.gadget != Loadout.Gadget.OVERSHIELD
+		and trooper.gadget2 != Loadout.Gadget.OVERSHIELD,
+		"...and is on slot 3 alone, not duplicated onto slots 1 or 2")
 
 	print("\n==== %s ====" % ("GADGETS WORK" if _fails.is_empty()
 		else "%d FAILURE(S):\n  %s" % [_fails.size(), "\n  ".join(_fails)]))

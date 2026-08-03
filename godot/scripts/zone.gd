@@ -43,6 +43,13 @@ func _ready() -> void:
 ## during _ready the level's colliders are not in the physics world yet, so the
 ## ground ray finds nothing and every area lands on the fallback spot.
 func _physics_process(delta: float) -> void:
+	# A CLIENT NEVER DECIDES WHERE THE AREA IS OR WHO HOLDS IT. Both are derived
+	# from where every body is standing, and a client's picture of the remote
+	# bodies lags its owner's by a packet — so two machines counting heads would
+	# disagree about a contested circle, which is exactly the moment it matters.
+	# It is told instead, by `remote_state`, and only draws.
+	if not Net.authority():
+		return
 	if not _placed:
 		_placed = true
 		_relocate()
@@ -55,6 +62,23 @@ func _physics_process(delta: float) -> void:
 	if _tick_left <= 0.0:
 		_tick_left += TICK
 		_score_tick()
+
+
+## The host's answer, applied on a client. Everything a viewport needs to draw
+## the area and its readout, and nothing else — the scoring already arrived
+## through the score sync.
+func remote_state(point: Vector3, holder: int, contested: bool, secs: int) -> void:
+	if not global_position.is_equal_approx(point):
+		global_position = point
+		reset_physics_interpolation()   # moved, not walked (house rule 10)
+		GameState.zone_point = point
+		GameState.zone_active = true
+		GameState.zone_moved.emit(point)
+	_holder = holder
+	_contested = contested
+	_move_left = float(secs)
+	_paint()
+	GameState.zone_state.emit(holder, contested, secs)
 
 
 ## Count who's inside and award the second. A tie (including nobody there) pays

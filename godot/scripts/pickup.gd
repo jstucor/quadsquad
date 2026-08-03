@@ -138,6 +138,7 @@ func _physics_process(_delta: float) -> void:
 		if not body.pickup_pressed:
 			continue
 		if _grant(body):
+			Audio.play("pickup")
 			body.pickup_pressed = false   # one press, one crate
 			body.pickup_in_reach = null
 			queue_free()

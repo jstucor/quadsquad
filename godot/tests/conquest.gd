@@ -39,14 +39,25 @@ func _ready() -> void:
 
 func _test_faction_builds() -> void:
 	print("== faction builds ==")
-	# Four per side, and every universe's sides. Conquest itself only ever plays
-	# two of them at once, but every roster has to be deployable — a class that
-	# names a weapon nobody added is a crash on the character select.
-	var rosters: int = 0
+	# EIGHT per side, across every universe's sides. Conquest itself only ever
+	# plays two of them at once, but every roster has to be deployable — a class
+	# that names a weapon nobody added is a crash on the character select.
+	#
+	# Counted per ROSTER rather than against FACTION_BUILDS.size(), because the
+	# second four of each roster live at the end of that table (appended so no
+	# existing index moved) and the two counts stopped being the same number.
+	var seen := {}
 	for u in Loadout.FACTION_ROSTERS:
-		rosters += Loadout.FACTION_ROSTERS[u].size()
-	_expect(Loadout.FACTION_BUILDS.size() == rosters * 4,
-		"four faction classes per side across every universe")
+		for side: Array in Loadout.FACTION_ROSTERS[u]:
+			_expect(side.size() == 8, "a roster in universe %d has %d classes"
+				% [u, side.size()])
+			for i: int in side:
+				_expect(i >= 0 and i < Loadout.FACTION_BUILDS.size(),
+					"roster names class %d, which does not exist" % i)
+				seen[i] = true
+	_expect(seen.size() == Loadout.FACTION_BUILDS.size(),
+		"every authored faction class is on somebody's roster (%d of %d)"
+			% [seen.size(), Loadout.FACTION_BUILDS.size()])
 	for i in Loadout.FACTION_BUILDS.size():
 		var b := Loadout.faction_build(i)
 		var cls: int = b.deploy_class()
@@ -54,8 +65,13 @@ func _test_faction_builds() -> void:
 		_expect(ok, "%s deploys a real weapon (%d)" % [Loadout.FACTION_BUILDS[i]["name"], cls])
 	# The two rosters, and the Super Battle Droid's wrist cannon (a gun the shop
 	# does not sell, reached via primary_override).
-	_expect(Loadout.faction_classes(0).size() == 4, "Republic has four classes")
-	_expect(Loadout.faction_classes(1).size() == 4, "Separatist has four classes")
+	# EIGHT a side now, across four Star Wars factions (the Clone Wars pair and
+	# the Galactic Civil War pair). The count is asserted rather than the names,
+	# because which eight is a balance decision and the SIZE is the contract the
+	# character-select grid is laid out from.
+	for side in 4:
+		_expect(Loadout.faction_classes(side).size() == 8,
+			"Star Wars side %d has eight classes" % side)
 	var sbd := Loadout.team_build(1, 1)   # Separatist slot 1 = Super Battle Droid
 	_expect(sbd.deploy_class() == Weapon.Class.WRIST_CANNON,
 		"the Super Battle Droid carries the wrist cannon, got %s" % sbd.weapon_name())

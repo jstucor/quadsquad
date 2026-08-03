@@ -102,6 +102,7 @@ func _physics_process(delta: float) -> void:
 
 
 func _explode(pos: Vector3) -> void:
+	Audio.play_at("explosion", pos)
 	var shape := SphereShape3D.new()
 	shape.radius = _splash
 	var params := PhysicsShapeQueryParameters3D.new()
@@ -134,23 +135,4 @@ func _attributed_to() -> Node:
 
 
 func _spawn_blast(pos: Vector3) -> void:
-	var flash := MeshInstance3D.new()
-	var s := SphereMesh.new()
-	s.radius = _splash * 0.7
-	s.height = _splash * 1.4
-	flash.mesh = s
-	var mat := StandardMaterial3D.new()
-	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	mat.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
-	mat.albedo_color = Color(1.0, 0.6, 0.25, 0.75)
-	mat.emission_enabled = true
-	mat.emission = Color(1.0, 0.5, 0.18)
-	mat.emission_energy_multiplier = 6.0
-	flash.material_override = mat
-	flash.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	# Added first, positioned after: global_position on a node outside the tree
-	# is silently treated as local.
-	get_tree().current_scene.add_child(flash)
-	flash.global_position = pos
-	get_tree().create_timer(0.22).timeout.connect(flash.queue_free)
+	Blast.pop(get_tree().current_scene, pos, _splash, 0.7)

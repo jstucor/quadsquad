@@ -51,14 +51,61 @@ const SEGMENTS := [
 const LINEAR_DAMP := 0.4
 const ANGULAR_DAMP := 4.5
 
+## HOW MANY BODIES THE FLOOR HOLDS, AND WHO GETS ONE AT ALL.
+##
+## A corpse is not cheap and it is not brief: it builds a whole CharacterModel
+## (thirty-odd meshes, every accessory the unit was wearing), it adds six rigid
+## bodies and five joints, and it lies there for LIFETIME seconds being drawn
+## once per viewport plus a shadow pass. One at a time that is a bargain. The
+## trouble is that nothing bounded how many there could be at once, and the rate
+## bodies arrive is set by the ROSTER: a 4-team match with six AI a side was
+## measured holding TWELVE ragdolls simultaneously — seventy-two rigid bodies and
+## four hundred-odd mesh instances drawn four times over — which is a steady load
+## nobody asked for and a hitch every time a fresh one lands on top of it.
+##
+## Two rules, both of which the project already applies to smaller effects:
+##
+##   1. A DEATH NOBODY CAN SEE IS NOT WORTH BUILDING — the same rule and the same
+##      distance as `Weapon.IMPACT_VIEW_RANGE`. On a 220 m map most deaths in a
+##      big match are bots shooting bots somewhere else entirely, and every one
+##      of those was building a body, simulating it for nine seconds and freeing
+##      it with nobody watching.
+##   2. THE FLOOR HAS A LIMIT. Past MAX_ALIVE the oldest body goes, because it is
+##      the one that has been lying there longest and is likeliest to be behind
+##      whoever is fighting now. A player never loses the body they just made.
+##
+## A human's own death always builds one (`forced`): you watch that one.
+const VIEW_RANGE := 120.0
+const MAX_ALIVE := 8
+## Every ragdoll currently on the floor, oldest first. Static because the limit
+## is a property of the MATCH, not of any one body — and cleaned of freed entries
+## on the way past rather than by anything watching it.
+static var _alive: Array[Node3D] = []
+
 var _bodies := {}   # segment name -> RigidBody3D
+var _stature := 1.0  # the unit's own size, so a corpse is as big as the unit was
+var _animated: CharacterModel  # ANIMATED style only; null for the other two
 
 
 ## `style` is a CharacterModel.Style — which body this was. -1 falls back to the
 ## generic trooper, which is also what the classic flop always drew.
+##
+## `forced` skips the view-range test for a death that is always worth showing —
+## a human's own. Returns having freed itself if the body is not wanted, so the
+## caller pays for the instantiate and nothing else; every caller already guards
+## its handle with `is_instance_valid`.
+## `stature` is the unit's own size (Loadout.stature). A body does not change
+## size when it dies — without this an Ewok's corpse stood up to full trooper
+## height on the frame it hit the floor.
 func launch(xform: Transform3D, team_color: Color, push_dir: Vector3,
-		style := -1) -> void:
+		style := -1, forced := false, stature := 1.0) -> void:
+	if not forced and not _worth_showing(xform.origin):
+		queue_free()
+		return
+	_make_room()
+	_alive.append(self)
 	global_transform = xform
+	reset_physics_interpolation()   # placed where somebody died, not moved there
 	var push := push_dir
 	push.y = 0.0
 	if push.length() < 0.1:
@@ -75,11 +122,47 @@ func launch(xform: Transform3D, team_color: Color, push_dir: Vector3,
 	# the entire point of having a ragdoll.
 	push = push.normalized() * randf_range(0.8, 1.6)
 
-	if Controls.classic_death():
-		_build_classic(team_color, push)
-	else:
-		_build_ragdoll(team_color, style, push)
+	_stature = maxf(stature, 0.2)
+	match Controls.death_style():
+		Controls.Death.CLASSIC: _build_classic(team_color, push)
+		Controls.Death.ANIMATED: _build_animated(team_color, style, push)
+		_: _build_ragdoll(team_color, style, push)
 	get_tree().create_timer(LIFETIME).timeout.connect(_safe_free)
+
+
+## DEATH AS A CLIP. The same finished model the ragdoll is built from, NOT taken
+## apart: it keeps its AnimationPlayer and plays one of `CharacterModel`'s death
+## clips, which lays it down by rotating the Hips about the FEET (see the note on
+## `build_death_clips`).
+##
+## The trade against the ragdoll, stated where somebody choosing between them
+## will read it: this reads more cleanly and plays the same way every time, and
+## it knows NOTHING about what it is falling onto. On the hand-laid arenas that
+## barely shows. On the procedural worlds — where the collision mesh already sits
+## above the analytic curve, which is what `SPAWN_LIFT` exists for — a body will
+## sometimes end up part-way into a slope. That is the cost, it is real, and it
+## is why the ragdoll is still the default rather than being replaced.
+func _build_animated(team_color: Color, style: int, push: Vector3) -> void:
+	var model := CharacterModel.new()
+	# NOT `static_pose`: that flag exists to skip building clips for a body that
+	# only ever wears one, and this one is about to play a clip.
+	add_child(model)
+	model.set_style(style if style >= 0 else CharacterModel.Style.GENERIC)
+	model.set_team_color(team_color)
+	model.scale = Vector3.ONE * _stature
+	model.build_death_clips()
+	_animated = model
+	# WHICH WAY IT GOES DOWN COMES FROM THE SHOVE, so a canned fall still answers
+	# the one question the ragdoll answered for free — where the shot came from.
+	# Taken in the body's own space, so a round in the back drops it forward
+	# whatever direction it was facing when it was hit.
+	var fall := CharacterModel.fall_from_push(push, global_rotation.y)
+	var clip: String = CharacterModel.DEATH_CLIPS[fall]
+	if model.anim_player != null and model.anim_player.has_animation(clip):
+		# The last frame HOLDS: an AnimationPlayer that finishes a non-looping clip
+		# leaves the joints where the final key put them, which is exactly the
+		# behaviour the jump clip already relies on.
+		model.anim_player.play(clip)
 
 
 ## Stop the whole ragdoll dead, for anything that wants to photograph the POSE
@@ -91,11 +174,44 @@ func freeze_all() -> void:
 			child.freeze = true
 			child.linear_velocity = Vector3.ZERO
 			child.angular_velocity = Vector3.ZERO
+	# An animated corpse has no bodies to stop — what holds it still is pausing
+	# the clip. Same call, same contract: whatever is moving, stop it, so a look
+	# test photographs a pose rather than a blur.
+	if _animated != null and is_instance_valid(_animated) \
+			and _animated.anim_player != null:
+		_animated.anim_player.pause()
 
 
 func _safe_free() -> void:
 	if is_instance_valid(self):
 		queue_free()
+
+
+## Is anybody with a camera near enough for this to be worth building? Humans
+## only — bots have no camera, so a body dropping beside one is seen by nobody.
+## Walks GameState.combatants for the same reason `Weapon._worth_showing` does:
+## the list is already there and is at most a couple of dozen entries.
+static func _worth_showing(at: Vector3) -> bool:
+	for c in GameState.combatants:
+		if c is Player and is_instance_valid(c) \
+				and c.global_position.distance_to(at) <= VIEW_RANGE:
+			return true
+	return false
+
+
+## Drop dead entries, then free the oldest until there is room for one more.
+## Done on the way IN rather than on a timer: the moment that needs the room is
+## the moment a new body arrives, and that is also the only moment this list is
+## touched, so nothing has to watch it.
+static func _make_room() -> void:
+	var live: Array[Node3D] = []
+	for c in _alive:
+		if is_instance_valid(c):
+			live.append(c)
+	while live.size() >= MAX_ALIVE:
+		var oldest: Node3D = live.pop_front()
+		oldest.queue_free()
+	_alive = live
 
 
 ## --- the ragdoll --------------------------------------------------------------
@@ -110,6 +226,10 @@ func _build_ragdoll(team_color: Color, style: int, push: Vector3) -> void:
 	add_child(model)
 	model.set_style(style if style >= 0 else CharacterModel.Style.GENERIC)
 	model.set_team_color(team_color)
+	# Scaled BEFORE the joints are read, so every joint's world transform — and
+	# therefore every mesh that rides it through the reparent — is already the
+	# right size. The rigid bodies themselves are left unscaled (see _segment).
+	model.scale = Vector3.ONE * _stature
 	# LEFT IN ITS STANDING REST POSE, and this is the whole difference between a
 	# ragdoll and a puppet. The old corpse was posed into a hand-authored curl
 	# (`collapse_pose`) because it was ONE rigid body and had no other way to
@@ -166,7 +286,12 @@ func _segment(joints: Dictionary, seg: Dictionary, push: Vector3) -> RigidBody3D
 
 	var first: Node3D = joints.get(seg["joints"][0])
 	if first != null:
-		body.global_transform = first.global_transform
+		# ORTHONORMALIZED: a scaled unit's joints carry that scale in their
+		# basis, and a RigidBody3D with a scaled basis scales its collision
+		# shape a second time on top of the size set below — as well as being
+		# the thing Godot warns about doing to a physics body. The body stays
+		# unit-scale and the meshes keep their own scale through the reparent.
+		body.global_transform = first.global_transform.orthonormalized()
 	for jname in seg["joints"]:
 		var joint: Node3D = joints.get(jname)
 		if joint != null:
@@ -174,9 +299,9 @@ func _segment(joints: Dictionary, seg: Dictionary, push: Vector3) -> RigidBody3D
 
 	var cs := CollisionShape3D.new()
 	var box := BoxShape3D.new()
-	box.size = seg["size"]
+	box.size = seg["size"] * _stature
 	cs.shape = box
-	cs.position = seg["at"]
+	cs.position = seg["at"] * _stature
 	body.add_child(cs)
 
 	body.linear_velocity = push
@@ -231,21 +356,27 @@ func _build_classic(team_color: Color, push: Vector3) -> void:
 	add_child(body)
 	var cs := CollisionShape3D.new()
 	var cap := CapsuleShape3D.new()
-	cap.radius = 0.34
-	cap.height = 1.5
+	cap.radius = 0.34 * _stature
+	cap.height = 1.5 * _stature
 	cs.shape = cap
-	cs.position.y = 0.85
+	cs.position.y = 0.85 * _stature
 	body.add_child(cs)
+	# The meshes hang off a scaled NODE rather than off the body: scaling the
+	# RigidBody3D itself would scale the shape above a second time, which is
+	# also the thing Godot warns about doing to a physics body.
+	var art := Node3D.new()
+	art.scale = Vector3.ONE * _stature
+	body.add_child(art)
 
 	var suit := _mat(team_color)
 	var dark := _mat(Color(0.28, 0.30, 0.36))
 	var head := _mat(Color(0.82, 0.80, 0.78))
-	_box(body, Vector3(0.42, 0.62, 0.24), Vector3(0, 1.2, 0), suit)      # torso
-	_box(body, Vector3(0.28, 0.30, 0.28), Vector3(0, 1.68, 0), head)     # head
-	_box(body, Vector3(0.5, 0.12, 0.12), Vector3(-0.34, 1.35, 0), dark)  # left arm
-	_box(body, Vector3(0.5, 0.12, 0.12), Vector3(0.34, 1.35, 0), dark)   # right arm
-	_box(body, Vector3(0.16, 0.85, 0.17), Vector3(-0.12, 0.42, 0), suit) # left leg
-	_box(body, Vector3(0.16, 0.85, 0.17), Vector3(0.12, 0.42, 0), suit)  # right leg
+	_box(art, Vector3(0.42, 0.62, 0.24), Vector3(0, 1.2, 0), suit)      # torso
+	_box(art, Vector3(0.28, 0.30, 0.28), Vector3(0, 1.68, 0), head)     # head
+	_box(art, Vector3(0.5, 0.12, 0.12), Vector3(-0.34, 1.35, 0), dark)  # left arm
+	_box(art, Vector3(0.5, 0.12, 0.12), Vector3(0.34, 1.35, 0), dark)   # right arm
+	_box(art, Vector3(0.16, 0.85, 0.17), Vector3(-0.12, 0.42, 0), suit) # left leg
+	_box(art, Vector3(0.16, 0.85, 0.17), Vector3(0.12, 0.42, 0), suit)  # right leg
 
 	body.linear_velocity = push
 	body.angular_velocity = Vector3(randf_range(-7, 7), randf_range(-4, 4),

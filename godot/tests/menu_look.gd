@@ -32,13 +32,17 @@ func _ready() -> void:
 			items.append(d.get_item_text(i))
 		print("  %-14s -> %s" % [d.get_item_text(d.selected), str(items)])
 
-	# Dropdown order matches the build: MAP, MODE, UNIVERSE, TIME TO KILL,
-	# PLAYERS, TEAMS, TEAM SIZE, VICTORY, AI SKILL, AIM ASSIST, CLASSES.
-	var mode_dd: OptionButton = dropdowns[1]
-	var universe_dd: OptionButton = dropdowns[2]
-	var ttk_dd: OptionButton = dropdowns[3]
-	var teams_dd: OptionButton = dropdowns[5]
-	var victory_dd: OptionButton = dropdowns[7]
+	# Found by CAPTION, never by position in the row. This test used to index the
+	# list — [3] was TIME TO KILL, [7] was VICTORY — and then PLANET and TIME OF
+	# DAY were added to the top row, which silently shifted every index past two:
+	# it drove the TEAMS dropdown believing it was VICTORY and asked for item 4 of
+	# four. Same trap, and the same answer, as the AI presets naming their gun by
+	# class rather than by catalogue index.
+	var mode_dd := _dropdown_named(menu, "GAME MODE")
+	var universe_dd := _dropdown_named(menu, "UNIVERSE")
+	var ttk_dd := _dropdown_named(menu, "TIME TO KILL")
+	var teams_dd := _dropdown_named(menu, "TEAMS")
+	var victory_dd := _dropdown_named(menu, "VICTORY")
 
 	# UNIVERSE and TIME TO KILL: both rewrite what the match is made of, so both
 	# get picked here rather than only rendered.
@@ -64,8 +68,13 @@ func _ready() -> void:
 	print("picked '3 TEAMS' -> team_count %d, free_for_all %s" % [
 		GameState.team_count, GameState.free_for_all])
 
-	# VICTORY writes the mode's threshold: 100 KILLS in deathmatch.
-	GameState.mode = GameState.Mode.DEATHMATCH
+	# VICTORY writes the mode's threshold: 100 KILLS in deathmatch. The mode is
+	# picked through its own dropdown rather than written onto GameState, because
+	# VICTORY's choices and unit come FROM the mode — poking the field leaves the
+	# previous mode's items sitting in the list.
+	mode_dd.select(GameState.Mode.DEATHMATCH)
+	mode_dd.item_selected.emit(GameState.Mode.DEATHMATCH)
+	await _frames(2)
 	victory_dd.select(4)             # [10, 25, 50, 75, 100] -> 100
 	victory_dd.item_selected.emit(4)
 	await _frames(2)
@@ -79,6 +88,21 @@ func _ready() -> void:
 		GameState.free_for_all, GameState.active_teams()])
 	await _grab("menu_ffa")
 	get_tree().quit()
+
+
+## A dropdown is an OptionButton under a VBoxContainer whose first child is the
+## caption Label (`Menu._dropdown` builds exactly that), so the caption is the
+## stable name for one and its position in the grid is not.
+func _dropdown_named(n: Node, caption: String) -> OptionButton:
+	for d in _find_dropdowns(n):
+		var cell := d.get_parent()
+		if cell == null:
+			continue
+		for c in cell.get_children():
+			if c is Label and (c as Label).text == caption:
+				return d
+	assert(false, "no dropdown captioned '%s'" % caption)
+	return null
 
 
 func _find_dropdowns(n: Node) -> Array[OptionButton]:

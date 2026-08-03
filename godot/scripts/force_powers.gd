@@ -234,7 +234,7 @@ static func _eye(body: Node3D) -> Vector3:
 
 
 static func _torso(body: Node3D) -> Vector3:
-	return body.global_position + Vector3.UP * TORSO_HEIGHT
+	return body.global_position + Vector3.UP * GameState.aim_height(body)
 
 
 static func _can_reach(user: Node3D, from: Vector3, to: Vector3) -> bool:

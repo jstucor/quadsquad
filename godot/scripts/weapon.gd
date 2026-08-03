@@ -50,6 +50,38 @@ enum Class {
 	# Orks: more dakka, less accuracy, and a very large choppy thing.
 	SHOOTA, BIG_SHOOTA, SLUGGA, ROKKIT_LAUNCHA, MEGA_BLASTA, BURNA,
 	CHOPPA, POWER_KLAW,
+
+	# =========================================================================
+	# THE ROSTER REBUILD. Sixteen guns the faction classes could not be built
+	# without — a Droideka firing a DC-15 is not a Droideka, and an ODST with an
+	# unsilenced SMG is just a marine. Appended, so no index moved.
+	# =========================================================================
+	# Star Wars — Republic
+	DC15S,          # clone carbine: the officer/engineer gun
+	DC17,           # ARC trooper's pistol, carried in pairs
+	DC17M,          # clone commando rifle
+	DC15X,          # clone sharpshooter's rifle
+	# Star Wars — Separatist
+	E5,             # B1's rifle
+	E5S,            # ...and the sniper variant
+	DROIDEKA_TWIN,  # the destroyer's paired repeating blasters
+	SONIC_BLASTER,  # Geonosian
+	VIBROSWORD,     # BX commando droid
+	# Star Wars — Empire
+	E11,            # stormtrooper
+	DLT19,          # heavy trooper
+	DLT20A,         # scout/sniper
+	SE14R,          # death trooper's machine pistol
+	FLAMETHROWER,   # flametrooper: the incinerator
+	# Star Wars — Rebels
+	A280C,          # rebel trooper
+	CR2,            # vanguard SMG
+	DH447,          # rebel marksman
+	EWOK_SPEAR,     # ...and the one nobody expects
+	# Halo
+	M319,           # UNSC grenade launcher
+	SPIKER,         # Brute spiker
+	E11D,           # death trooper's rifle — see below
 }
 enum FireMode { AUTO, SEMI, BURST }
 
@@ -472,11 +504,26 @@ const PROFILES := {
 		"recoil": 1.5, "cam_recoil": 0.20, "kick_back": 1.8,
 		"mode": FireMode.SEMI,
 	},
+	# THE FLAME FAMILY — this one, the Incinerator and the Burna — is three rows
+	# in three universes with one shared job, so it is tuned as a family. All
+	# three used to kill a standard trooper in 0.23-0.27 s, which made them the
+	# three highest-trading classes in the whole game AND put them under human
+	# reaction time: being burned down was not a fight you lost, it was a frame
+	# in which you stopped existing. They now kill in ~0.44 s, which is still
+	# comfortably the fastest kill anywhere and is still delivered by the only
+	# weapon in the game you cannot miss with.
+	#
+	# The damage came off in FEWER, BIGGER ticks rather than smaller ones (the
+	# interval went up as well as the damage down): a flamer at sixteen hits a
+	# second is a stream of two-point numbers that reads as being nibbled, and it
+	# is also sixteen hitscans and sixteen impact bursts a second per shooter
+	# across four viewports. Heat is set so the trigger holds for about three
+	# seconds and then wants a break, which is what a fuel tank should feel like.
 	Class.FLAMER: {
 		"flash": Color(1.0, 0.50, 0.12),
-		"name": "Flamer", "fire_interval": 0.05, "damage": 7.0,
+		"name": "Flamer", "fire_interval": 0.085, "damage": 6.5,
 		"range": 14.0, "hip_spread": 7.0, "ads_spread": 6.0, "zoom_fov": 70.0,
-		"heat_per_shot": 0.022, "cool_rate": 0.22, "scope": false,
+		"heat_per_shot": 0.030, "cool_rate": 0.28, "scope": false,
 		"recoil": 0.2, "cam_recoil": 0.010, "pellets": 3,
 	},
 	Class.BOLT_PISTOL: {
@@ -647,11 +694,12 @@ const PROFILES := {
 		"recoil": 1.5, "cam_recoil": 0.21, "kick_back": 1.6,
 		"mode": FireMode.SEMI,
 	},
+	# Tuned with the rest of the flame family — see the note on Class.FLAMER.
 	Class.BURNA: {
 		"flash": Color(1.0, 0.50, 0.12),
-		"name": "Burna", "fire_interval": 0.055, "damage": 8.0,
+		"name": "Burna", "fire_interval": 0.09, "damage": 6.9,
 		"range": 15.0, "hip_spread": 7.5, "ads_spread": 6.5, "zoom_fov": 70.0,
-		"heat_per_shot": 0.024, "cool_rate": 0.22, "scope": false,
+		"heat_per_shot": 0.030, "cool_rate": 0.28, "scope": false,
 		"recoil": 0.22, "cam_recoil": 0.012, "pellets": 3,
 	},
 	Class.CHOPPA: {
@@ -670,8 +718,200 @@ const PROFILES := {
 		"blade_core": Color(0.55, 0.50, 0.42), "blade_glow": Color(0.20, 0.85, 0.95),
 		"blade_len": 0.30, "blade_width": 0.15, "hilt_len": 0.28, "blade_energy": 0.0,
 	},
-}
+	# =========================================================================
+	# THE FACTION GUNS. Each one exists because a class could not be itself
+	# without it, and each is tuned to the ROLE rather than to a spreadsheet: a
+	# carbine is a rifle you can move with, a machine pistol is a shotgun that
+	# reaches, and the flamethrower is the only weapon in the game with no reach
+	# at all and no way to miss.
+	# =========================================================================
 
+	# --- REPUBLIC -------------------------------------------------------------
+	# Faster and looser than the DC-15A, and the officer's gun: you are meant to
+	# be moving and pointing at things, not holding a lane.
+	Class.DC15S: {
+		"name": "DC-15S Carbine", "fire_interval": 0.11, "damage": 17.0,
+		"range": 62.0, "hip_spread": 2.6, "ads_spread": 0.85, "zoom_fov": 62.0,
+		"heat_per_shot": 0.055, "cool_rate": 0.52, "scope": false,
+		"recoil": 0.55, "cam_recoil": 0.011,
+	},
+	# The ARC's pistol. Alone it is a fast sidearm; the class carries TWO (the
+	# dual-wield mod), which is the whole reason it is a separate gun.
+	Class.DC17: {
+		"name": "DC-17 Blaster", "fire_interval": 0.14, "damage": 22.0,
+		"range": 48.0, "hip_spread": 2.2, "ads_spread": 0.9, "zoom_fov": 66.0,
+		"heat_per_shot": 0.09, "cool_rate": 0.55, "scope": false,
+		"recoil": 0.7, "cam_recoil": 0.016,
+	},
+	# The commando rifle: three-round burst, and the most accurate automatic in
+	# the Republic's hands. Bursts reward the trigger discipline the unit is
+	# supposed to have.
+	Class.DC17M: {
+		"name": "DC-17m Rifle", "fire_interval": 0.075, "damage": 21.0,
+		"range": 86.0, "hip_spread": 1.5, "ads_spread": 0.24, "zoom_fov": 55.0,
+		"heat_per_shot": 0.075, "cool_rate": 0.40, "scope": false,
+		"recoil": 0.55, "cam_recoil": 0.013,
+		"mode": FireMode.BURST, "burst_count": 3, "burst_interval": 0.34,
+	},
+	Class.DC15X: {
+		"name": "DC-15x Sniper", "fire_interval": 1.25, "damage": 118.0,
+		"range": 260.0, "hip_spread": 5.0, "ads_spread": 0.0, "zoom_fov": 22.0,
+		"heat_per_shot": 0.42, "cool_rate": 0.30, "scope": true,
+		"recoil": 2.1, "cam_recoil": 0.26, "kick_back": 1.6,
+	},
+
+	# --- SEPARATIST -----------------------------------------------------------
+	# The B1's rifle is deliberately the WORST automatic in the game. That is the
+	# joke and the balance both: droids come in numbers.
+	Class.E5: {
+		"name": "E-5 Blaster", "fire_interval": 0.135, "damage": 15.0,
+		"range": 58.0, "hip_spread": 3.4, "ads_spread": 1.15, "zoom_fov": 64.0,
+		"heat_per_shot": 0.06, "cool_rate": 0.46, "scope": false,
+		"recoil": 0.6, "cam_recoil": 0.013,
+	},
+	Class.E5S: {
+		"name": "E-5s Sniper", "fire_interval": 1.35, "damage": 110.0,
+		"range": 240.0, "hip_spread": 5.5, "ads_spread": 0.0, "zoom_fov": 24.0,
+		"heat_per_shot": 0.45, "cool_rate": 0.28, "scope": true,
+		"recoil": 2.0, "cam_recoil": 0.25, "kick_back": 1.4,
+	},
+	# THE DESTROYER'S TWIN REPEATERS: the highest sustained output in the game
+	# and a heat pool that punishes holding the trigger. Paired with the personal
+	# shield, this is a unit you have to flank rather than out-shoot.
+	Class.DROIDEKA_TWIN: {
+		"name": "Twin Repeaters", "fire_interval": 0.055, "damage": 13.0,
+		"range": 70.0, "hip_spread": 2.4, "ads_spread": 1.0, "zoom_fov": 68.0,
+		"heat_per_shot": 0.042, "cool_rate": 0.34, "scope": false,
+		"recoil": 0.42, "cam_recoil": 0.007,
+		"alternate_muzzles": true, "muzzle_x": 0.24, "muzzle_y": -0.14, "muzzle_z": -0.34,
+	},
+	# Geonosian sonic: a slow projectile-feeling blast with real splash, which is
+	# the only Separatist answer to somebody in cover.
+	# THE GEONOSIAN'S GUN, and at 0.85 s a cycle it was the worst trade in the
+	# game by a wide margin: three rounds over 1.85 s from a body with 66 health.
+	# A Geonosian is a flying skirmisher — it is SUPPOSED to be fragile, but a
+	# unit that is fragile AND cannot shoot is not a glass cannon, it is glass.
+	# The rate is what moved; the damage and the blast are its character and were
+	# already right.
+	Class.SONIC_BLASTER: {
+		"name": "Sonic Blaster", "fire_interval": 0.60, "damage": 46.0,
+		"range": 55.0, "hip_spread": 1.4, "ads_spread": 0.5, "zoom_fov": 62.0,
+		"heat_per_shot": 0.26, "cool_rate": 0.32, "scope": false,
+		"recoil": 1.3, "cam_recoil": 0.06,
+		"splash": 3.2, "splash_damage": 34.0,
+	},
+	# The BX's blade. Shorter reach than a lightsaber and no guard behind it —
+	# a commando droid that closes has committed.
+	Class.VIBROSWORD: {
+		"name": "Vibrosword", "fire_interval": 0.34, "damage": 74.0,
+		"range": 3.5, "hip_spread": 0.0, "ads_spread": 0.0, "zoom_fov": 75.0,
+		"heat_per_shot": 0.0, "cool_rate": 1.0, "scope": false,
+		"recoil": 1.05, "cam_recoil": 0.024, "melee": true,
+		"blade_core": Color(0.72, 0.74, 0.80), "blade_glow": Color(0.30, 0.34, 0.40),
+		"blade_len": 0.62, "blade_width": 0.048, "blade_energy": 0.0,
+	},
+
+	# --- EMPIRE ---------------------------------------------------------------
+	Class.E11: {
+		"name": "E-11 Blaster", "fire_interval": 0.12, "damage": 18.0,
+		"range": 66.0, "hip_spread": 2.5, "ads_spread": 0.7, "zoom_fov": 60.0,
+		"heat_per_shot": 0.06, "cool_rate": 0.50, "scope": false,
+		"recoil": 0.6, "cam_recoil": 0.012,
+	},
+	Class.DLT19: {
+		"name": "DLT-19 Heavy", "fire_interval": 0.095, "damage": 24.0,
+		"range": 92.0, "hip_spread": 3.6, "ads_spread": 0.9, "zoom_fov": 58.0,
+		"heat_per_shot": 0.055, "cool_rate": 0.34, "scope": false,
+		"recoil": 0.95, "cam_recoil": 0.022, "kick_back": 0.6,
+	},
+	Class.DLT20A: {
+		"name": "DLT-20A", "fire_interval": 0.62, "damage": 62.0,
+		"range": 150.0, "hip_spread": 2.4, "ads_spread": 0.0, "zoom_fov": 34.0,
+		"heat_per_shot": 0.24, "cool_rate": 0.38, "scope": true,
+		"recoil": 1.4, "cam_recoil": 0.10,
+	},
+	# THE DEATH TROOPER'S RIFLE. The unit used to be listed as carrying the
+	# SE-14r, which is sold as a SIDEARM — so weapon_index returned NO_PRIMARY
+	# and the Empire's most feared reinforcement deployed holding the free
+	# starter pistol. It needed its own gun rather than a stormtrooper's E-11:
+	# a suppressed rifle that trades the E-11's range for a much tighter cone
+	# and a heavier round, which is how that unit is supposed to fight.
+	Class.E11D: {
+		"name": "E-11D Rifle", "fire_interval": 0.105, "damage": 21.0,
+		"range": 74.0, "hip_spread": 2.0, "ads_spread": 0.42, "zoom_fov": 56.0,
+		"heat_per_shot": 0.062, "cool_rate": 0.46, "scope": false,
+		"recoil": 0.5, "cam_recoil": 0.010,
+	},
+	# The death trooper's machine pistol: a shotgun's damage profile at a
+	# carbine's range, and the reason that unit is feared at any distance.
+	Class.SE14R: {
+		"name": "SE-14r", "fire_interval": 0.07, "damage": 14.0,
+		"range": 44.0, "hip_spread": 2.0, "ads_spread": 0.8, "zoom_fov": 66.0,
+		"heat_per_shot": 0.055, "cool_rate": 0.50, "scope": false,
+		"recoil": 0.5, "cam_recoil": 0.009,
+	},
+	# THE INCINERATOR: no reach, no aim, no miss. A cone of pellets at ten metres
+	# with a fast tick — the only gun in the game that cannot headshot and does
+	# not care where the crosshair is.
+	# Tuned with the rest of the flame family — see the note on Class.FLAMER. The
+	# shortest reach of the three, because the Incinerator is the one that is
+	# supposed to have none at all.
+	Class.FLAMETHROWER: {
+		"name": "Incinerator", "fire_interval": 0.09, "damage": 6.9,
+		"range": 11.0, "hip_spread": 7.0, "ads_spread": 6.0, "zoom_fov": 70.0,
+		"heat_per_shot": 0.030, "cool_rate": 0.30, "scope": false,
+		"recoil": 0.18, "cam_recoil": 0.003, "pellets": 3,
+	},
+
+	# --- REBEL ALLIANCE -------------------------------------------------------
+	Class.A280C: {
+		"name": "A280-C", "fire_interval": 0.125, "damage": 20.0,
+		"range": 78.0, "hip_spread": 2.3, "ads_spread": 0.6, "zoom_fov": 58.0,
+		"heat_per_shot": 0.065, "cool_rate": 0.46, "scope": false,
+		"recoil": 0.7, "cam_recoil": 0.015,
+	},
+	Class.CR2: {
+		"name": "CR-2 SMG", "fire_interval": 0.06, "damage": 13.0,
+		"range": 38.0, "hip_spread": 3.0, "ads_spread": 1.4, "zoom_fov": 68.0,
+		"heat_per_shot": 0.045, "cool_rate": 0.52, "scope": false,
+		"recoil": 0.45, "cam_recoil": 0.008,
+	},
+	Class.DH447: {
+		"name": "DH-447 Sniper", "fire_interval": 1.15, "damage": 112.0,
+		"range": 250.0, "hip_spread": 5.0, "ads_spread": 0.0, "zoom_fov": 22.0,
+		"heat_per_shot": 0.40, "cool_rate": 0.32, "scope": true,
+		"recoil": 2.0, "cam_recoil": 0.25, "kick_back": 1.5,
+	},
+	# The Ewok's spear. The shortest reach and the highest melee damage in the
+	# game: it is a joke unit that genuinely kills people, which is exactly what
+	# the fanbase wants from it.
+	Class.EWOK_SPEAR: {
+		"name": "Ewok Spear", "fire_interval": 0.42, "damage": 92.0,
+		"range": 4.0, "hip_spread": 0.0, "ads_spread": 0.0, "zoom_fov": 75.0,
+		"heat_per_shot": 0.0, "cool_rate": 1.0, "scope": false,
+		"recoil": 1.2, "cam_recoil": 0.028, "melee": true, "staff": true,
+		"blade_core": Color(0.62, 0.48, 0.30), "blade_glow": Color(0.40, 0.30, 0.18),
+		"blade_len": 0.34, "blade_width": 0.05, "hilt_len": 0.75,
+		"blade_energy": 0.0,
+	},
+
+	# --- HALO -----------------------------------------------------------------
+	# The UNSC's answer to a doorway: an arcing grenade that detonates on impact.
+	Class.M319: {
+		"name": "M319 Grenadier", "fire_interval": 1.1, "damage": 58.0,
+		"range": 90.0, "hip_spread": 1.2, "ads_spread": 0.4, "zoom_fov": 58.0,
+		"heat_per_shot": 0.34, "cool_rate": 0.30, "scope": false,
+		"recoil": 1.7, "cam_recoil": 0.10, "projectile": true,
+		"splash": 4.4, "splash_damage": 62.0,
+	},
+	# Brute spiker: fast, brutal up close and wildly inaccurate past it.
+	Class.SPIKER: {
+		"name": "Spiker", "fire_interval": 0.08, "damage": 16.0,
+		"range": 42.0, "hip_spread": 3.8, "ads_spread": 1.8, "zoom_fov": 68.0,
+		"heat_per_shot": 0.05, "cool_rate": 0.48, "scope": false,
+		"recoil": 0.6, "cam_recoil": 0.012,
+	},
+}
 # Purchased upgrades (Loadout.SIGHTS / UPGRADES) as multipliers on the base
 # profile. The holo ring is the cheap sight: a little zoom and a steadier aim,
 # with none of the scope's tunnel vision.
@@ -714,6 +954,7 @@ var _overheated := false
 var _burst_left := 0
 var _bloom := 0.0  # extra hip-fire spread (deg) built up by sustained fire
 var _spin := 0.0   # seconds the trigger has been held, for spin-up weapons
+var _muzzle_side := -1.0
 ## STANCE penalty on the cone, set by the owning Player each frame: >1 while
 ## moving or airborne, <1 while crouched, 1 standing still. Left at 1 for bots,
 ## which have their own aim-error model and never touch this.
@@ -737,14 +978,57 @@ const FLASH_ENERGY := 2.2
 const FLASH_RANGE := 6.5
 const FLASH_DEFAULT := Color(1.0, 0.72, 0.35)   # burnt orange, the usual muzzle
 
+## AT NIGHT THE MUZZLE FLASH IS NOT A DETAIL, IT IS THE LIGHTING. By day it is a
+## flicker on the wall beside you competing with a sun; in the dark it is the
+## only thing illuminating the ground for twenty metres, and a 6.5 m flash that
+## is gone in 55 ms simply does not read as that. All three of its dials go up
+## together, and the RANGE by the most — reach is what turns a flash on your own
+## hands into a flash that shows you the man you are shooting at.
+##
+## It costs nothing extra: the light already exists and is already toggled, so
+## this is three numbers resolved once at spawn, not a second light.
+const NIGHT_FLASH_RANGE := 3.1
+const NIGHT_FLASH_ENERGY := 1.6
+const NIGHT_FLASH_TIME := 1.7
+
 var _muzzle_light: OmniLight3D
 var _flash_left := 0.0
+## The flash's dials for this match — the constants above, times the night
+## multipliers if this is a night match. Resolved at spawn rather than asked per
+## shot: a repeater fires thirteen times a second and the answer cannot change
+## inside a match.
+var _flash_time := FLASH_TIME
+var _flash_energy := FLASH_ENERGY
 var _impacts_left := 0     # impact bursts still allowed on this trigger pull
+
+## --- THE BLADE'S VOICE -------------------------------------------------------
+##
+## How far the hum bends on a swing, and how fast that settles. The hum's pitch
+## rising as the blade moves is the same doppler `_saber_swing` carries, and it is
+## what stops a lit blade sounding like a held note with whooshes played over it.
+##
+## Driven off the SWING rather than off the weapon's measured motion, because a
+## bot has no viewmodel and no camera: a swing is a shot, both of them fire one,
+## and this way both sound the same.
+const HUM_SWING_BEND := 0.22
+const HUM_SWING_SETTLE := 3.2
+## A refused hum asks again on this timer and not every tick — a claim walks the
+## combatant list, and a fourth blade with a three-slot pool would otherwise ask
+## sixty times a second for the whole match.
+const HUM_RETRY := 0.75
+
+var _hum_token := 0
+var _hum_lit := false      # was a lit blade in hand last tick
+var _hum_retry := 0.0
+var _swing_t := 0.0        # 1 on the frame of a swing, settling to 0
 
 
 func _ready() -> void:
+	var night: bool = GameState.is_night()
+	_flash_time = FLASH_TIME * (NIGHT_FLASH_TIME if night else 1.0)
+	_flash_energy = FLASH_ENERGY * (NIGHT_FLASH_ENERGY if night else 1.0)
 	_muzzle_light = OmniLight3D.new()
-	_muzzle_light.omni_range = FLASH_RANGE
+	_muzzle_light.omni_range = FLASH_RANGE * (NIGHT_FLASH_RANGE if night else 1.0)
 	_muzzle_light.shadow_enabled = false
 	_muzzle_light.light_specular = 0.6
 	# Ahead of the receiver so it lights what is in front of the shooter rather
@@ -861,6 +1145,93 @@ func has_thermal() -> bool:
 
 ## A blade rather than a gun: same hitscan, no tracer, no muzzle flash, and no
 ## sights to raise — the aim control blocks with it instead (see Player).
+## WHICH VOICE THIS GUN HAS. A family, not a per-gun sample: sixty rows would
+## mean sixty sounds nobody could tell apart, and the families genuinely do sound
+## different from each other — a bolt-propelled shell is a bang, plasma is a
+## fizz, gauss is a rising whine, a blaster is a falling zap.
+##
+## Stated only for the EXCEPTIONS. Everything unlisted falls through the rule
+## below, so a new Star Wars gun needs no entry at all and a new Necron one needs
+## a single line. Note it is keyed on the class rather than on a "sound" key in
+## PROFILES for exactly the reason the melee look is not: sixty rows would have
+## to be edited to add one family.
+const VOICES := {
+	Class.PLASMA_RIFLE: "plasma", Class.PLASMA_PISTOL: "plasma",
+	Class.NEEDLER: "plasma", Class.COV_CARBINE: "plasma",
+	Class.BEAM_RIFLE: "plasma", Class.FUEL_ROD: "plasma",
+	Class.BRUTE_SHOT: "bolter", Class.MAULER: "bolter",
+	Class.PLASMA_GUN: "plasma", Class.PLASMA_PISTOL_40K: "plasma",
+	Class.MELTAGUN: "plasma", Class.FLAMER: "plasma", Class.BURNA: "plasma",
+	Class.HEAT_RAY: "plasma", Class.SPARTAN_LASER: "plasma",
+	Class.BOLTER: "bolter", Class.HEAVY_BOLTER: "bolter",
+	Class.STALKER_BOLT: "bolter", Class.BOLT_PISTOL: "bolter",
+	Class.GRENADE_LAUNCHER: "bolter", Class.ROKKIT_LAUNCHA: "bolter",
+	Class.SHOOTA: "bolter", Class.BIG_SHOOTA: "bolter", Class.SLUGGA: "bolter",
+	Class.MEGA_BLASTA: "bolter",
+	Class.MA5B: "bolter", Class.BR55: "bolter", Class.M7_SMG: "bolter",
+	Class.M90_SHOTGUN: "bolter", Class.SRS99: "bolter", Class.SPNKR: "bolter",
+	Class.M6D: "bolter", Class.M247_HMG: "bolter", Class.M392_DMR: "bolter",
+	Class.GAUSS_FLAYER: "gauss", Class.GAUSS_BLASTER: "gauss",
+	Class.TESLA_CARBINE: "gauss", Class.SYNAPTIC_DISINTEGRATOR: "gauss",
+	Class.TRANSDIMENSIONAL_BEAMER: "gauss", Class.GAUSS_PISTOL: "gauss",
+	# The faction guns. The Halo pair take their side's voice; the incinerator and
+	# the sonic blaster are the two weapons here that are neither a crack nor a
+	# zap, so they borrow the plasma family's fizz.
+	Class.M319: "bolter", Class.SPIKER: "bolter",
+	Class.FLAMETHROWER: "plasma", Class.SONIC_BLASTER: "plasma",
+}
+## Above this, a blaster gets the heavier voice. Damage rather than a per-gun
+## flag because it is already the number that says how big a gun is.
+const HEAVY_VOICE_DAMAGE := 44.0
+
+
+func _voice() -> String:
+	if is_melee():
+		# A lit blade has its own swing — pitched, because what you hear is the
+		# hum being moved, where a steel edge is just air.
+		return "saber_swing" if blade_is_energy() else "melee_swing"
+	if VOICES.has(weapon_class):
+		return VOICES[weapon_class]
+	if float(_profile["damage"]) >= HEAVY_VOICE_DAMAGE \
+			or _profile.get("projectile", false):
+		return "blaster_heavy"
+	return "blaster"
+
+
+## WHAT COLOUR THIS GUN'S FIRE IS — the tracer, the muzzle light and the impact
+## scorch all ask this one question now. They used to disagree: the light and the
+## scorch took the profile's `flash` while every bolt in the game, in all three
+## universes, was one shared burnt-orange material. A gun that lights the wall
+## green and then puts an orange round into it is two guns.
+##
+## Stated only for the EXCEPTIONS, exactly like VOICES. A weapon with a colour of
+## its own keeps it, so plasma stays plasma and gauss stays green in whoever's
+## hands. Everything unlisted — which is every ordinary blaster row, and those
+## rows are shared by all four Star Wars sides — takes the colour its own ARMY
+## issues, which is what makes clone fire blue and droid fire red without either
+## needing a weapon the other cannot hold.
+##
+## Resolved per trigger pull rather than once at spawn, unlike the flash's other
+## three dials: this depends on the profile AND on the shooter, and those are
+## assigned in either order by Player, Bot and Turret. It costs one dictionary
+## get, against a scene instantiation happening on the same line.
+func bolt_color() -> Color:
+	if _profile.has("flash"):
+		return _profile["flash"]
+	if shooter != null and is_instance_valid(shooter) and "team" in shooter:
+		return GameState.bolt_color(shooter.team)
+	return FLASH_DEFAULT
+
+
+## A LIT BLADE, as opposed to a length of steel — a lightsaber, an energy sword,
+## a power sword, the electrostaff. Asked of `blade_energy`, the key that already
+## tells the viewmodel to build a glowing blade instead of a dull one, so the
+## thing that HUMS and the thing that GLOWS can never disagree and no new table
+## row was needed to say which is which.
+func blade_is_energy() -> bool:
+	return is_melee() and float(_profile.get("blade_energy", 1.0)) > 0.0
+
+
 func is_melee() -> bool:
 	return _profile.get("melee", false)
 
@@ -882,6 +1253,19 @@ func is_staff() -> bool:
 ## lightsaber's, so an existing melee profile that says nothing is unchanged.
 const BLADE_LOOK_KEYS := ["blade_core", "blade_glow", "blade_len", "blade_width",
 	"blade_energy", "hilt_len"]
+
+## A slim blade builds as a cylinder; anything fatter than this (per RADIUS, so
+## half the stated `blade_width`) builds as a boxed HEAD. The threshold is what
+## separates "a sword" from "a lump on a stick" — a fat cylinder reads as a
+## rolling pin and a boxed sword reads as a plank.
+##
+## It lives here, with the profiles it classifies, because BOTH viewpoints need
+## it and they must never disagree about what the player is holding: it also
+## decides who carries a POWER FIELD. Every boxed head in the game is a power
+## weapon (grav hammer, thunder hammer, power klaw) and every steel cylinder is
+## a plain length of metal (chainsword, choppa), so the shape split IS the field
+## rule and no profile needs a key for it.
+const BLADE_HEAD_WIDTH := 0.045
 
 
 func melee_look() -> Dictionary:
@@ -936,6 +1320,7 @@ func current_spread_deg() -> float:
 # framerate (important on the Pi) and on the same clock as firing.
 func _physics_process(delta: float) -> void:
 	_cooldown = maxf(_cooldown - delta, 0.0)
+	_update_blade_voice(delta)
 	if _flash_left > 0.0:
 		_flash_left -= delta
 		if _flash_left <= 0.0:
@@ -943,7 +1328,7 @@ func _physics_process(delta: float) -> void:
 		else:
 			# Decay rather than a hard cut: a flash that switches off looks like a
 			# dropped frame, and the falloff is most of what reads as a flash.
-			_muzzle_light.light_energy = FLASH_ENERGY * (_flash_left / FLASH_TIME)
+			_muzzle_light.light_energy = _flash_energy * (_flash_left / _flash_time)
 	# Bloom recovers when not actively spraying (scaled to the weapon's spread).
 	if _bloom > 0.0:
 		_bloom = maxf(_bloom - _profile["hip_spread"] * 4.0 * delta, 0.0)
@@ -1004,13 +1389,18 @@ func set_view_layer(bits: int) -> void:
 
 ## Light the muzzle for a moment. A blade has no muzzle, and neither does a
 ## weapon whose shot never leaves the barrel, so melee is skipped outright.
-func _flash_muzzle() -> void:
+func _flash_muzzle(local_pos := Vector3(0.0, 0.0, -0.45)) -> void:
 	if _muzzle_light == null or is_melee():
 		return
-	_muzzle_light.light_color = _profile.get("flash", FLASH_DEFAULT)
-	_muzzle_light.light_energy = FLASH_ENERGY
+	_muzzle_light.position = local_pos
+	var col := bolt_color()
+	_muzzle_light.light_color = col
+	# The glow at the barrel tip is the shooter's own view of the same shot.
+	if _viewmodel:
+		_viewmodel.set_flash_color(col)
+	_muzzle_light.light_energy = _flash_energy
 	_muzzle_light.visible = true
-	_flash_left = FLASH_TIME
+	_flash_left = _flash_time
 
 
 ## Stow the first-person weapon across the chest while sprinting, or bring it
@@ -1024,6 +1414,56 @@ func set_sprinting(on: bool) -> void:
 		_viewmodel.sprinting = on and not is_melee()
 
 
+## IGNITE, HUM, RETRACT — driven off what is in hand rather than pushed by the
+## swap that put it there.
+##
+## Two reasons it is a poll and not an event. `set_class` runs before the weapon is
+## in the tree (Player._ready assigns the shooter and calls it on the next line),
+## and neither the ignition nor the hum can be positioned until it is; and a blade
+## should fall silent when its owner dies, which is not a swap at all. Asking "is
+## a lit blade in a living hand" every tick answers all of it in one place.
+func _update_blade_voice(delta: float) -> void:
+	_swing_t = maxf(_swing_t - HUM_SWING_SETTLE * delta, 0.0)
+	if not is_inside_tree():
+		return
+	var lit := blade_is_energy() and _owner_alive()
+	if lit != _hum_lit:
+		_hum_lit = lit
+		Audio.play_at("saber_on" if lit else "saber_off", global_position)
+		if not lit:
+			Audio.release_loop(_hum_token)
+			_hum_token = 0
+			_hum_retry = 0.0
+	if not lit:
+		return
+	if _hum_token != 0:
+		Audio.move_loop(_hum_token, global_position,
+			1.0 + HUM_SWING_BEND * _swing_t)
+		return
+	# No voice: the bank may still be rendering, or three nearer blades may hold
+	# the whole pool. Either way this weapon works fine without one.
+	_hum_retry -= delta
+	if _hum_retry <= 0.0:
+		_hum_retry = HUM_RETRY
+		_hum_token = Audio.claim_loop("saber_hum", global_position)
+
+
+## A blade in a dead hand is not lit. Duck-typed on `is_alive()` like everything
+## else that asks a combatant anything; a turret has no melee and never gets here,
+## and a weapon on a test bench with no shooter counts as live.
+func _owner_alive() -> bool:
+	if shooter == null or not is_instance_valid(shooter):
+		return true
+	return not shooter.has_method("is_alive") or shooter.is_alive()
+
+
+## Release the pool slot on the way out. An autoload outlives the scene, so a hum
+## not released here is a hum that plays for the rest of the session.
+func _exit_tree() -> void:
+	Audio.release_loop(_hum_token)
+	_hum_token = 0
+
+
 ## The owner's guard just stopped a hit; show it on the blade. Forwarded rather
 ## than reached for, because the viewmodel is this node's private child — Player
 ## knows about the block, and Weapon is the one thing that knows where the model
@@ -1031,16 +1471,34 @@ func set_sprinting(on: bool) -> void:
 func parry() -> void:
 	if _viewmodel and _viewmodel.has_method("parry"):
 		_viewmodel.parry()
+	# Heard as well as seen. This is raised from Player._absorb_with_guard, the one
+	# place that knows the block was actually paid for — the same rule as the hit
+	# marker, so a clash can never sound for a shot that was not stopped.
+	if is_inside_tree():
+		Audio.play_at("saber_clash" if blade_is_energy() else "melee_hit",
+			global_position)
 
 
 func _fire_shot() -> void:
+	var tracer_muzzle := global_position - global_transform.basis.y * 0.12
+	var flash_local := Vector3(0.0, 0.0, -0.45)
+	if _profile.get("alternate_muzzles", false):
+		_muzzle_side = -_muzzle_side
+		flash_local = Vector3(
+			float(_profile.get("muzzle_x", 0.0)) * _muzzle_side,
+			float(_profile.get("muzzle_y", -0.12)),
+			float(_profile.get("muzzle_z", -0.45)))
+		tracer_muzzle = global_transform * flash_local
 	_heat = minf(_heat + _profile["heat_per_shot"], 1.0)
 	if _heat >= 1.0:
 		_overheated = true
 	heat_changed.emit(_heat, _overheated)
 	if _viewmodel:
 		_viewmodel.kick(_profile["recoil"])
-	_flash_muzzle()
+	_flash_muzzle(flash_local)
+	Audio.play_at(_voice(), global_position)
+	if is_melee():
+		_swing_t = 1.0   # bends the hum for as long as the swing lasts
 	fired.emit(_profile["cam_recoil"], _profile.get("kick_back", 0.0))
 	# Hip fire blooms the cone; aiming down sights stays precise.
 	if not aiming:
@@ -1048,7 +1506,7 @@ func _fire_shot() -> void:
 	if _profile.get("projectile", false):
 		_fire_rocket()
 	else:
-		_fire_hitscan()
+		_fire_hitscan(tracer_muzzle)
 
 
 ## One trigger pull. Most guns fire a single ray; a scattergun fires `pellets`
@@ -1058,25 +1516,59 @@ func _fire_shot() -> void:
 ## take_damage calls would fire seven hit-ticks and seven markers for one shot,
 ## and would also let a single pellet's headshot flag decide the whole shot. A
 ## pellet that lands on a head still counts double, but the target is told once.
-func _fire_hitscan() -> void:
+func _fire_hitscan(muzzle: Vector3) -> void:
 	var pooled := {}   # target -> [damage, any_headshot]
 	if is_melee():
 		# A swing connects on a forward ARC, not a pinpoint ray — see _melee_strike.
 		_melee_strike(pooled)
 	else:
 		var from := global_position
-		var muzzle := from - global_transform.basis.y * 0.12
 		var pellets: int = _profile.get("pellets", 1)
 		var damage: float = _profile["damage"]
 		_impacts_left = IMPACTS_PER_SHOT
+		# Resolved once for the whole pull: a scattergun throws eight of these and
+		# every pellet is the same gun in the same hands.
+		var col := bolt_color()
 		for i in pellets:
 			var end := _trace_pellet(from, pooled, damage)
 			var bolt := BOLT_SCENE.instantiate()
 			get_tree().current_scene.add_child(bolt)
-			bolt.launch(muzzle, end)
+			bolt.launch(muzzle, end, col)
 	for target in pooled:
 		var entry: Array = pooled[target]
 		target.take_damage(entry[0], shooter, entry[1])
+
+
+## SOMEBODY ELSE'S SHOT, DRAWN HERE. A remote body's gunfire has to be visible —
+## the muzzle flash is the best realism-per-line in the game and at night it is
+## most of the lighting — but the shot itself was resolved on the machine that
+## fired it, and resolving it a second time here would double every hit.
+##
+## So this is deliberately the cosmetic HALF of `_fire_shot` and nothing else: no
+## ray, no damage, no heat, no recoil signal, no bloom. It is the whole reason a
+## proxy carries a real `Weapon` rather than a mesh — the flash colour, the voice,
+## the tracer and the bolt colour all fall out of the gun's own profile, so a
+## remote Covenant rifle sounds and lights like one with no second table.
+##
+## The tracer's far end is guessed from the barrel rather than sent: at 13 rounds
+## a second the endpoint is four bytes a shot to place a line that exists for a
+## tenth of a second, and its DIRECTION — which is what a player reads off a
+## tracer — is already exact.
+func fire_cosmetic() -> void:
+	var muzzle := global_position - global_transform.basis.y * 0.12
+	_flash_muzzle()
+	Audio.play_at(_voice(), global_position)
+	if is_melee():
+		_swing_t = 1.0
+		return
+	var col := bolt_color()
+	var to := muzzle - global_transform.basis.z * float(_profile["range"])
+	var query := PhysicsRayQueryParameters3D.create(muzzle, to)
+	query.collision_mask = 1   # WORLD only: a tracer stops at a wall, not at a body
+	var hit := get_world_3d().direct_space_state.intersect_ray(query)
+	var bolt := BOLT_SCENE.instantiate()
+	get_tree().current_scene.add_child(bolt)
+	bolt.launch(muzzle, hit.get("position", to), col)
 
 
 ## The half-angle (deg) a melee swing covers. Wide on purpose: a blade or staff
@@ -1121,7 +1613,17 @@ func _melee_strike(pooled: Dictionary) -> void:
 			best = c
 			best_gap = gap
 	if best != null:
-		pooled[best] = [_profile["damage"], false]
+		# BATTLE FURY makes the swing heavier. Asked of the shooter rather than
+		# stored on the weapon, because the buff belongs to the body and the
+		# weapon is rebuilt on every swap.
+		var swing: float = _profile["damage"]
+		if shooter != null and shooter.has_method("fury_up") and shooter.fury_up():
+			swing *= Player.FURY_MELEE
+		pooled[best] = [swing, false]
+		# The swing already played when the trigger went; this is the CONTACT,
+		# and a swing that lands has to sound different from one that does not —
+		# that is the only feedback a melee fighter gets that they connected.
+		Audio.play_at("melee_hit", best.global_position)
 
 
 ## Trace one pellet, banking any damage it deals into `pooled`. Returns where it
@@ -1152,8 +1654,7 @@ func _trace_pellet(from: Vector3, pooled: Dictionary, damage: float) -> Vector3:
 		_impacts_left -= 1
 		var burst: Node3D = IMPACT.new()
 		get_tree().current_scene.add_child(burst)
-		burst.burst(end, hit.get("normal", Vector3.UP),
-			_profile.get("flash", FLASH_DEFAULT))
+		burst.burst(end, hit.get("normal", Vector3.UP), bolt_color())
 	if col != null and col.has_method("take_damage"):
 		var dmg := damage
 		# The target is told it was a head hit as well as how much it cost, so it

@@ -79,6 +79,7 @@ func _physics_process(delta: float) -> void:
 
 
 func _explode(pos: Vector3) -> void:
+	Audio.play_at("explosion", pos)
 	var shape := SphereShape3D.new()
 	shape.radius = _splash
 	var params := PhysicsShapeQueryParameters3D.new()
@@ -100,35 +101,4 @@ func _explode(pos: Vector3) -> void:
 
 
 func _spawn_blast(pos: Vector3) -> void:
-	var flash := MeshInstance3D.new()
-	var s := SphereMesh.new()
-	s.radius = _splash * 0.6
-	s.height = _splash * 1.2
-	flash.mesh = s
-	var mat := StandardMaterial3D.new()
-	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	mat.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
-	mat.albedo_color = Color(1.0, 0.55, 0.2, 0.8)
-	mat.emission_enabled = true
-	mat.emission = Color(1.0, 0.45, 0.15)
-	mat.emission_energy_multiplier = 6.0
-	flash.material_override = mat
-	flash.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	# A REAL LIGHT on the blast, not just a glowing ball. An explosion that does
-	# not light the ground it goes off on reads as a decal pasted over the scene —
-	# and this is the one moment in a match where a big dynamic light is
-	# unarguably worth its cost, because it happens rarely and everyone looks at
-	# it. Shadows off: a blast is over in a fifth of a second and four shadow
-	# passes for it would be the most expensive frame in the match.
-	var light := OmniLight3D.new()
-	light.omni_range = _splash * 3.0
-	light.light_energy = 8.0
-	light.light_color = Color(1.0, 0.6, 0.25)
-	light.shadow_enabled = false
-	flash.add_child(light)
-	# Placed after add_child: global_position on a node outside the tree is
-	# silently treated as local and errors.
-	get_tree().current_scene.add_child(flash)
-	flash.global_position = pos
-	get_tree().create_timer(0.18).timeout.connect(flash.queue_free)
+	Blast.pop(get_tree().current_scene, pos, _splash, 0.6)

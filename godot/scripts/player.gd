@@ -122,7 +122,16 @@ const DASH_LIFT := 1.4     # just enough to unstick you from a slope, not a hop
 # short enough after a death that you're never sat waiting on a decision made.
 const DEPLOY_FLOOR := 5.0
 const RESPAWN_FLOOR := 2.0
-const GRENADE_THROW_SPEED := 13.0
+## HOW HARD A GRENADE IS THROWN. It was 13 m/s, which is a lob — about fourteen
+## metres of flat ground before it lands, so on any of the big maps you could not
+## reach the cover you were shooting at. A real throw is an ARMED one: 22 m/s
+## carries roughly twenty-four metres, which is the distance a firefight in this
+## game is actually held at.
+##
+## The LOB is a share of the throw rather than a fixed rise, so the arc keeps its
+## shape as the speed changes — raising the speed alone would flatten it into a
+## line drive that skids past the target.
+const GRENADE_THROW_SPEED := 22.0
 const GRENADE_LOB := 0.28  # upward share of the throw, so it arcs
 # Passive regen, in place of health kits: after REGEN_DELAY seconds without
 # taking a hit, heal REGEN_RATE per second back to full. The delay is what keeps
@@ -236,6 +245,7 @@ var squad: Array[Bot] = []  # the AI squadmates currently alive under this playe
 var gadget := Loadout.Gadget.NONE
 ## The second gadget slot, driven by the GADGET 2 (`grenade`) control.
 var gadget2 := Loadout.Gadget.NONE
+var gadget3 := Loadout.Gadget.NONE
 var jet_fuel := 1.0
 
 var _anim: AnimationPlayer
@@ -278,7 +288,7 @@ var pickup_pressed := false
 ## release this as the player walks in and out of them.
 var pickup_in_reach: Node3D
 var _rotary_out := false
-var _force_cd := [0.0, 0.0]   # seconds left on each gadget slot's cooldown
+var _force_cd := [0.0, 0.0, 0.0]   # seconds left on each gadget slot's cooldown
 ## The lightning channel: seconds of stream left, which slot opened it, and the
 ## time until the next bite. A channel rather than a shot because the power is
 ## HELD — see ForcePowers.CHANNEL_TIME.
@@ -290,7 +300,13 @@ var _channel_arc: Node3D       # the bolt currently on screen, re-aimed per tick
 ## model is faded and `GameState.cloaked` holds this player, which every AI
 ## vision check skips. Firing or the timer ending drops it.
 var _cloak_left := 0.0
-var _force_shown := [0, 0]    # last whole second pushed to the HUD, per slot
+# THREE entries, one per gadget slot. This was two, and `_force_cd` beside it
+# was widened to three when the sustained slot landed — so the moment a slot-3
+# ability went on cooldown the HUD push read off the end of this array, and a
+# GDScript error ABORTS THE ENCLOSING FUNCTION: the rest of `_apply_gadget_motion`
+# stopped running for that frame, which is the jetpack, the cable and the dash.
+# Your jetpack died while your overshield recharged.
+var _force_shown := [0, 0, 0]   # last whole second pushed to the HUD, per slot
 ## Saber guard. `_block` is the exhaustion pool, 0..1; it drains while raised
 ## and, much faster, per point of damage it stops. At zero the guard BREAKS and
 ## cannot be raised again until it has recovered past BLOCK_RECOVER_AT — without
@@ -318,8 +334,9 @@ var _recoil_yaw := 0.0
 var _kick_vel := Vector3.ZERO  # horizontal shove from the last shot, decaying
 var _crouch_t := 0.0       # 0 standing .. 1 crouched
 var _dead := false
-var _speed_mult := 1.0     # from the armour frame: scales walk + sprint
-var _jump_mult := 1.0      # from the armour frame: scales jump velocity
+var _speed_mult := 1.0     # armour frame x the unit's own: scales walk + sprint
+var _jump_mult := 1.0      # armour frame x the unit's own: scales jump velocity
+var _stature := 1.0        # how tall this unit is against a standard trooper
 var _buy_latch := Vector2.ZERO  # stick/key held: one step per push, not per frame
 var _accept_latch := false # A: one action per press, never per frame
 var _back_latch := false   # ...and the same for B
@@ -424,8 +441,30 @@ func take_damage(amount: float, attacker: Node = null, headshot := false) -> voi
 	amount = _absorb_with_guard(amount, attacker)
 	if amount <= 0.0:
 		return
+	# BATTLE FURY takes the edge off everything while it lasts, and the
+	# OVERSHIELD eats what is left before your health does — spent rather than
+	# worn down, so what it buys is a fixed number of rounds. Neither suppresses
+	# the hit marker or the damage flash: the shooter is still landing shots and
+	# both of you should be told so.
+	if _fury_left > 0.0:
+		amount *= FURY_RESIST
+	if _over_pool > 0.0:
+		var eaten: float = minf(_over_pool, amount)
+		_over_pool -= eaten
+		amount -= eaten
+		if _over_pool <= 0.0:
+			_over_left = 0.0
+		gear_changed.emit()
+		if amount <= 0.0:
+			Audio.play("hurt", -8.0)
+			return
 	health -= amount
 	_since_damage = 0.0  # taking a hit restarts the regen delay
+	# DELIBERATELY NOT THE HIT MARKER. This is information about YOU, and if the
+	# two sounds were confusable a player under fire would read incoming rounds
+	# as their own shots landing — hence a dull thud with no brightness in it at
+	# all (`Sfx._hurt`). Played flat rather than positioned: it happened here.
+	Audio.play("hurt")
 	health_changed.emit(health)
 	damaged.emit(amount)
 	# Tell whoever shot us that it landed. This is deliberately AFTER the
@@ -640,14 +679,15 @@ func _apply_loadout() -> void:
 	# viewmodel re-stamps itself) or the owner's camera would see its own body.
 	model.set_style(loadout.character_style())
 	_stamp_model_layers()
-	var armor := loadout.armor_stats()
 	# The class multiplies the frame, rather than replacing it: a Force adept in
 	# a light frame is quick and tough for both reasons, which is the point of
-	# letting them wear one. Health goes through Loadout.max_health() so the buy
-	# screen's HP line and what you deploy with are the same arithmetic.
+	# letting them wear one. All four go through Loadout so the buy screen's HP
+	# line and what you deploy with are the same arithmetic — and so an authored
+	# faction class can state a physique of its own (see Loadout.unit_speed).
 	max_health = loadout.max_health()
-	_speed_mult = float(armor["speed"]) * loadout.kit_speed()
-	_jump_mult = armor["jump"]
+	_speed_mult = loadout.move_speed()
+	_jump_mult = loadout.jump_power()
+	_apply_stature(loadout.stature())
 	health = max_health
 	_since_damage = 0.0
 	kills_this_life = 0
@@ -657,7 +697,8 @@ func _apply_loadout() -> void:
 	_refresh_offhand()
 	gadget = loadout.gadget_id()
 	gadget2 = loadout.gadget2_id()
-	_force_cd = [0.0, 0.0]
+	gadget3 = loadout.gadget3_id()
+	_force_cd = [0.0, 0.0, 0.0]
 	_dash_cd = 0.0
 	_air_jumps = air_jump_allowance()
 	_block = 1.0
@@ -677,6 +718,13 @@ func _apply_loadout() -> void:
 	_muster_squad()
 	gear_changed.emit()
 	_announce_hand()
+	# THE ONE PLACE THE BODY BECOMES A DIFFERENT UNIT — a redeploy, a class
+	# change, a crate picked up — so it is the one place the network has to be
+	# told what everyone else should now be drawing. Style, stature and weapon go
+	# out; motion is already going out every tick and says nothing about which
+	# unit this is.
+	if Net.online() and NetSync.current != null:
+		NetSync.current.send_info(NetSync.current.id_of(self))
 
 
 ## Bring the squad up to the headcount you paid for. Survivors are kept and only
@@ -710,6 +758,7 @@ func _spawn_bot() -> Bot:
 	var spawn := GameState.get_spawn_point(team)
 	if spawn:
 		bot.global_transform = GameState.clear_of_bodies(spawn.global_transform)
+		bot.reset_physics_interpolation()
 	else:
 		bot.global_position = global_position + Vector3(randf_range(-2, 2), 0, randf_range(-2, 2))
 	return bot
@@ -885,6 +934,7 @@ func apply_buy_input(move: Vector2i, accept_edge: bool, back_edge: bool) -> void
 		return
 	buy_inside = true
 	buy_row = first
+	Audio.play("ui_accept")
 	buy_changed.emit(buy_row)
 
 
@@ -892,6 +942,7 @@ func apply_buy_input(move: Vector2i, accept_edge: bool, back_edge: bool) -> void
 func _update_buy_open(move: Vector2i, back_edge: bool) -> void:
 	if back_edge:
 		buy_inside = false
+		Audio.play("ui_back")
 		buy_changed.emit(buy_row)
 		return
 	if buy_box == POST_BOX:
@@ -903,8 +954,10 @@ func _update_buy_open(move: Vector2i, back_edge: bool) -> void:
 		return
 	if move.y != 0:
 		buy_row = pending.step_row_in(buy_box, buy_row, move.y)
+		Audio.play("ui_move")
 		buy_changed.emit(buy_row)
 	if move.x != 0 and pending.step(buy_row, move.x):
+		Audio.play("ui_move")
 		# Changing class rewrites the whole build, which can take the row the
 		# cursor is sitting on out of existence (a melee kit hides SIGHT/GRIP) —
 		# or the whole box, if you were in one the new kit does not have.
@@ -969,21 +1022,52 @@ func thermal_active() -> bool:
 ## True if a world-space hit point lands in this body's head band (tracks the
 ## crouch so a crouched head still counts). Weapons use it for bonus damage.
 func is_headshot(world_pos: Vector3) -> bool:
-	var head_min := lerpf(STAND_HEAD_MIN, CROUCH_HEAD_MIN, _crouch_t)
+	var head_min := lerpf(STAND_HEAD_MIN, CROUCH_HEAD_MIN, _crouch_t) * _stature
 	return world_pos.y - global_position.y >= head_min
 
 
 func _die(attacker: Node = null) -> void:
 	if _dead:
 		return
-	# Credit the frag to an enemy killer (not suicide/self or a teammate).
-	if attacker is Player and attacker != self and attacker.team != team:
-		GameState.add_frag(attacker.team)
-		attacker.credit_kill()
-	GameState.report_death(team)  # CONQUEST: a death is a reinforcement spent
+	# NETWORKED: THE SCORE IS THE HOST'S AND ONLY THE HOST'S. A client running
+	# these three lines as well would count its own death on its own machine and
+	# again on the host, so the scoreboard everybody actually reads would move by
+	# two. `NetSync.report_kill` carries it to the host, which runs the identical
+	# GameState calls — the rules live in one place either way.
+	#
+	# The corpse and the announcement are separate from the score for the reason
+	# stated on `announce_death`: a host-side bot needs one and not the other.
+	if Net.online():
+		_report_net_death(attacker)
+	else:
+		# Credit the frag to an enemy killer (not suicide/self or a teammate).
+		if attacker is Player and attacker != self and attacker.team != team:
+			GameState.add_frag(attacker.team)
+			attacker.credit_kill()
+		GameState.report_death(team)  # CONQUEST: a death is a reinforcement spent
+		GameState.check_last_standing()
+	Audio.play_at("death", global_position)
 	_spawn_corpse(attacker)
 	_enter_buy_screen(RESPAWN_FLOOR, true)
-	GameState.check_last_standing()
+
+
+## Tell the session this body went down. The kill streak is credited locally when
+## the killer is on this machine and over the wire when it is not — `NetPlayer`
+## forwards `credit_kill` the same way it forwards `on_hit_confirmed`, so a
+## player's own streak counts a remote kill exactly like a local one.
+func _report_net_death(attacker: Node) -> void:
+	var sync := NetSync.current
+	if sync == null:
+		return
+	if attacker != null and attacker != self and "team" in attacker \
+			and attacker.team != team and attacker.has_method("credit_kill"):
+		attacker.credit_kill()
+	var push := Vector3.ZERO
+	if attacker is Node3D and attacker != self:
+		push = global_position - (attacker as Node3D).global_position
+	var id := sync.id_of(self)
+	sync.announce_death(id, push)
+	sync.report_kill(sync.id_of(attacker), team)
 
 
 ## Go to the buy screen. It stays up until the player presses deploy — `floor`
@@ -993,6 +1077,10 @@ func _enter_buy_screen(floor_secs: float, eliminated: bool) -> void:
 	_dead = true
 	velocity = Vector3.ZERO
 	weapon.aiming = false
+	# Dying at the controls: drop the mount here rather than waiting for the
+	# vehicle to notice, so nothing downstream can see a dead player who is still
+	# flying. The vehicle clears its own `driver` on the same frame.
+	_vehicle = null
 	# Dying while cloaked must not leave a ghost in GameState.cloaked that no AI
 	# can ever see — the body is about to be hidden anyway.
 	if _cloak_left > 0.0:
@@ -1050,9 +1138,12 @@ func _spawn_corpse(attacker: Node) -> void:
 	if attacker is Node3D and attacker != self:
 		push = global_position - (attacker as Node3D).global_position
 	var xform := Transform3D(Basis(Vector3.UP, rotation.y), global_position)
-	# The corpse wears the body you deployed as, not a generic trooper.
+	# The corpse wears the body you deployed as, not a generic trooper — and it
+	# is FORCED past the view-range and headcount rules in corpse.gd: those exist
+	# to stop a big roster carpeting the map with bodies nobody is looking at,
+	# and the one body a human is certain to look at is their own.
 	_corpse.launch(xform, GameState.team_colors[team], push,
-		loadout.character_style())
+		loadout.character_style(), true, _stature)
 
 
 func _process_dead(delta: float) -> void:
@@ -1086,7 +1177,15 @@ func _respawn() -> void:
 		var spawn := GameState.get_spawn_point(team)
 		if spawn:
 			global_transform = GameState.clear_of_bodies(spawn.global_transform)
+	# A RESPAWN IS A TELEPORT, and with physics interpolation on (see
+	# project.godot) the renderer would otherwise draw this body smeared from
+	# where it died to where it just appeared, for one frame, every death.
+	# Anything that MOVES a body rather than letting it walk has to say so.
+	reset_physics_interpolation()
 	_dead = false
+	# Your own deployment, so it is played flat rather than positioned: the point
+	# of it is "you are back in", not "something happened over there".
+	Audio.play("deploy")
 	model.visible = true
 	weapon.visible = true
 	_collision.disabled = false
@@ -1131,6 +1230,106 @@ func _apply_look(delta_look: Vector2) -> void:
 	_refresh_head()
 
 
+## --- flying a vehicle ---------------------------------------------------------
+##
+## A mounted player keeps its own LOOK and gives up everything else. The three
+## `vehicle_*` accessors below are the whole interface the Vehicle reads, which
+## is what stops it reaching into this script's input helpers — it never learns
+## what a binding is, and this never learns what a repulsor is.
+##
+## The body is hidden and its collision switched off, then slaved to the seat
+## each physics frame. That reuses the death-cam's precedent (hide the body, keep
+## the camera live) and it means the existing RemoteTransform3D on Head is
+## untouched: the camera still follows the head, the head still follows this
+## body, and this body now follows the seat.
+
+var _vehicle: Node3D
+
+
+func in_vehicle() -> bool:
+	return _vehicle != null
+
+
+func enter_vehicle(v: Node3D) -> void:
+	if _vehicle != null or _dead:
+		return
+	_vehicle = v
+	velocity = Vector3.ZERO
+	_collision.disabled = true
+	model.visible = false
+	# The first-person gun goes away too. The vehicle has its own, and a rifle
+	# floating over the cowl is the first thing anybody would notice.
+	weapon.visible = false
+	weapon_off.visible = false
+	weapon.update_fire(false, false)
+	weapon.aiming = false
+	map_open = false
+	# A mount is a TELEPORT, not a walk. Without this the renderer smears the body
+	# from wherever it was standing to the seat across one frame — the same rule
+	# every respawn and every corpse landing follows.
+	global_position = v.get_node("Seat").global_position
+	reset_physics_interpolation()
+
+
+## Back on your feet. `forced` is a wreck or a death — the caller has already
+## decided, this only places the body.
+func exit_vehicle(spot: Vector3, _hull_yaw: float, forced: bool) -> void:
+	if _vehicle == null:
+		return
+	_vehicle = null
+	# ONLY RESTORE THE BODY IF IT IS STILL ALIVE. Dying at the controls reaches
+	# here through the vehicle's own `_eject`, and `_enter_buy_screen` has already
+	# hidden the model and killed the collision for the death cam — putting them
+	# back would stand a live body up next to its own corpse. `_respawn` is what
+	# restores those, and it always was.
+	if _dead:
+		return
+	_collision.disabled = false
+	model.visible = true
+	weapon.visible = true
+	weapon_off.visible = dual_active()
+	global_position = spot
+	velocity = Vector3.ZERO
+	reset_physics_interpolation()   # a dismount is a teleport too
+	if forced:
+		# Thrown clear of a wreck: a little air, so you land rather than appearing.
+		velocity.y = 4.0
+
+
+## What the vehicle reads instead of touching this script's input helpers.
+func vehicle_move() -> Vector2:
+	return _move_input()
+
+
+## Where the driver is looking, in WORLD yaw and local pitch. The vehicle turns
+## this into a gun angle inside its own traverse cone.
+func vehicle_look() -> Vector2:
+	return Vector2(rotation.y, _look_pitch)
+
+
+func vehicle_firing() -> bool:
+	return _fire_held()
+
+
+## Mounted: take the look input and nothing else. Movement, gravity and collision
+## all belong to the vehicle now, and `_update_anim` is fed a standing pose so the
+## model is in a sane state the frame it becomes visible again.
+func _process_mounted(delta: float) -> void:
+	if not GameState.match_live:
+		return
+	if settings_open:
+		return
+	pickup_pressed = _interact_pressed()   # this is how you get back off
+	_recoil_pitch = lerpf(_recoil_pitch, 0.0, clampf(delta * RECOIL_RECOVER, 0.0, 1.0))
+	_recoil_yaw = lerpf(_recoil_yaw, 0.0, clampf(delta * RECOIL_RECOVER, 0.0, 1.0))
+	_refresh_head()
+	if input_device >= 0:
+		var look := _stick(JOY_AXIS_RIGHT_X, JOY_AXIS_RIGHT_Y)
+		_apply_look(-look * STICK_LOOK_SPEED * _sens_mult * delta)
+	_update_regen(delta)
+	_update_anim(Vector2.ZERO, false)
+
+
 ## The camera pitch is look input plus the transient recoil kick; recoil yaw
 ## rides on the head so it throws off aim without turning the whole body.
 func _refresh_head() -> void:
@@ -1141,6 +1340,12 @@ func _refresh_head() -> void:
 func _physics_process(delta: float) -> void:
 	if _dead:
 		_process_dead(delta)
+		return
+	# FLYING. Checked before everything else, because a mounted player is not a
+	# body being simulated any more: the vehicle owns the movement, the collision
+	# and the gun, and this body is only carrying the head the camera hangs off.
+	if _vehicle != null:
+		_process_mounted(delta)
 		return
 	# Deployed, but the match hasn't been called on yet: stand still and hold
 	# fire until the start countdown finishes.
@@ -1202,6 +1407,8 @@ func _physics_process(delta: float) -> void:
 	weapon_off.set_sprinting(stow)
 	_update_torso_twist(move, delta)
 	var speed := (SPRINT_SPEED if sprinting else WALK_SPEED) * _speed_mult
+	if _fury_left > 0.0:
+		speed *= FURY_SPEED
 	if _rotary_out:
 		speed *= ROTARY_SPEED_MULT  # the cannon is heavy; you walk with it out
 	if crouching:
@@ -1229,7 +1436,12 @@ func _physics_process(delta: float) -> void:
 		_die()  # launched or fell out of the map: respawn through the normal flow
 		return
 
-	weapon.update_fire(_fire_held(), _fire_pressed())
+	# THE DEFLECTOR LOCKS THE TRIGGER. It is what separates the bubble from the
+	# overshield: one buys you rounds, the other buys you a reposition.
+	if deflector_up():
+		weapon.update_fire(false, false)
+	else:
+		weapon.update_fire(_fire_held(), _fire_pressed())
 	# Dual wield spends the aim control on the left gun, which is the whole
 	# trade: two guns, no sights. Holding both triggers fires both.
 	if dual_active():
@@ -1437,10 +1649,35 @@ func _unstick_push() -> Vector3:
 func _update_crouch(delta: float) -> void:
 	var target := 1.0 if _crouch_held() else 0.0
 	_crouch_t = move_toward(_crouch_t, target, delta / CROUCH_TIME)
-	head.position.y = lerpf(STAND_HEAD_Y, CROUCH_HEAD_Y, _crouch_t)
+	head.position.y = lerpf(STAND_HEAD_Y, CROUCH_HEAD_Y, _crouch_t) * _stature
 	var cap := _collision.shape as CapsuleShape3D
-	cap.height = lerpf(STAND_HEIGHT, CROUCH_HEIGHT, _crouch_t)
+	cap.height = lerpf(STAND_HEIGHT, CROUCH_HEIGHT, _crouch_t) * _stature
 	_collision.position.y = cap.height * 0.5
+
+
+## Become a unit of this size: the model, the capsule, the camera and the
+## headshot line all scale off the ONE number, because the moment they are
+## allowed to disagree you get a head you can see but cannot hit.
+##
+## The capsule's RADIUS is deliberately left alone. Height is what the eye
+## reads and what cover has to clear; width is what the nav grid, the unstick
+## loop and every doorway on every map were tuned against, and a Wookiee that
+## cannot fit through a gap the map says is passable is a worse bug than a
+## Wookiee who is slightly narrower than he looks.
+func _apply_stature(scale_to: float) -> void:
+	_stature = maxf(scale_to, 0.2)
+	model.scale = Vector3.ONE * _stature
+	var cap := _collision.shape as CapsuleShape3D
+	cap.height = lerpf(STAND_HEIGHT, CROUCH_HEIGHT, _crouch_t) * _stature
+	_collision.position.y = cap.height * 0.5
+	head.position.y = lerpf(STAND_HEAD_Y, CROUCH_HEAD_Y, _crouch_t) * _stature
+
+
+## How tall this body actually stands, in metres. Duck-typed like is_alive() —
+## Bot has one too, and a shooter aiming at "the middle of that body" has to ask
+## rather than assume 1.8 m.
+func body_height() -> float:
+	return lerpf(STAND_HEIGHT, CROUCH_HEIGHT, _crouch_t) * _stature
 
 
 ## A shot went off: throw the camera up and lean it sideways, and shove the body
@@ -1553,6 +1790,46 @@ func _use_gadget(slot: int) -> void:
 	if cd > 0.0 and _force_cd[slot] > 0.0:
 		return
 	match id:
+		Loadout.Gadget.BIOFOAM:
+			# THE ONLY INSTANT HEAL IN THE GAME. Health regenerates on its own
+			# once you break contact, so what this buys is the one moment where
+			# breaking contact is not an option — and it is priced as a long
+			# cooldown rather than a big number so it can never out-sustain
+			# somebody who is actually shooting you.
+			if health >= max_health:
+				Audio.play("ui_deny")
+				return
+			health = minf(max_health, health + BIOFOAM_HEAL)
+			_since_damage = 0.0
+			health_changed.emit(health)
+			_start_gadget_cd(slot, cd)
+			Audio.play("pickup")
+			return
+		Loadout.Gadget.DEFLECTOR:
+			# THE DROIDEKA'S BUBBLE, and the Jackal's gauntlet. It is an
+			# overshield with a catch that makes it a different decision: while it
+			# is up you cannot fire, so it buys you a REPOSITION or a wait, never
+			# a duel you were losing.
+			_over_pool = DEFLECTOR_POOL
+			_over_left = DEFLECTOR_TIME
+			_deflector_left = DEFLECTOR_TIME
+			_start_gadget_cd(slot, cd)
+			Audio.play("deploy", -3.0)
+			gear_changed.emit()
+			return
+		Loadout.Gadget.OVERSHIELD:
+			_over_pool = OVERSHIELD_POOL
+			_over_left = OVERSHIELD_TIME
+			_start_gadget_cd(slot, cd)
+			Audio.play("deploy", -4.0)
+			gear_changed.emit()
+			return
+		Loadout.Gadget.FURY:
+			_fury_left = FURY_TIME
+			_start_gadget_cd(slot, cd)
+			Audio.play("deploy", -2.0)
+			gear_changed.emit()
+			return
 		Loadout.Gadget.GRENADE_FRAG, Loadout.Gadget.GRENADE_STICKY, \
 		Loadout.Gadget.GRENADE_SMOKE:
 			# Grenades are gadgets now: throw the type this one maps to, then a
@@ -1614,7 +1891,9 @@ func _use_gadget(slot: int) -> void:
 ## Which gadget is on a slot. Slot 0 is the gadget control, slot 1 the grenade
 ## control.
 func gadget_in(slot: int) -> int:
-	return gadget if slot == 0 else gadget2
+	if slot == 0:
+		return gadget
+	return gadget2 if slot == 1 else gadget3
 
 
 ## True if either slot carries this gadget — the jetpack and the cable have to
@@ -1623,20 +1902,27 @@ func gadget_in(slot: int) -> int:
 ## Compared on the ACTION, so a caller asks "do I have a jetpack" and gets the
 ## right answer whether the slot holds a jetpack, a jump pack or a rokkit pack.
 func has_gadget(id: int) -> bool:
-	return Loadout.gadget_action(gadget) == id or Loadout.gadget_action(gadget2) == id
+	return Loadout.gadget_action(gadget) == id \
+		or Loadout.gadget_action(gadget2) == id \
+		or Loadout.gadget_action(gadget3) == id
 
 
 ## Which slot holds it, or -1. Used to pick which BUTTON drives it.
 func slot_of(id: int) -> int:
 	if Loadout.gadget_action(gadget) == id:
 		return 0
-	return 1 if Loadout.gadget_action(gadget2) == id else -1
+	if Loadout.gadget_action(gadget2) == id:
+		return 1
+	return 2 if Loadout.gadget_action(gadget3) == id else -1
 
 
 ## Is the button for this slot down right now? Slot 0 is the GADGET 1 control,
 ## slot 1 the GADGET 2 control — both ordinary rebindable bindings now.
 func _slot_held(slot: int) -> bool:
-	return _gadget_held() if slot == 0 else _slot1_held()
+	match slot:
+		0: return _gadget_held()
+		1: return _slot1_held()
+	return Controls.held(input_device, "sustain")
 
 
 ## The second gadget slot's control (the `grenade` binding: G on the keyboard,
@@ -1650,6 +1936,83 @@ func _slot1_held() -> bool:
 ## as the other pad controls now that it is a normal binding.
 func _slot1_pressed() -> bool:
 	return _edge("grenade")
+
+
+## SLOT 3: the sustained abilities, on the `sustain` binding — R on the keyboard,
+## and on a pad the face button weapon swap used to have (swap moved to circle).
+## A thing you put UP and keep is worth a face button; a chord is for things you
+## use once.
+func _slot2_pressed() -> bool:
+	return _edge("sustain")
+
+
+## THE SUSTAINED PAIR (slot 3). Both are a WINDOW rather than an effect: you put
+## them up before you need them and they run on their own clock whether or not
+## they did you any good, which is the whole difference between this slot and the
+## two that throw things.
+##
+## OVERSHIELD is a second health pool that takes damage FIRST and does not
+## regenerate — it is spent, not worn down, so what it buys is a fixed number of
+## rounds rather than a percentage. It deliberately does not stop the damage
+## flash or the hit marker: the shooter should still be told they are landing.
+##
+## FURY is speed, toughness and a heavier swing at once. One buff rather than
+## three gadgets, because at this scale a player has to be able to say what a
+## button does in four words.
+const BIOFOAM_HEAL := 65.0
+## The deflector: a bigger pool than the overshield and a shorter window, and it
+## LOCKS THE TRIGGER — that is the whole difference between them.
+const DEFLECTOR_POOL := 200.0
+const DEFLECTOR_TIME := 6.0
+const OVERSHIELD_POOL := 110.0
+const OVERSHIELD_TIME := 8.0
+const FURY_TIME := 8.0
+const FURY_SPEED := 1.22
+const FURY_RESIST := 0.75    # damage taken while it lasts
+const FURY_MELEE := 1.35     # ...and what a swing does
+
+var _over_pool := 0.0
+var _over_left := 0.0
+var _fury_left := 0.0
+var _deflector_left := 0.0
+
+
+func _update_sustained(delta: float) -> void:
+	if _deflector_left > 0.0:
+		_deflector_left = maxf(0.0, _deflector_left - delta)
+		if _deflector_left <= 0.0:
+			gear_changed.emit()
+	if _over_left > 0.0:
+		_over_left = maxf(0.0, _over_left - delta)
+		if _over_left <= 0.0:
+			_over_pool = 0.0
+			gear_changed.emit()
+	if _fury_left > 0.0:
+		_fury_left = maxf(0.0, _fury_left - delta)
+		if _fury_left <= 0.0:
+			gear_changed.emit()
+
+
+## What the HUD gauge reads while one is UP, 0..1. The gauge shows a sustained
+## ability draining while it runs and refilling while it recharges, which is the
+## same widget doing both jobs (see AbilityGauge).
+func overshield_left() -> float:
+	return _over_left
+
+
+func fury_left() -> float:
+	return _fury_left
+
+
+func fury_up() -> bool:
+	return _fury_left > 0.0
+
+
+## While the deflector is up the trigger is dead. Asked by the fire path rather
+## than enforced by taking the weapon away, so the gun stays in hand and the
+## player can see exactly what they have given up for the bubble.
+func deflector_up() -> bool:
+	return _deflector_left > 0.0
 
 
 func _start_gadget_cd(slot: int, seconds: float) -> void:
@@ -1674,8 +2037,9 @@ func _apply_gadget_motion(delta: float) -> void:
 			gear_changed.emit()
 	_update_lightning_channel(delta)
 	_update_cloak(delta)
+	_update_sustained(delta)
 	# Tick the force powers' cooldowns, whichever slot they sit in.
-	for slot in 2:
+	for slot in 3:
 		if _force_cd[slot] <= 0.0:
 			continue
 		_force_cd[slot] = maxf(_force_cd[slot] - delta, 0.0)
@@ -2011,6 +2375,10 @@ func _update_gear() -> void:
 			_use_gadget(1)
 		elif loadout.can_dash():
 			_dash()
+	# ...and slot 3, the sustained ability. No dash fallback here: an empty
+	# sustained slot is a class that has nothing to put up, not a spare button.
+	if _slot2_pressed() and gadget3 != Loadout.Gadget.NONE:
+		_use_gadget(2)
 
 
 ## Passive regeneration: once REGEN_DELAY has passed since the last hit, heal

@@ -70,9 +70,12 @@ const PLANETS := {
 		"size": 300.0,
 		"octaves": [[110.0, 7.0], [46.0, 2.6], [17.0, 0.8]],
 		"ground": {
-			"low_col": Color(0.52, 0.28, 0.17), "mid_col": Color(0.74, 0.45, 0.26),
+			"low_col": Color(0.34, 0.17, 0.11), "mid_col": Color(0.74, 0.45, 0.26),
 			"high_col": Color(0.90, 0.66, 0.42), "rock_col": Color(0.56, 0.31, 0.20),
-			"under_col": Color(0.14, 0.07, 0.05), "height_hi": 16.0,
+			# height_hi was 16 m against roughly 10 m of actual relief, so the ramp
+			# never got near high_col and the whole plain sat on one mid tone. It is
+			# the terrain's REAL range or the palette is decoration.
+			"under_col": Color(0.14, 0.07, 0.05), "height_hi": 10.0,
 			"rock_bias": 0.10, "world_scale": 0.05, "rough_flat": 0.95,
 		},
 		"sky": {
@@ -82,11 +85,39 @@ const PLANETS := {
 		},
 		"sun": {"angle": Vector2(-46.0, 40.0), "color": Color(1.0, 0.86, 0.66),
 			"energy": 1.35},
-		"fog": {"color": Color(0.62, 0.36, 0.22), "density": 0.0030},
-		"ambient": Color(0.42, 0.26, 0.20),
+		# FOG AND EXPOSURE WERE WHAT FLATTENED THIS WORLD, not the palette. At
+		# 0.0030 over a 300 m map everything past sixty metres was already a third
+		# of the way to one orange, and AgX at 1.45 took the sunlit faces of the
+		# hardpan and the spires to the same near-white — so a scene with genuine
+		# albedo separation (spires 0.60/0.31/0.19 against ground 0.74/0.45/0.26)
+		# arrived on screen as one sheet of clay. Halving the fog and easing the
+		# exposure gives the range back; the ambient comes down with them, because
+		# a desert at noon is lit by its sun and bounced sky, not by a fill light.
+		"fog": {"color": Color(0.60, 0.34, 0.21), "density": 0.0015},
+		"ambient": Color(0.30, 0.19, 0.16),
 		"volumetric": 0.0018,
-		"exposure": 1.45,
+		"exposure": 1.22,
 		"lay": "spires",
+		# A desert has nothing of its own to burn, so this is the darkest of the
+		# five with the biggest sky: hard starlight, no cloud, and a moon low
+		# enough to throw the spires' shadows right across the hardpan.
+		"night": {
+			"sky": {
+				"zenith_col": Color(0.015, 0.020, 0.045),
+				"horizon_col": Color(0.10, 0.07, 0.09),
+				"sun_col": Color(0.66, 0.72, 0.92), "sun_halo": 9.0,
+				"cloud_col": Color(0.10, 0.09, 0.12), "cloud_amount": 0.10,
+				"stars": 1.0, "glow_amount": 0.0,
+			},
+			# The moon sits HIGH. It was tried low, for the long shadows, and a
+			# low light over a flat hardpan is grazing light — the plain you
+			# stand on returns almost nothing and the map loses its floor.
+			"sun": {"angle": Vector2(-44.0, 118.0),
+				"color": Color(0.60, 0.70, 0.98), "energy": 0.46},
+			"fog": {"color": Color(0.07, 0.08, 0.14), "density": 0.0026},
+			"ambient": Color(0.105, 0.115, 0.165),
+			"volumetric": 0.0014,
+		},
 	},
 	Planet.KASHYYYK: {
 		"blurb": "Wroshyr giants over a shaded forest floor",
@@ -110,6 +141,31 @@ const PLANETS := {
 		"volumetric": 0.0030,
 		"exposure": 1.55,
 		"lay": "forest",
+		# The canopy takes the sky away, so this is the one world where the moon
+		# is not the point — almost none of it reaches the floor. It is lit
+		# instead by a green-black ambient and by whatever you are shooting.
+		# Thicker mist than its day, because a beam has to have something to cut
+		# through for a forest at night to read as a forest at night.
+		"night": {
+			"sky": {
+				"zenith_col": Color(0.020, 0.032, 0.038),
+				"horizon_col": Color(0.055, 0.080, 0.070),
+				"sun_col": Color(0.52, 0.66, 0.72), "sun_halo": 7.0,
+				"cloud_col": Color(0.07, 0.10, 0.09), "cloud_amount": 0.55,
+				"stars": 0.55,
+			},
+			# Straight down through the canopy, and the AMBIENT is what actually
+			# lights this world — with no moon angle to speak of and nothing
+			# burning, it is the only thing holding the forest floor up. It is
+			# the highest of the five for that reason, and it was still not
+			# enough on the first pass: the floor came back pure black and you
+			# could not see the ground you were walking on.
+			"sun": {"angle": Vector2(-74.0, 25.0),
+				"color": Color(0.52, 0.70, 0.78), "energy": 0.58},
+			"fog": {"color": Color(0.045, 0.075, 0.065), "density": 0.0052},
+			"ambient": Color(0.190, 0.235, 0.200),
+			"volumetric": 0.0044,
+		},
 	},
 	Planet.CORUSCANT: {
 		"blurb": "Rooftops and canyons of an endless city, at dusk",
@@ -137,6 +193,28 @@ const PLANETS := {
 		"volumetric": 0.0026,
 		"exposure": 1.60,
 		"lay": "city",
+		# THE CITY IS THE LIGHT. Coruscant at night is the one world that gets
+		# BRIGHTER in places when the sun goes: the window rows and the ground
+		# glow are already emissive, so with the sky pulled down to almost
+		# nothing they become the map's illumination rather than decoration on
+		# it. The vein colour (street light in the canyons) is pushed UP for the
+		# same reason, which is what `NIGHT_EMISSIVE` exists to allow.
+		"night": {
+			"sky": {
+				"zenith_col": Color(0.010, 0.014, 0.038),
+				"horizon_col": Color(0.16, 0.11, 0.16),
+				"sun_col": Color(0.70, 0.76, 0.95), "sun_halo": 9.0,
+				"cloud_col": Color(0.14, 0.10, 0.16), "cloud_amount": 0.35,
+				"glow_col": Color(1.0, 0.66, 0.30), "glow_amount": 1.30,
+				"stars": 0.30,
+			},
+			"ground": {"vein_col": Color(1.0, 0.78, 0.38), "vein_amount": 0.40},
+			"sun": {"angle": Vector2(-30.0, 62.0),
+				"color": Color(0.66, 0.72, 0.95), "energy": 0.30},
+			"fog": {"color": Color(0.10, 0.09, 0.15), "density": 0.0042},
+			"ambient": Color(0.090, 0.085, 0.130),
+			"volumetric": 0.0030,
+		},
 	},
 	Planet.MUSTAFAR: {
 		"blurb": "Obsidian flats split by molten rivers, under an ash sky",
@@ -162,6 +240,28 @@ const PLANETS := {
 		"volumetric": 0.0052,
 		"exposure": 1.55,
 		"lay": "foundry",
+		# The lava does not care what time it is, and that is the whole picture:
+		# with the ash sky taken down to black the rivers are the only light, so
+		# the map becomes a dark plain with molten lines drawn across it and the
+		# cover reads as silhouette against them. `vein_amount` goes UP, not
+		# down. There is no moon — the sun here is a formality holding a
+		# direction for the shadows.
+		"night": {
+			"sky": {
+				"zenith_col": Color(0.020, 0.008, 0.008),
+				"horizon_col": Color(0.16, 0.045, 0.020),
+				"sun_col": Color(0.40, 0.16, 0.10), "sun_halo": 5.0,
+				"cloud_col": Color(0.10, 0.045, 0.040), "cloud_amount": 0.75,
+				"glow_col": Color(1.0, 0.30, 0.05), "glow_amount": 1.70,
+				"stars": 0.0,
+			},
+			"ground": {"vein_col": Color(1.0, 0.40, 0.08), "vein_amount": 0.78},
+			"sun": {"angle": Vector2(-34.0, -35.0),
+				"color": Color(0.90, 0.42, 0.24), "energy": 0.26},
+			"fog": {"color": Color(0.16, 0.055, 0.030), "density": 0.0060},
+			"ambient": Color(0.115, 0.052, 0.038),
+			"volumetric": 0.0060,
+		},
 	},
 	Planet.HOTH: {
 		"blurb": "Drifts and ice ridges under a thin white sun",
@@ -190,10 +290,126 @@ const PLANETS := {
 		# a picture in it. This is the one planet that wants LESS.
 		"exposure": 1.02,
 		"lay": "glacier",
+		# THE BRIGHTEST NIGHT OF THE FIVE, and for the same reason it was the
+		# dimmest day: snow's albedo is enormous, so moonlight it barely need be
+		# moonlight at all. The derived ground would take it too far down, so the
+		# night block puts the snow back up by hand — this is the world the
+		# derivation is wrong for, which is why authored overrides sit on top of
+		# it. Exposure goes back UP to the others' level, because unlike its day
+		# there is no longer anything here at the top of the curve.
+		"night": {
+			"ground": {
+				"low_col": Color(0.115, 0.135, 0.185),
+				"mid_col": Color(0.175, 0.205, 0.265),
+				"high_col": Color(0.235, 0.270, 0.340),
+				# The outcrops stay the darkest thing on the map — they are the
+				# only value contrast a snowfield has — but not black: rock
+				# sitting in a field of snow catches a lot back off it.
+				"rock_col": Color(0.078, 0.090, 0.115),
+				"under_col": Color(0.030, 0.040, 0.055),
+				"sparkle": 0.85,
+			},
+			"sky": {
+				"zenith_col": Color(0.018, 0.026, 0.055),
+				"horizon_col": Color(0.10, 0.13, 0.20),
+				"sun_col": Color(0.80, 0.86, 1.0), "sun_halo": 3.0,
+				"cloud_col": Color(0.14, 0.17, 0.24), "cloud_amount": 0.55,
+				"stars": 0.75,
+			},
+			"sun": {"angle": Vector2(-40.0, 130.0),
+				"color": Color(0.72, 0.82, 1.0), "energy": 0.50},
+			"fog": {"color": Color(0.10, 0.13, 0.20), "density": 0.0044},
+			"ambient": Color(0.105, 0.125, 0.170),
+			"volumetric": 0.0070,
+			"exposure": 1.45,
+		},
 	},
 }
 
+## NIGHT IS A SECOND PALETTE, NOT A DIMMER.
+##
+## The tempting version of this is one multiplier over the day table, and it does
+## not work: scaling everything down takes the whole picture to mud and puts the
+## cover boxes into unreadable black, which is a GAMEPLAY bug and one this
+## project has already made once (see the sky-ambient note in THE GRADE). What a
+## night map actually needs is for the RATIO between things to change, not their
+## sum — the ground goes down a long way, the ambient goes down less, and the
+## things that are genuinely light sources (Mustafar's lava, Coruscant's windows,
+## and above all the muzzle flashes) go UP, because at night they are the only
+## illumination and being the brightest thing on the map is their whole job.
+##
+## So each planet carries a `"night"` block that is laid OVER its day row — a
+## handful of keys, not a second table — merged one level deep so `"sky"` or
+## `"sun"` can restate two values and inherit the rest. A world's night is about
+## a dozen lines, which is the same bargain as a world being a table row.
+##
+## The GROUND is derived rather than authored (`nightfall`): every colour key is
+## darkened toward the moon's own hue, so a planet keeps its identity in the dark
+## automatically and a new world needs no night palette written for its terrain.
+## Emissive keys (`vein_col`) are deliberately exempt — lava does not get darker
+## when the sun goes down, it gets more important.
+## NIGHT COMPRESSES THE RANGE, IT DOES NOT SCALE IT — hence a FLOOR under a
+## multiplier rather than a multiplier alone. Scaling was the first version and
+## it fails on exactly the worlds that most need it: a plain multiplier takes a
+## bright desert to a readable dark and a forest floor that was already dark in
+## daylight to pure black, so the two worlds with no light of their own were the
+## two the derivation ruined. The floor is what a dark surface gets back from a
+## sky it can see even when nothing is shining on it, which is also the honest
+## physical answer.
+## NIGHT_FLOOR is deliberately the same number as `night_palette.gd`'s
+## MIN_GROUND_V: the floor in the code IS the floor the test asserts, so a
+## derived colour cannot fail it by construction and only an AUTHORED override
+## ever can — which is exactly where a mistake would actually be made.
+const NIGHT_FLOOR := 0.10       # what any surface keeps, however dark it was
+const NIGHT_ALBEDO := 0.34      # ...plus this much of its daylight value
+const NIGHT_CHROMA := 0.50      # how much of its saturation it keeps
+const NIGHT_TINT := 0.35        # how far it is pulled toward the moon's colour
+
+## Keys of the `ground` block that are LIGHT rather than surface, and so must not
+## be dimmed. Everything else in there is albedo.
+const NIGHT_EMISSIVE := ["vein_col"]
+
+
+## One colour after dark: down in value, down in saturation, and pulled toward
+## whatever is lighting it. All three matter — a colour only darkened stays as
+## saturated as it was and reads as a lit surface at night, which is the tell
+## that gives away a scene that has merely been turned down.
+static func nightfall(c: Color, moon: Color) -> Color:
+	var v := NIGHT_FLOOR + c.v * NIGHT_ALBEDO
+	var out := Color.from_hsv(c.h, c.s * NIGHT_CHROMA, v, c.a)
+	return out.lerp(Color(moon.r, moon.g, moon.b, c.a) * v, NIGHT_TINT)
+
+
+## THE PLANET'S TABLE FOR THIS MATCH, day row plus night block. Resolved ONCE per
+## match (`_configure` caches it in `_world`) and never per frame — it duplicates
+## dictionaries, and the day table is a `const` that must come out unmodified for
+## the next match whatever this returns.
+static func world(planet_id: int, night: bool) -> Dictionary:
+	var day: Dictionary = PLANETS[planet_id]
+	if not night or not day.has("night"):
+		return day.duplicate(true)
+	var out: Dictionary = day.duplicate(true)
+	out.erase("night")
+	var over: Dictionary = day["night"]
+	var moon: Color = over.get("sun", {}).get("color", Color(0.62, 0.70, 0.95))
+	# The ground first, derived, so a night block only has to say something about
+	# terrain colour when the derivation is wrong for that world.
+	for key in out["ground"]:
+		if out["ground"][key] is Color and not (key in NIGHT_EMISSIVE):
+			out["ground"][key] = nightfall(out["ground"][key], moon)
+	# ...then the authored overrides on top, one level deep.
+	for key in over:
+		if out.has(key) and out[key] is Dictionary and over[key] is Dictionary:
+			out[key].merge(over[key], true)
+		else:
+			out[key] = over[key]
+	return out
+
+
 var planet := Planet.GEONOSIS
+## This match's resolved palette — see `world()`. Everything reads THIS and not
+## `PLANETS[planet]`, or it would build half a night map.
+var _world: Dictionary = {}
 var _rng := RandomNumberGenerator.new()
 ## The terrain octaves, resolved to [freq_rad_per_m, amplitude, phase_x, phase_z]
 ## and normalised against the slope budget. Built once in _configure.
@@ -222,14 +438,16 @@ var _pale: Array = []
 
 func _configure() -> void:
 	planet = GameState.chosen_planet()
-	var p: Dictionary = PLANETS[planet]
+	_world = world(planet, GameState.is_night())
+	var p: Dictionary = _world
 	_rng.seed = GameState.planet_seed
 	size = p["size"]
 	depth = p["size"]
 	grade_exposure = p.get("exposure", Grade.EXPOSURE)
 	floor_color = p["ground"]["mid_col"]
-	wall_color = p["ground"]["rock_col"]
-	cover_color = p["ground"]["rock_col"]
+	var hull := _hull_color(p)
+	wall_color = hull
+	cover_color = hull
 	_build_octaves(p["octaves"])
 
 	var half := size * 0.5
@@ -249,6 +467,38 @@ func _spawn_line(x: float) -> Array[Vector3]:
 	return out
 
 
+## WHAT EVERY STRUCTURE IS PAINTED, and the reason these worlds read as one lump
+## of clay until it existed.
+##
+## `wall_color` and `cover_color` used to be set to the terrain's own `rock_col`
+## — literally the same Color object the ground shader paints its cliffs with. So
+## every spire, tower, bunker and cover box on a planet was, by construction, the
+## same tone as the ground it stood on. On Kashyyyk that happened to work, because
+## its rock is a grey-brown against a green floor; on Geonosis, where the rock is
+## (0.56, 0.31, 0.20) and the low ground is (0.52, 0.28, 0.17), it meant the
+## spires and the hardpan were the same colour to within two percent. No amount of
+## relief, greebling or lighting rescues that: **the eye separates objects from
+## their background by VALUE first**, and there was no value difference to find.
+##
+## DERIVED, not authored, for the same reason the night palette is derived: a new
+## planet gets separation for free, and a derivation cannot be forgotten. It goes
+## DARKER and less saturated — rock standing out of ground is in its own shadow
+## and weathers greyer than the dust around it — with `"hull_col"` available in
+## the table for the one case where the derivation is wrong.
+const HULL_DARKEN := 0.34      # toward black
+const HULL_DESATURATE := 0.30  # toward its own grey
+
+
+func _hull_color(p: Dictionary) -> Color:
+	var ground: Dictionary = p["ground"]
+	if ground.has("hull_col"):
+		return ground["hull_col"]
+	var rock: Color = ground["rock_col"]
+	var grey := (rock.r + rock.g + rock.b) / 3.0
+	return rock.lerp(Color(grey, grey, grey), HULL_DESATURATE) \
+		.lerp(Color.BLACK, HULL_DARKEN)
+
+
 ## Resolve the octave table into something height_at can sum fast, and scale it
 ## so the WORST-CASE combined gradient is inside MAX_GRADIENT.
 ##
@@ -257,13 +507,33 @@ func _spawn_line(x: float) -> Array[Vector3]:
 ## just the sum of those. Scaling all amplitudes by one factor keeps the shape
 ## and guarantees the budget — which is why this is arithmetic rather than
 ## something to tune by walking around and finding out.
+## EVERY OCTAVE GETS ITS OWN DIRECTION, and this is the single change that stopped
+## these worlds reading as generated.
+##
+## The height function is a sum of `sin(x * f) * cos(z * f)` — a product of one
+## wave along X and one along Z. That is separable, and separable means every
+## ridge and every hollow it can possibly make runs along the X or the Z axis. Ten
+## octaves of it are ten egg-cartons stacked in the same two directions: the eye
+## reads the lattice immediately, from any height, on every planet, and no amount
+## of palette work hides it. Real ground has ridgelines at whatever angle the rock
+## happened to fold at.
+##
+## So each octave is evaluated in its own ROTATED frame. It costs two multiplies
+## per octave and it is free of consequences, because **a rotation of the domain
+## does not change the magnitude of the gradient**: writing A and B for the two
+## trig products, |grad| comes out as `a * f * sqrt(A^2 + B^2)` whether the frame
+## is turned or not. The walkability budget below is therefore untouched, which is
+## what made this safe to do at all — the slope guarantee is arithmetic and the
+## arithmetic still holds.
 func _build_octaves(table: Array) -> void:
 	_octaves.clear()
 	var worst := 0.0
 	for row in table:
 		var freq: float = TAU / float(row[0])
 		var amp: float = float(row[1])
-		_octaves.append([freq, amp, _rng.randf() * TAU, _rng.randf() * TAU])
+		var turn: float = _rng.randf() * TAU
+		_octaves.append([freq, amp, _rng.randf() * TAU, _rng.randf() * TAU,
+			cos(turn), sin(turn)])
 		worst += amp * freq
 	if worst > MAX_GRADIENT:
 		var k := MAX_GRADIENT / worst
@@ -288,7 +558,14 @@ func _build_octaves(table: Array) -> void:
 func height_at(x: float, z: float) -> float:
 	var h := 0.0
 	for o in _octaves:
-		h += o[1] * sin(x * o[0] + o[2]) * cos(z * o[0] + o[3])
+		# o[4]/o[5] are cos/sin of this octave's own heading — see _build_octaves.
+		# Typed explicitly: the octave rows are untyped arrays, so every element
+		# comes back Variant and an inferred `var` off one will not compile.
+		var c: float = o[4]
+		var s: float = o[5]
+		var u := x * c - z * s
+		var v := x * s + z * c
+		h += o[1] * sin(u * o[0] + o[2]) * cos(v * o[0] + o[3])
 	return h + terrain_amplitude()
 
 
@@ -296,11 +573,24 @@ func height_at(x: float, z: float) -> float:
 ## ground shader as vertex colour so it can put rock on the steep faces without
 ## reconstructing anything from an interpolated normal.
 func steepness_at(x: float, z: float) -> float:
+	# THIS AND `height_at` ARE THE PAIR THAT MUST AGREE. It is the exact analytic
+	# gradient of the function above, so turning the octaves means turning this
+	# too — chain rule through the rotation, not a re-derivation. Get it wrong and
+	# nothing errors: the terrain simply paints rock on the flats and grass on the
+	# cliffs, which reads as a palette fault rather than a calculus one.
 	var dx := 0.0
 	var dz := 0.0
 	for o in _octaves:
-		dx += o[1] * o[0] * cos(x * o[0] + o[2]) * cos(z * o[0] + o[3])
-		dz += -o[1] * o[0] * sin(x * o[0] + o[2]) * sin(z * o[0] + o[3])
+		var c: float = o[4]
+		var s: float = o[5]
+		var u := x * c - z * s
+		var v := x * s + z * c
+		# dh/du and dh/dv, before the frame is turned back.
+		var a := cos(u * o[0] + o[2]) * cos(v * o[0] + o[3])
+		var b := sin(u * o[0] + o[2]) * sin(v * o[0] + o[3])
+		var k: float = o[1] * o[0]
+		dx += k * (a * c - b * s)
+		dz += -k * (a * s + b * c)
 	return clampf(Vector2(dx, dz).length() / MAX_GRADIENT, 0.0, 1.0)
 
 
@@ -319,7 +609,7 @@ func _build_walls() -> void:
 
 
 func _decorate() -> void:
-	var p: Dictionary = PLANETS[planet]
+	var p: Dictionary = _world
 	match p["lay"]:
 		"spires": _lay_spires()
 		"forest": _lay_forest()
@@ -328,7 +618,10 @@ func _decorate() -> void:
 		"glacier": _lay_glacier()
 	_scatter_rubble()
 	_build_backdrop()
-	_flush_detail(p["ground"]["rock_col"].lerp(Color.BLACK, 0.35),
+	# Relative to the HULL now, not to the terrain's rock: greebles sit ON
+	# structures, and with the hulls darkened they were landing at almost the
+	# same value as the thing they are supposed to detail.
+	_flush_detail(_hull_color(p).lerp(Color.BLACK, 0.30),
 		p.get("lit", Color(1.0, 0.78, 0.42)))
 
 
@@ -396,8 +689,8 @@ func _quad(st: SurfaceTool, a: Vector3, b: Vector3, c: Vector3, d: Vector3) -> v
 func _ground_material() -> ShaderMaterial:
 	var mat := ShaderMaterial.new()
 	mat.shader = PLANET_GROUND
-	for key in PLANETS[planet]["ground"]:
-		mat.set_shader_parameter(key, PLANETS[planet]["ground"][key])
+	for key in _world["ground"]:
+		mat.set_shader_parameter(key, _world["ground"][key])
 	# THE HEIGHT BANDS MUST COME FROM THE TERRAIN, not from the table.
 	#
 	# They were authored independently (height_hi 16 m) while the generator
@@ -429,7 +722,7 @@ func _floor_material() -> Material:
 # --- environment --------------------------------------------------------------
 
 func _build_environment() -> void:
-	var p: Dictionary = PLANETS[planet]
+	var p: Dictionary = _world
 	var env := Environment.new()
 	env.background_mode = Environment.BG_SKY
 	var sky := Sky.new()
@@ -462,7 +755,7 @@ func _build_environment() -> void:
 ## sky shader needs it to put the disc in the right place, and the disc has to
 ## agree with where the shadows say the sun is.
 func _sun_dir() -> Vector3:
-	var a: Vector2 = PLANETS[planet]["sun"]["angle"]
+	var a: Vector2 = _world["sun"]["angle"]
 	var basis := Basis.from_euler(Vector3(deg_to_rad(a.x), deg_to_rad(a.y), 0.0))
 	return -(basis * Vector3.FORWARD).normalized() * -1.0
 
@@ -472,11 +765,11 @@ func _sun_dir() -> Vector3:
 ## value for all five is one value wrong for four of them.
 func _grade() -> void:
 	Grade.apply_to(self, grade_exposure,
-		PLANETS[planet].get("volumetric", Grade.VOLUMETRIC_DENSITY))
+		_world.get("volumetric", Grade.VOLUMETRIC_DENSITY))
 
 
 func _build_lights() -> void:
-	var p: Dictionary = PLANETS[planet]["sun"]
+	var p: Dictionary = _world["sun"]
 	var key := DirectionalLight3D.new()
 	key.rotation = Vector3(deg_to_rad(p["angle"].x), deg_to_rad(p["angle"].y), 0.0)
 	key.light_color = p["color"]
@@ -488,7 +781,7 @@ func _build_lights() -> void:
 	# big geometry read as a cardboard cut-out.
 	var fill := DirectionalLight3D.new()
 	fill.rotation = Vector3(deg_to_rad(-18.0), deg_to_rad(p["angle"].y + 165.0), 0.0)
-	fill.light_color = PLANETS[planet]["ambient"]
+	fill.light_color = _world["ambient"]
 	fill.light_energy = 0.45
 	fill.light_specular = 0.0
 	fill.shadow_enabled = false
@@ -506,11 +799,13 @@ func _build_lights() -> void:
 ## the AI as a hand-authored map's.
 ## WHAT A STRUCTURE LOOKS LIKE is independent of what it collides as.
 ##
-## The collider has to stay a BOX — the nav grid, the map screen and the cover
+## The FOOTPRINT has to stay a BOX — the nav grid, the map screen and the cover
 ## logic all read boxes, and that is the whole reason a generated map is
 ## navigable without a bake. But nothing requires the MESH to be the same shape,
 ## and a world built only from cubes and rectangles reads as a blockout however
-## well it is lit. So the shape is a free choice on top of a box footprint.
+## well it is lit. So the shape is a free choice on top of a box footprint, and
+## PHYSICS follows the shape rather than the footprint (see `_solid`): what you
+## can shoot over is what you can see.
 enum Shape { BOX, COLUMN, CONE, WEDGE, CRAG }
 
 
@@ -535,13 +830,37 @@ func _solid(centre: Vector3, box: Vector3, mat: Material, yaw := 0.0,
 	mi.mesh = _shape_mesh(shape, box, sides)
 	mi.material_override = mat
 	body.add_child(mi)
-	# The COLLIDER is always a box, whatever the mesh is: the nav grid, the map
-	# screen and the cover logic all read boxes.
+	# THE FOOTPRINT. Always a box, whatever the mesh is, because the nav grid, the
+	# map screen and the cover logic all read boxes — that is what makes a
+	# generated map navigable with no bake (`GameState.scan_map_geometry`).
 	var cs := CollisionShape3D.new()
 	var hull := BoxShape3D.new()
 	hull.size = box
 	cs.shape = hull
 	body.add_child(cs)
+	if shape == Shape.BOX:
+		return
+	# ...but a SHAPED structure now COLLIDES as its shape, and the footprint box
+	# is switched off.
+	#
+	# Until this, everything collided as its bounding box, so a wedge, a spire and
+	# a boulder all had invisible square corners: rounds fired over the slope of a
+	# ridge stopped in mid-air on nothing, and the taper of a rock spire was solid
+	# out to the full width of its base all the way to the top. Every shot into
+	# them was a lie about what you were looking at.
+	#
+	# The footprint box STAYS IN THE TREE, disabled. `scan_map_geometry` reads the
+	# shape resource off the node and never asks physics anything, so the nav grid
+	# and the map screen keep the conservative box they have always had while
+	# bullets and bodies get the real silhouette. The AI is therefore unchanged —
+	# it still routes around the whole footprint — and the convex hull is never
+	# LARGER than the box that was there before, so nothing new can trap anybody.
+	# A human who can now walk up a wedge is getting a ramp the bots will not use,
+	# which is a fair trade for shots that go where they are aimed.
+	cs.disabled = true
+	var solid := CollisionShape3D.new()
+	solid.shape = mi.mesh.create_convex_shape()
+	body.add_child(solid)
 
 
 ## Decoration only — no collider, drawn as part of a MultiMesh batch by the
@@ -613,7 +932,7 @@ func _flush_detail(detail: Color, lit: Color) -> void:
 		var wedge := PrismMesh.new()
 		wedge.size = Vector3.ONE
 		wedge.left_to_right = 0.25
-		Props.batch(self, wedge, _pale, _mat(PLANETS[planet]["ground"]["high_col"],
+		Props.batch(self, wedge, _pale, _mat(_world["ground"]["high_col"],
 			0.75), true)
 	_detail.clear()
 	_lit.clear()
@@ -1096,7 +1415,7 @@ func _low_cover(mat: Material, count: int) -> void:
 ## Loose rock and debris. Non-colliding, one batch, purely to break up the ground
 ## plane between the structures.
 func _scatter_rubble() -> void:
-	var p: Dictionary = PLANETS[planet]
+	var p: Dictionary = _world
 	var rock := SphereMesh.new()   # faceted pebble, not a die
 	rock.radius = 0.5
 	rock.height = 1.0
@@ -1131,7 +1450,7 @@ func _scatter_rubble() -> void:
 ## own half-width so nothing in it is ever reachable. It has no gameplay meaning
 ## at all and must not acquire any.
 func _build_backdrop() -> void:
-	var p: Dictionary = PLANETS[planet]
+	var p: Dictionary = _world
 	var shape := BoxMesh.new()
 	shape.size = Vector3.ONE
 	var xf := []
@@ -1177,7 +1496,7 @@ func _build_backdrop() -> void:
 ## How sharply the backdrop shapes narrow with height — the profile is the only
 ## thing distinguishing a city skyline from a mountain range at this distance.
 func _backdrop_taper() -> float:
-	match PLANETS[planet]["lay"]:
+	match _world["lay"]:
 		"city": return 0.86      # towers: near-vertical
 		"forest": return 0.90    # trunks: near-vertical
 		"glacier": return 0.68   # peaks
@@ -1253,7 +1572,7 @@ func _mountain(at: Vector2, base: float, height: float) -> void:
 
 func _terrain_shades() -> Array:
 	if _rock_shades.is_empty():
-		_rock_shades = _shades(PLANETS[planet]["ground"]["rock_col"] * 1.5, 0.95)
+		_rock_shades = _shades(_world["ground"]["rock_col"] * 1.5, 0.95)
 	return _rock_shades
 
 

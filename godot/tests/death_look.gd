@@ -1,14 +1,18 @@
 extends Node3D
 
-## What a body looks like once it is down, in both death styles.
+## What a body looks like once it is down, in ALL THREE death styles.
 ##
 ##   godot --path godot --display-driver x11 --resolution 1280x720 tests/death_look.tscn
 ##
 ## Appearance is the thing being judged here, so it runs WINDOWED — the same
 ## rule guard_look follows. It lines up one corpse per unit type, freezes them
 ## upright (physics off, so the shot is the POSE rather than wherever they
-## happened to have tumbled to) and renders COLLAPSE, then the CLASSIC T-pose
-## flop the option brings back.
+## happened to have tumbled to) and renders the RAGDOLL, then the ANIMATED fall
+## at rest, then the CLASSIC T-pose flop the option brings back.
+##
+## The ANIMATED shot is the one to look at hardest: the ragdoll settles onto
+## whatever it lands on and this one does not, so this line-up on flat ground is
+## its BEST case, not its typical one.
 ##
 ## It writes Controls.set_option, which SAVES, so it snapshots the real
 ## user://controls.cfg first and puts it back — the same discipline
@@ -33,12 +37,27 @@ func _ready() -> void:
 		_backup = FileAccess.get_file_as_string(CONFIG)
 	_build_scene()
 
-	Controls.set_option(Controls.OPT_CLASSIC_DEATH, false)
+	# THROUGH `set_death_style`, not by writing the old boolean. That key is now
+	# a fallback the style migrates FROM — setting it while a real style is stored
+	# changes nothing, so this test would have gone on photographing whichever
+	# style happened to be saved and reported it as both.
+	Controls.set_death_style(Controls.Death.RAGDOLL)
 	_lay_out()
 	await _frames(6)
-	await _grab("death_collapse")
+	await _grab("death_ragdoll")
 
-	Controls.set_option(Controls.OPT_CLASSIC_DEATH, true)
+	Controls.set_death_style(Controls.Death.ANIMATED)
+	# NOT frozen on arrival. `freeze_all` stops a ragdoll's rigid bodies, and on an
+	# animated corpse it PAUSES the clip — so freezing at lay-out time photographed
+	# five bodies standing to attention, which is frame zero of a fall. It has to
+	# play out first and be stopped at the end.
+	_lay_out(false)
+	await _frames(int(CharacterModel.DEATH_LEN * 64.0))
+	_freeze_all()
+	await _frames(2)
+	await _grab("death_animated")
+
+	Controls.set_death_style(Controls.Death.CLASSIC)
 	_lay_out()
 	await _frames(6)
 	await _grab("death_classic")
@@ -49,7 +68,7 @@ func _ready() -> void:
 
 ## One corpse per style, evenly spaced and facing the camera. Physics is frozen
 ## so what is on screen is the pose, not the tumble.
-func _lay_out() -> void:
+func _lay_out(freeze_now := true) -> void:
 	for c in get_children():
 		if c.has_method("freeze_all"):
 			c.queue_free()
@@ -60,10 +79,20 @@ func _lay_out() -> void:
 		# Turned a little off square, so the pose reads in three quarters rather
 		# than as a flat front-on silhouette.
 		var facing := Basis(Vector3.UP, deg_to_rad(35.0))
+		# FORCED: this scene has no Player in it, and a corpse with no human
+		# within VIEW_RANGE now frees itself rather than being built for nobody.
 		corpse.launch(Transform3D(facing, at), GameState.team_colors[i % 2],
-			Vector3.ZERO, LINEUP[i])
+			Vector3.ZERO, LINEUP[i], true)
 		# A corpse is a ragdoll now, so freezing it is six bodies, not one.
-		corpse.freeze_all()
+		if freeze_now:
+			corpse.freeze_all()
+
+
+## Stop whatever is still moving, whichever style is up.
+func _freeze_all() -> void:
+	for c in get_children():
+		if c.has_method("freeze_all"):
+			c.freeze_all()
 
 
 func _build_scene() -> void:

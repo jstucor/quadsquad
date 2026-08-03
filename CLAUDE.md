@@ -1,10 +1,22 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Guidance for Claude Code (claude.ai/code) working in this repository.
+
+Style note: entries are **rule first, reason second**. The reason is there because
+the rule looks arbitrary without it and gets undone by the next edit. Nothing here
+is a changelog — if something is no longer true, delete it rather than append to it.
 
 ## Project Overview
 
-**QuadSquad** — 4-player local co-op Star Wars-style FPS for Linux (Raspberry Pi 5 and Ubuntu laptops), built in **Godot 4.7** with the **GL Compatibility** renderer. The former custom C++/SDL2/EnTT engine was removed in 2026-07; its features are the roadmap in README.md.
+**QuadSquad** — 4-player local split-screen Star Wars-style FPS for Linux, built in
+**Godot 4.7** with the **GL Compatibility** renderer. Target is Ubuntu laptops on
+integrated graphics; the Raspberry Pi 5 target was dropped (see PERFORMANCE). The
+former custom C++/SDL2/EnTT engine was removed in 2026-07; its features are the
+roadmap in README.md.
+
+Everything is **procedural and built in code** — characters, weapons, maps, props,
+UI and sound. No imported meshes, no textures, no audio files, no build step. A new
+unit, gun, map or sound is a table row plus a builder function.
 
 ## Commands
 
@@ -15,265 +27,1830 @@ godot --headless --path godot --import   # headless parse/import check
 godot --path godot -- --debug            # DEBUG: player 1 on keyboard + mouse, solo
 ```
 
-**The game is pad-first, so `-- --debug` is how you play it at a desk.** It puts
-P1 on the keyboard and mouse and defaults to one viewport; nothing else changes,
-so what you are testing is still the real game. The flag is read from the USER
-args (everything after the bare `--`) because plain `--debug` is Godot's own
-engine switch and never reaches the project; `--kbm` works in either position.
+**The game is pad-first, so `-- --debug` is how you play it at a desk.** It puts P1
+on keyboard+mouse and defaults to one viewport; nothing else changes. The flag is
+read from USER args (after the bare `--`) because plain `--debug` is Godot's own
+engine switch and never reaches the project. `--kbm` works in either position.
 
-Godot 4.7.1 official binary lives at `~/.local/bin/godot`. The godot-mcp addon (`godot/addons/godot_mcp/`, port 6550) gives Claude editor control, input injection (incl. virtual joypads), runtime state, and screenshots — the editor must be running.
+Godot 4.7.1 binary: `~/.local/bin/godot`. The godot-mcp addon
+(`godot/addons/godot_mcp/`, port 6550) gives editor control, input injection (incl.
+virtual joypads), runtime state and screenshots — the editor must be running.
 
-The player/NPC character is a **fully procedural box humanoid on Node3D joints** (`scripts/character.gd`, `class_name CharacterModel`) with idle/walk/run/jump/crouch animations built in code — no imported mesh, no skinning, no build step. **Each unit is its OWN model**: `CharacterModel.STYLES` (keyed by `Style`) gives every class/unit a colour scheme, a HEAD shape (`_build_head`: clone helmet, B1 photoreceptor skull, sunken B2 block, MagnaGuard mask, Wookiee muzzle, hood…), a bulk multiplier and accessories (pauldron, backpack, antenna, kama, cape, jetpack, fur). The SKELETON (`_joint_offsets`, the retired trooper's bone proportions kept as constants) and every animation are shared across all styles, so a new look is a table row. `set_style(id)` rebuilds the meshes in place (the AnimationPlayer survives). The class `armor`/`dark` colours are the BODY (clone = white plate, droid = bronze, etc.); `set_team_color` rides the ACCENTS (`_suit_mat`: shoulder bells, chest vest, belt, knee pads, helmet crest), so a unit reads as armour with team markings and still calls its side at a glance. `Loadout.character_style()` picks it — a faction build sets an explicit `style`, everything else reads the `"style"` key off its KIT row (a table lookup, not a match on the enum: with fourteen classes across three universes a match statement is every class written a second time). The roster now spans three settings: clones and droids, Spartans/ODSTs/Elites/Grunts/Brutes, Astartes/Necrons/Orks. The old imported trooper GLB and `trooper_parts.gd` are no longer loaded at all (retired, like `tools/animate_trooper.py`).
+## Repo layout
+
+- `godot/scenes/menu.tscn` — **main scene**. → `team_select.tscn` → `main.tscn`.
+- `godot/scenes/main.tscn` — a bare `Main` node; `scripts/main.gd` does all the work.
+- `godot/scenes/levels/` — maps. All procedural except the hand-authored hangar.
+- `godot/scripts/` — everything. `godot/tests/` — see TESTS.
+- Autoloads: `GameState` (`game_state.gd`), `Audio` (`audio.gd`).
+- Physics layers: **1 world, 2 players, 3 projectiles, 4 shields**.
+
+## House rules
+
+These apply to every change, and each one is here because it was broken at least
+once. The per-system sections below assume them rather than repeating them.
+
+1. **No per-frame allocations — MATERIALS above all.** `CommandPost._paint` built
+   three `StandardMaterial3D`s per post per physics frame: five posts cost 1.7 ms,
+   more than one feature's share of a 16.7 ms budget. Build materials ONCE and write
+   `albedo_color`, only when the colour actually moved.
+2. **Per-SHOT allocation is the same rule and easier to miss.** 13 rounds/s per
+   shooter × up to 12 shooters. `blaster_bolt` duplicated its material per impact
+   (which also made the rendering server log `Parameter "material" is null` ~30×
+   a match) and `impact.gd` built six materials and six meshes per burst. Bolts
+   animate SCALE only (per-instance state, free); impacts share static meshes.
+   A per-colour cache keyed by a small fixed TABLE is fine (`blaster_bolt._mats`,
+   `Meshes.chamfer_box`) — it stops growing and never depends on rate of fire.
+3. **Nothing is spawned for an effect no human could see.** `Weapon.IMPACT_VIEW_RANGE`,
+   `Corpse.VIEW_RANGE`, `Audio.HEARING`. In a 4v4 on a 220 m map most rounds are bots
+   shooting bots elsewhere. Humans only — bots have no camera.
+4. **Anything unbounded gets a POOL with a ceiling and a claim TOKEN.** Impact lights
+   (14), loop voices (3), corpses (`MAX_ALIVE`). The token lets an owner that has been
+   outbid do nothing quietly instead of switching somebody else's off.
+5. **When N things ask the same question every frame, ask it once.**
+   `GameState.sample_combatants()` takes validity/`is_alive()`/position/team into
+   packed arrays once per physics frame; every command post reads that snapshot
+   (2.65 ms → 0.05 ms). `Main._tick_overlays` is the same for HUD redraws.
+6. **A GDScript error ABORTS the enclosing function, silently as far as play is
+   concerned.** An out-of-bounds index did it (`Player._force_shown` was 2 wide where
+   `_force_cd` was 3, so a slot-3 cooldown killed the jetpack, cable and dash for that
+   frame); so did a bad `%` (`mode_blurb` — never `%` a table entry at the call site,
+   the argument count is part of the blurb, so a blurb formats itself).
+7. **A table indexed by an enum must be checked against that enum**
+   (`kit_rules.check_enum_tables`, comparing NAMES not just length). `GADGETS` drifted
+   one row and twelve gadgets silently took the next one's behaviour, price and name.
+8. **Index-addressed tables are APPEND-ONLY.** `WEAPONS`, `SECONDARIES`,
+   `FACTION_BUILDS` — inserting a row silently re-arms every preset below it. Look guns
+   up by class (`weapon_index()`); the second four of every roster lives at the END of
+   `FACTION_BUILDS` (index 32+), never beside its own faction.
+9. **A field is only as real as its membership of the copy / compare / price / reset
+   set.** `gadget3` was wired into the enum, the kits, the buy screen, the HUD and
+   `_use_gadget`, and left out of `_copy_from`, `_same_as`, `cost()`, `adopt_kit` and
+   `uses()` — so it never existed at all (nothing reads a Loadout without duplicating
+   it first). `foregrip` was missing from the same set. `kit_rules` now checks copy
+   fidelity GENERICALLY off `get_property_list()` — naming fields is how this happened.
+10. **Physics interpolation makes teleports something you DECLARE.** Anything that
+    MOVES a body rather than letting it walk — respawn, spawn placement, corpse landing
+    — must call `reset_physics_interpolation()` or it is drawn smeared across the whole
+    distance for one frame.
+11. **Autoload signals + lambdas leak across scene changes.** Godot drops a connection
+    when its target object is freed; a lambda that never touches `self` has no target,
+    so a per-HUD lambda on `GameState.score_changed` fires into freed labels on the next
+    map. Connect a **method of the node**. `get_tree().process_frame` is the same trap
+    one signal further out — the SceneTree outlives every scene.
+12. **`metallic` is 0.0 on EVERYTHING** — every weapon part, every character `Finish`,
+    every prop, every deployable. It is a switch to leave off, not a value to tune.
+    Metallic takes albedo OUT of the diffuse and puts that energy into the reflection,
+    and under GL Compatibility the only thing to reflect is the sky — so a metallic
+    surface stops being its own colour and becomes a picture of the sky gradient. That
+    is what "the guns/characters look see-through" was, at 0.75, 0.45 and 0.30.
+    **A dielectric still shines**: low `roughness` + `metallic_specular` off the DIRECT
+    lights every map has. What separates steel from polymer is ALBEDO and ROUGHNESS —
+    steel is lighter albedo and low roughness, polymer dark and rough.
+13. **Decoration never collides.** Set dressing goes through `Props.batch()` (one
+    MultiMesh per prop TYPE). The cover layout is what a map PLAYS like and it is tuned;
+    anything meant to be shot around belongs in `cover_boxes`. It also keeps the map
+    screen and nav grid a clean read, since both scan colliders.
+14. **`GameState.match_live` gates the whole match** — false from map load until every
+    human has deployed and Main's `_tick_countdown` finishes. Add the check to anything
+    new that acts on its own, or it gets a free few seconds.
+15. **Anything that can be shot or shoved must be in `GameState.combatants`**, or it
+    won't block spawn markers and will re-trigger capsule-stacking ejection. Combatants
+    are **duck-typed, not a shared base class**: `is_alive()` / `team` / `take_damage()` /
+    `body_height()`.
+16. **Nothing may name a key or pad button in UI text.** Prompts go through
+    `Controls.label(device, id)` or they go stale on the first rebind. `label()` is
+    PLAYER-facing (device < 0 means keyboard) — use `pad_label()` when you mean the
+    `ALL_PADS` profile, which is also negative.
+17. **Measure, don't reason.** Engine `TIME_PROCESS`/`TIME_PHYSICS_PROCESS` monitors
+    ranged 14.6–27.1 ms across identical runs — use `Time.get_ticks_usec` or count
+    occurrences. Anything GPU-side needs an **A/B/A sandwich** plus warm-up, because the
+    laptop thermally throttles to roughly half clock and a straight sweep reports every
+    later option as more expensive.
 
 ## Architecture
 
-- **A UNIVERSE is a set of CLASSES, the SIDES they fight for, and (through those classes' allow-lists) which of the catalogue they can reach** (`Loadout.UNIVERSES`, `Loadout.Universe`, the UNIVERSE dropdown on the menu). STAR WARS, HALO and WARHAMMER 40,000. Nothing about the rules, modes, maps or shooting knows a universe exists: every weapon in every setting lives in the ONE `Weapon.Class` enum and every body in the ONE `CharacterModel.Style` enum, so a bolter is a hitscan with a heavy round and a Spartan is a table row. Every catalogue row states its universe and **no key means STAR WARS** (that is what the catalogue was before this existed); `ANY_UNIVERSE` is for the few rows that belong to nobody (`Gadget.NONE`). Halo fields UNSC and Covenant, Warhammer fields four sides — two chapters, Necrons and Orks — which is the first universe to fill all four team slots rather than wrapping.
-- **The universe enum lives in `Loadout`, not `GameState`, and `GameState` MIRRORS the choice into `Loadout.active_universe`.** `tests/kit_rules.gd` runs under `--script`, which has no autoloads, so Loadout may never name GameState. `Loadout.ttk_health` is the same trick for the same reason. Both are pushed by GameState's property setters — and by `_init`, because a `var x := v` initialiser does not run its own setter.
-- **The allow-lists check the universe FIRST, derived from the KIT rather than read off the setting** (`Loadout._allows_entry`): a weapon is legal for a class only if it comes from that class's own universe, and the class is right there on the build being checked. Only `Row.KIT` reads `active_universe`, because it is the row that chooses which universe's class you are on — and it is WALKED, not clamped, or a step off the last Star Wars class would land on a Spartan. Faction rosters (`FACTION_ROSTERS`) are keyed by universe; AI presets are not, because a preset's universe is derivable from the class it names (`universe_builds`).
-- **A gadget from another universe is usually not a new MECHANISM, it is the same verb in different words**, so a GADGETS row may carry `"like"` naming the gadget whose behaviour it uses (`Loadout.gadget_action`). A bubble shield, an iron halo and a kustom force field are three catalogue rows and one barrier. Everything that ACTS on a gadget resolves the action first — `Player._use_gadget` switches on it, `Player.has_gadget`/`slot_of` compare on it, `Bot` asks `loadout.uses(action)` — while the HUD still NAMES what was actually bought. A gadget with no `"like"` is its own behaviour and has a case in `_use_gadget`.
-- **Faction and AI presets name their gun by CLASS (`"primary"`/`"sidearm"`), not by index.** `WEAPONS` grew by forty rows; the old numeric `weapon:`/`secondary:` form silently re-arms every preset below anything inserted, which is why `_build_from` translates the named keys through `weapon_index`/`secondary_index`. The original Star Wars presets still use indices — nothing had to be re-counted to add this.
-- **TIME TO KILL is a multiplier on HEALTH and nothing else** (`GameState.ttk`, `TTK_HEALTH`, applied in `Loadout.max_health()` — the one function Player, `Bot.setup` and the bot heal ceiling all already go through). REALISTIC/LOW/MEDIUM/HIGH = x0.35/0.65/1.0/1.6, and MEDIUM is exactly the game as it was. Scaling DAMAGE instead would mean touching every gun, every splash, every melee swing and the guard's block pool, and any one missed becomes the best weapon in the game. `tests/universe_match.tscn` deploys a real match at each setting and reads the health the body actually spawned with.
-- **`GameState.team_names`/`team_colors` are vars, not constants**: who the sides ARE comes from the universe. Every call site still indexes an array of four.
-- **A melee weapon's LOOK is six profile keys** (`blade_core`, `blade_glow`, `blade_len`, `blade_width`, `blade_energy`, `hilt_len` — `Weapon.melee_look()`), read by BOTH the first-person viewmodel and the third-person model, so a lightsaber, an energy sword, a chainsword and a thunder hammer are one builder and four rows. `blade_energy` 0 is a METAL weapon: the core stops emitting but the aura does not, which is the whole difference between a chainsword and a power sword. A blade wider than `BLADE_HEAD_WIDTH` builds as a boxed HEAD, and its power field goes on the STRIKING FACE only — an additive shell wrapped round a hammer head covers every pixel of it and turns a lump of metal into a glowing brick.
-- **`CharacterModel` REMEMBERS its render layer (`set_render_layers`) rather than being stamped from outside once.** The model now rebuilds itself in two places — a style change and a melee swap — and fresh `MeshInstance3D`s default to the shared layer, so a player who stamped at spawn saw its own third-person blade hanging in front of its camera the first time it drew one. Exactly the trap `Viewmodel.view_layer` exists to avoid, one node further out.
-- `godot/scenes/menu.tscn` (`scripts/menu.gd`) is the **main scene**: MAP, GAME MODE, VICTORY and every match setting are labelled `OptionButton` dropdowns, over a START. START goes to `team_select.tscn` (each player picks a side) and from there to `main.tscn` — except FREE FOR ALL, which skips team-select (every player is already their own team) and drops straight into the match. Navigation uses the built-in `ui_*` actions so any joypad or the keyboard drives it.
-- `GameState.match_live` gates the whole match: it is false from map load until every human has deployed and Main's `_tick_countdown` finishes, and Player/Bot/Turret all check it before moving or firing. Add the check to anything new that acts on its own, or it will get a free few seconds while everyone else is held.
-- `GameState.mode` picks the rules: DEATHMATCH scores on `add_frag`, ZONES on `add_zone_tick`, both funnelling into `_award` with a per-mode `score_limit()`. ROYALE is not scored at all — nobody respawns, `check_last_standing()` awards the one point when a single side is the only one with anybody alive, and `Player.begin_deploy` skips the buy screen entirely because there is nothing to buy.
-- **CONQUEST is the Battlefront mode**: two sides fight over CAPTURE POSTS (`command_post.gd`) laid across the map by `conquest.gd`, and you DEPLOY on a post your side holds, chosen in the DEPLOY POST box on whichever deploy screen is up (`Player._step_spawn_post` owns the pick, `_conquest_spawn_transform` places you). `score_limit()` is the REINFORCEMENT pool per side: `report_death` (every die path) spends one, and `conquest_bleed` (the manager, on its own clock) drains the side holding fewer posts by the deficit; the side that hits zero loses (`_conquest_defeat`). `scores` mirrors `tickets` so the scoreboard needs no special case. The Super Battle Droid's wrist cannon is reached with `Loadout.primary_override` (a Weapon.Class that beats the WEAPONS lookup) so a faction-only gun needs no WEAPONS row and shifts no index. `tests/conquest.tscn` covers capture, tickets, defeat, the spawn transform and Conquest played on the BUY screen.
-- **Melee connects on a forward ARC, not a pinpoint ray** (`Weapon._melee_strike`, used by any `is_melee()` weapon): a swing hits the NEAREST enemy inside `range` and inside `MELEE_ARC` (50°) with no wall between, so a blade or staff lands at the point-blank range it fights at instead of demanding the crosshair be dead on a moving target. No headshots on a swing. Both the saber and the staff use it.
-- **The ELECTROSTAFF (`Weapon.Class.STAFF`) is the saber's mechanism with a different LOOK**: a melee hitscan (`range` 4.3 m, `damage` 78 — a hit has to be worth closing under fire) with `melee`+`staff` flags, so it needs no new code path and raises the SAME guard. `staff` routes `viewmodel._build_staff` — a dark segmented pole on the saber's swing pivot (so the swing/parry animation is unchanged) with a `_staff_emitter` at each end: a metal collar, a splayed prong fork, a slim VIOLET core, and small purple LIGHTNING arcs that re-jag every frame (`_crackle_staff`, built from a fixed segment pool like `lightning_arc.gd` — the IG-100 look, not the saber's blue). The arcs are on the first-person viewmodel only (one viewport); third-person carries static violet tips. The off-hand `_shield` the guard raises is the **BX commando-droid shield** (`_build_shield`): an elongated pointed hexagon of yellow panels in a grey frame with radiating ribs and an emitter hub, layered by z AND `render_priority` so the transparent panels sort right. Third-person, `CharacterModel.set_melee(on, staff)` shows `_staff_parts` (the pole, violet tips) instead of `_saber_parts`. The Magna Guard reaches it via `Loadout.primary_override`, like the wrist cannon.
-- **The SCAN DART (`Gadget.SCAN_DART`, `scan_dart.gd`) is a team-wide, wall-piercing reveal**: it flies like the rocket, STICKS on impact, and every `SCAN_INTERVAL` marks enemies within `SCAN_RADIUS` into `GameState.scanned` (body → team+expiry) for the thrower's team. `Main._draw_scan` is a per-viewport overlay — the same teammates-only discipline as the thermal read and the map — that boxes scanned enemies THROUGH walls (no line-of-sight check; a scan is a ping). Cleared on death/respawn via `unregister_combatant` and `reset_match`. No `"kit"` key, so the allow-list keeps it Clone-ARC-only in the factions but a scanner off the ground still works for a royale trooper.
-- **WHERE YOUR GEAR COMES FROM IS A SETTING, NOT THE MODE** (`GameState.class_mode`, the CLASSES dropdown on the menu, `faction_classes()` is the one question everything asks). CUSTOM opens the BUY SCREEN; FACTION opens the CHARACTER SELECT (`spawn_screen.gd`) and deploys one of your side's four authored classes off `Loadout.FACTION_ROSTERS` (Republic 0-3, Separatist 4-7; a third or fourth side WRAPS onto those until it has a roster of its own). Both work in EVERY mode — faction classes in deathmatch, shopping in Conquest — because "Conquest has no buy screen" and "deathmatch has one" were never the same decision as the rules those modes play by. Selecting a mode SEEDS the setting (`default_class_mode`: Conquest opens on faction) and the player overrides it. ROYALE always answers false: it is neither a shop nor a roster, it is scavenging. Bots follow the same switch, so faction bots turn up wherever faction humans do.
-- **The two deploy screens are ONE mechanic** (`scripts/box_screen.gd`, `class_name BoxScreen`, all static): a grid of bordered boxes with a free cursor over them, the box under the cursor in the player's colour, accept to open (which fills it and gives you a caret inside), back to close, accept on SPAWN to deploy. Both the buy screen (`Main._build_buy_screen`) and the character select build themselves out of it, so "the character select looks just like the buy screen" is true by construction rather than by two files agreeing. It also means the cursor opens on SPAWN, closed, on BOTH screens — the safety property the buy screen was rebuilt for (a stick still held on the death frame must not re-roll your build) now covers the class pick too. `tests/character_select.tscn` drives it, `tests/select_look.tscn` renders it beside `tests/buy_look.tscn`.
-- The character select and the buy screen index the SAME `Player.buy_box` field from DIFFERENT box tables (`PICK_CLASS_BOX`/`PICK_POST_BOX`/`PICK_SPAWN_BOX` vs `Loadout.BUY_BOXES` + `SPAWN_BOX` + `POST_BOX`). They are never up at once and each input handler only ever uses its own set — but `_enter_buy_screen` has to open on the right one, which is why it branches on `faction_classes()`.
-- **A CommandPost's ownership field is `owner_team`, NOT `owner`** — `Node.owner` is the built-in scene-owner and unrelated; `GameState.owned_posts` reads `owner_team`. Capture is Zone's head-count (most living combatants inside, ties freeze it) run toward a flip over `CAPTURE_TIME`; home posts start owned, the rest neutral. It only captures while `match_live`.
-- **A blurb formats itself (`GameState.mode_blurb()`), because the argument count is part of the blurb.** ROYALE's line takes no `%` arguments where DEATHMATCH takes one and ZONES two; the menu used to guess, so picking BATTLE ROYALE raised "not all arguments converted" — and a GDScript error aborts the whole enclosing function, which for the menu's single `_refresh_all` closure meant every chip on the screen stopped updating. The mode looked broken when the formatting was. Never `%` a table entry at the call site.
-- Royale gear is all `Pickup` (`scripts/pickup.gd`): every item is expressed as a change to the player's LOADOUT which is then re-applied, so a rifle found on the ground behaves exactly like a bought one across the weapon swap and the rotary toggle with no second code path. Counted items (grenades, medkits) are re-added AFTER the re-apply, which resets them. Bots never collect: they deploy with a full preset already, so letting them hoover the map would strip the gear humans rely on finding.
-- Standing on a crate does NOT take it — walking over a pistol and losing the rifle you were carrying is exactly what auto-pickup costs you. A crate advertises itself through `Player.pickup_in_reach` and waits for the rebindable `interact` control (E / d-pad left). The press is published as `Player.pickup_pressed` and cleared by whichever crate acts on it, rather than each crate reading the input edge itself: an edge is consumed by whoever reads it first, so with overlapping crates only one would ever see it.
-- Nothing respawns in royale, and "the players are held down" is not enough: Main was still reinforcing team-fill AI on `_on_team_bot_lost`, so the bots kept coming back while the humans stayed dead and the last side standing could never be decided. Anything that replaces a body needs a ROYALE early-out.
-- `Storm` picks its next centre from INSIDE the current circle, never from anywhere on the map — that is what makes moving early a bet rather than a certainty, and stops every round becoming the same race. Its damage rises per phase so a late ring can break a stalemate. Note when testing it: forcing `radius` while it is mid-close is pointless, since `_physics_process` lerps the radius every frame and overwrites you — set `_closing = false` and a long `_left` first. `scripts/zone.gd` owns the capture area; it counts `GameState.combatants`, so bots and turrets hold ground too, and Bot's `_patrol_goal` heads for `GameState.zone_point` when one is active.
-- The zone places itself on the first PHYSICS frame, not in `_ready`: its placement raycast needs the level's colliders, which are not in the physics world yet during `_ready`, so every area silently landed on the fallback spot.
-- With 3+ teams `place_corner_spawns` REPLACES the map's authored spawns, giving every side its own corner: maps only author two sets of markers, so the extra sides would otherwise share somebody else's start, which in a free-for-all means spawning on an enemy. Two-team layouts are left alone — they are hand-placed. Ground height comes from the level's own `height_at`, because colliders are not in the physics world yet when it runs and a raycast would find nothing.
-- **`height_at()` is the ANALYTIC surface; what you actually collide with is a heightfield MESH sampled on a coarse grid, and across a hollow its flat triangles sit ABOVE the curve they approximate.** So anything placed at exactly `height_at` starts INSIDE the ground and cannot get out — that is the "characters caught in the ground" symptom. Spawn markers get `GameState.SPAWN_LIFT` and crates a similar nudge, then drop the last step. The lift has to exceed the worst grid-cell sag, so it scales with the map's `CELL`, not with the body.
-- **A team is just an index**, 0..`active_teams()-1`, so a match can be 2, 3 or 4 sides or FREE FOR ALL (one team per player, no AI fill). `TEAM_NAMES`/`TEAM_COLORS` are arrays, so every `TEAM_COLORS[team]` lookup kept working unchanged; `Team.REPUBLIC`/`Team.CIS` are still 0 and 1 so maps naming them are untouched. Maps only ever author two sets of spawn markers, so `_spawn_list` pools every marker for the teams beyond those.
-- Aim assist (`Player._assist_*`) only ever changes where the VIEW points — slowdown near a target plus a nudge — and never bends a shot. The nudge is gated on stick input: assist that keeps working while you hold still is an aimbot. Strength is PER PLAYER (`Controls.aim_assist_strength`, cached in `Player._assist_mult` and refreshed by `refresh_settings()`): it scales the pull and the slowdown, and 0 turns assist off for that one player even while the match has it on — the global `GameState.aim_assist` still gates whether anyone gets it.
-- **A bot in contact ALTERNATES between digging in and circling** (`Bot._update_post`). It used to circle for as long as the fight lasted, which reads as a body that cannot keep still and is also bad soldiering — the whole reason to stop advancing is to shoot from somewhere. It now POSTS UP: plants, drops to `crouch_idle` and fires from there for `POST_TIME`, then breaks and circles for `ROVE_TIME` before posting again, flipping its strafe direction each time so it never steps back into the line it was just shot from. Measured over a 4v4: bots are in contact 79% of the time and dug in for 59% of it, and still trade kills normally.
-- **Posting has to COST something as well as pay.** Crouched, a bot's own aim wobble tightens (`POST_STEADY`) exactly as a crouched player's cone does — that is what makes it a tactic rather than an animation — and its capsule shrinks to `CROUCH_HEIGHT` on the same eased curve the player's uses, so what a shot has to hit matches what is on screen. Without the second half the crouch would be a free accuracy bonus paid for by nothing.
-- A bought squadmate is LEASHED to its owner (`Bot._leashed`): it only engages what is near them, and gives ground rather than chasing past `LEASH`. That limits where it walks, not what it fights. Team-fill AI have no owner and roam freely.
-- Match setup (`human_players`, `team_size`, `team_count`/`free_for_all`, `ai_skill`, `aim_assist`) lives on GameState and is chosen on the menu. Main builds one viewport per human, assigns teams via `GameState.team_for_player`, and fills both sides to `team_size` with ownerless Bots that DO respawn (a player's bought squad does not).
-- `godot/scenes/main.tscn` is a bare `Main` node; `scripts/main.gd` does the work: instantiates the current map from `GameState.MAPS[map_index].scene`, builds the 2×2 SubViewport grid, assigns 2v2 teams, spawns players at their team's spawn points, tints characters per team, builds per-viewport HUDs (scoreboard + victory banner), and on `GameState.match_won` either rotates to the next map (`rotate_maps`) or returns to the menu.
-- The MAP screen (`scripts/map_view.gd`, one per viewport) draws the level top-down with your squad on it. It shows TEAMMATES only — a live enemy tracker on a shared screen would end the game. What it draws of the level is SCANNED, not authored: `GameState.scan_map_geometry()` flattens every world-layer box collider to a footprint at match start, so a new map appears on it for free (including the hand-authored hangar). Arena declares exact bounds; anything else falls back to the scanned extents.
-- Opening the map STOPS you moving and repurposes movement to steer a cursor — reading the map is a commitment, not a glance. That cursor is also the mortar's aiming surface: the MORTAR gadget is placed like a turret but never picks its own targets, and the fire control marks the barrage. Placing the tube opens the map immediately (an unaimed tube does nothing, and the map is the only place to aim it); picking it back up does not.
-- Once marked, the tube shells that spot INDEFINITELY on a `BURST_TIME`/`REST_TIME` cycle (5s on, 5s off) until re-aimed, picked up or destroyed. Shells solve their own ballistic arc (`mortar_shell.gd`) so a barrage lands where the cursor was at any range, and detonate on first contact. Apex scales with the SQUARE of hang time, so the flight-time constants are the arc-height dial: at 57m it peaks ~23m up.
-- **Re-aiming restarts the burst**, which is what a player wants (a fresh mark pays off immediately) and what silently broke the AI: a bot re-aiming every `BURST_TIME` landed in the middle of every rest phase and cancelled it, so AI mortars fired continuously and never rested — 1499 damage on a stationary target in 16s against the ~1000 the cycle can produce. `Bot.MORTAR_REAIM` is therefore derived from the tube's FULL cycle, not its burst.
-- A shell needs an `ARM_TIME` before its impact ray goes live: a steep lob leaves the tube travelling almost straight up, right past whoever just placed it, and would otherwise detonate on their head on the first frame.
-- **Bots fire the mortar too** (`Bot._call_mortar_strike`), but a bot has no map, so its knowledge gate is its OWN target: it only shells somewhere it has actually seen an enemy, never the whole level. It aims at the centroid of the group that target is standing in, so artillery punishes a bunched push rather than chasing one runner. Placement is gated exactly like the turret (near the patrol goal, or on contact), which is what keeps it mode-agnostic.
-- **Friendly fire is tested on `team`, not on `attacker is Player`.** `Player.take_damage` used to let a friendly BOT through, which was harmless while the only AI weapon was a rifle aimed at enemies — AI artillery drops splash on an area with your own side standing in it, and that is when it started to matter.
-- `scripts/game_state.gd` — autoload `GameState`: the map roster (`MAPS`), **team-deathmatch** score (`add_frag`, `SCORE_LIMIT`, `match_won`), team names/colours, spawn-point registry (per team), `map_index` rotation, and a `Controls.ensure_loaded()` in `_init` to bring the bindings up.
-- `scripts/controls.gd` (`class_name Controls`, all static — no autoload, so it works from `GameState._init`) owns every binding, and `scripts/settings.gd` + `scenes/settings.tscn` is the CONTROLS screen off the menu. The keyboard half is applied to the InputMap as the `kb_<id>` actions the game already asks for, so a key rebind is just rewriting that action. The pad half **cannot** work that way — an InputMap action is device-wide and four players are on four pads — so pad input stays polled per device: `Controls.held(device, id)`. Pad bindings are stored per device with `ALL_PADS` (-1) as the profile a pad falls back to, which makes "rebind every pad" and "rebind player 3's pad" one mechanism. Saved to `user://controls.cfg`.
-- **Player 1's pad is the house layout.** `Controls.bindings_for` falls back device-own → PLAYER 1 → ALL_PADS → default, so a rebind on P1 is inherited by pads 2-4 automatically — four pads at a couch are four copies of one controller, and asking each player to repeat the same rebind is asking four times for one decision. A pad given its OWN binding still keeps it (and `has_override` still only reports that own binding, so the settings screen's per-pad marks are unchanged). `tests/controls_inherit.gd` covers it — and SNAPSHOTS user://controls.cfg first, because every mutating Controls call SAVES: an earlier version wiped a real rebind off a real machine.
-- **The in-game START overlay (`scripts/settings_overlay.gd`, one per viewport) is PER PLAYER, not a pause.** START (pad) / ESC (keyboard) opens it over that player's own screen while the other three keep playing; the opener stands still like the map screen (`Player.settings_open`), so reading it is a real commitment. It edits LOOK SENSITIVITY and AIM ASSIST strength (per-device, in `Controls._settings`) and rebinds any button in place, and it stores/loads whole configs under a CUSTOM NAME (`Controls` profiles: sensitivity + assist + that device's bindings, keyed by name, loadable onto whatever device a player is on next match). It is driven by polling THIS player's own device (like the buy screen) plus `_input` for the rebind capture and the keyboard name typing — verified that `_input` DOES reach a node inside a SubViewport, both keys and pad. START is reserved for it: neither rebind screen will bind START (both cancel a listen on it), so it can never collide with a gameplay control. `tests/settings_overlay.tscn` drives the whole state machine and snapshots user://controls.cfg like the inherit test.
-- **The game is PAD-FIRST: Main puts every player on a joypad (`input_device = i`, P1..P4 = pads 0..3) and the keyboard is only a fallback that still works.** Two things that has to buy, both of which Godot does not give you: (1) the engine ships joypad events on `ui_up/down/left/right` and on **nothing else**, so out of the box a pad moves the menu's focus and then cannot press what it landed on — `Controls.apply_ui_pad()` adds A/B to `ui_accept`/`ui_cancel` with `device = -1` (ALL devices, or only player 1's pad could work the menu); and (2) a rebind listen swallows every input so it can capture any button, which traps a keyboardless player in the row they opened, so START always cancels and BACK clears a pad's override, and neither is bindable. The CONTROLS screen also opens on ALL PADS rather than the keyboard.
-- **Godot's geometric focus search is not good enough for a laid-out menu, and `menu.gd` is the proof**: from the 400x200 MAP box, RIGHT landed on TEAM SIZE two rows down and the MODE box directly beside it took four presses to reach. `_wire_focus` states all four neighbours from the row table instead, wrapping in every direction (a press that appears to do nothing reads as a hung menu) and crossing rows by POSITION IN THE ROW, which needs no layout — nothing has been sized yet when it runs.
-- Two traps in that split: `Controls.label(device, id)` is PLAYER-facing, where device < 0 means the keyboard — use `pad_label()` when you mean the `ALL_PADS` profile, which is also negative. And nothing may name a key or a pad button in UI text: prompts go through `Controls.label` (see `Player.deploy_button_name`, `Loadout.row_blurb`'s `device` argument) or they go stale on the first rebind.
-- `DisplayServer.keyboard_get_keycode_from_physical` errors on every call under `--headless`. To print a physical key, build an `InputEventKey` and use `as_text_physical_keycode()` — it does the same layout translation and stays quiet with no display server.
-- **`ConcavePolygonShape3D.backface_collision` defaults to false, and the side it keeps is not the side the surface normals face.** A generated terrain collider silently lets everything walk straight through it with no error anywhere — `map_highridge.gd` sets it true (which terrain wants regardless: it also stops anything launched under the map drifting up through the hill). Symptom to recognise: the collider exists with the right face count and y-range, and rays still pass through.
-- A heightfield is a ONE-SIDED skin over a hollow interior, so any camera that gets under it (the tunnel, the cutting) sees the mountain vanish and the props sitting on it float in mid-air. `terrain_ground.gdshader` is `cull_disabled` with a `FRONT_FACING` branch that paints the underside as cave rock — and note Godot forbids an early `return` in `fragment`, so that branch is a branchless select. The tunnel also has a real slab ceiling rather than relying on the mountain's underside.
-- Two traps when generating terrain, both found the hard way on Highridge: (1) a `PlaneMesh`'s UVs run 0..1 across the WHOLE plane, so a noise shader shared with a world-UV mesh renders the entire ground as one flat wash of colour unless it's told the map size; (2) skipping skin cells below a height cutoff leaves the terrain's leading edge as a lip hanging above the base plane, and players walk UNDER the mountain instead of up it — emit from the first raised corner so the skin's outer edge sits exactly on y=0.
-- `scripts/map_highridge.gd` is the terrain map: `height_at()` is the single source of truth for the mesh, its trimesh collider, and every prop that sits on the ground. The walkable-slope guarantee is arithmetic, not luck — a smoothstep falloff's gradient peaks at `1.5 * HILL_HEIGHT / (HILL_RADIUS - PLATEAU_RADIUS)`, so those constants (plus a tiny `ROLL` and a `LOBE` that varies how far the slope REACHES rather than how tall it is — varying the height leaves the flat plateau standing proud of its own flanks, which measured 60 degrees) keep the steepest face near 27 degrees.
-- Every procedural map gives itself an identity by overriding `_build_environment`/`_build_lights`/`_floor_material` and dressing itself in `_decorate()` — a night landing zone, a foundry, a spillway, a desert fortress, an ice outpost, station corridors, a jungle basin. The two ground shaders are recolourable and cover most surfaces (`jungle_ground` is a three-tone noise blend, so it does sand and snow as readily as moss; `floor_panels` does any plated deck), which is why there are only two.
-- **Set dressing goes through `Props.batch()` and never collides.** One MultiMesh per prop TYPE, because on the Pi budget every mesh renders 4x plus a shadow pass and fifty loose MeshInstance3Ds would cost more than the map. Non-colliding is the important half: the cover layout is what a map PLAYS like and it is tuned, so decoration must never quietly become a wall — anything meant to be shot around belongs in `cover_boxes`. It also keeps the map screen a clean tactical read, since that scans colliders.
-- Two lighting traps, both measured: fog density that looks atmospheric in a screenshot buries the map (Foundry at 0.026 was a flat orange wash with the cover invisible from spawn — 0.010 works), and on a light-coloured map everything else must be painted genuinely DARK or cover, props and players all wash into the ground. Relay also shows the design version of that trap: it was given a blizzard, which cancelled the long sight lines that are the entire point of the map.
-- **The big maps are big in three different SHAPES, on purpose**: Geonosis is open ground you navigate by landmark, Kashyyyk (220 m) is groves-and-clearings where the trunks block the view and are real `cover_boxes`, Senate District (240 m) is a regular grid whose avenues are map-length sight lines, and Boneyard (260 m) is a scatter of enormous hulls whose GAPS are the map. Two things every one of them needs, both measured: fog at a FRACTION of a small map's (0.006 over 220 m was a flat green wash that buried the layout), and `directional_shadow_max_distance` pulled in to ~80 m — the atlas is capped project-wide and spreading it over a 260 m map cost all its depth precision, rendering the whole near ground solid black.
-- **THE GRADE (`scripts/grade.gd`, `class_name Grade`, all static) is how light is RENDERED, in one place.** A map builds its own environment and lights — the sky, the fog colour, where the sun is — because that IS the map's identity. But the response curve, the ambient model, the glow threshold and the shadow settings are not per-map decisions, and they had been copy-pasted into thirteen `_build_environment` overrides that then drifted. `Grade.apply_to(node, exposure)` runs OVER whatever was built (Arena calls it in `_ready`; the look tests call it so they photograph what ships). Five parts: **AgX tonemapping** (before it, anything brighter than white clipped — a pale cover box in daylight was a flat white silhouette); **sky-sourced ambient BLENDED with the map's own colour** at `SKY_AMBIENT` 0.3, never replacing it; **glow on an HDR threshold** with `glow_bloom` zeroed; **aerial perspective + height fog**; and a contrast/saturation pass, because AgX is deliberately flat. Per-map override: `grade_exposure`.
-- **Exposure was measured, not guessed.** AgX sits well below the Filmic curve these maps were lit under. Rendered at 1.15 / 1.6 / 2.0 against the darkest map (Crossfire at night) and the brightest (Overgrowth at noon), **1.6 is the only value where the night map's cover boxes stay readable AND the daylight map's pale cover keeps a face on it.**
-- **Two traps in the grade, both found by looking:** sky ambient at 0.55 took half the fill off every night map and put the cover boxes into unreadable black — a *gameplay* bug, hence the 0.3 minority share; and glow weighted toward the WIDE levels (1.0 at level 3) turned a muzzle flash lighting the floor into a white pool the size of the arena, because the lit ground crossed the HDR threshold and was then smeared across ten metres. The levels are weighted toward the SMALL end now — that is the difference between a halo and a wash.
-- **The starfield sky is GRADED, not black, and that is load-bearing rather than decorative.** The grade sources part of its ambient from the sky, so whatever the shader paints is what lights the shadow side of everything on a night map — a black sky contributes black, which is the actual source of the documented "metals render pitch dark" gotcha. It now runs zenith → horizon with a tight band at the skyline.
-- **MSAA is set on the SUBVIEWPORTS (`Main.MSAA`), not just in project.godot** — the project setting only reaches the root viewport, and the game never renders anything into that. It is worth more here than in most games: the scene is untextured flat-shaded boxes, so essentially all of its aliasing is geometric edges, which is exactly what MSAA fixes and what a post-process AA smears. Measured on a 4-viewport Kashyyyk match with vsync off (Intel UHD 620, uncapped): **off 12.03 ms, 2x 13.87, 4x 14.32, 8x 16.78 — 8x is over the 16.7 ms budget.** 2x ships as the conservative Pi default; note 4x costs almost nothing over 2x on that GPU, so it is the first dial to turn up if the Pi allows. `tests/render_cost.tscn` is the harness (it disables vsync itself — leave vsync on and every configuration measures at exactly the refresh rate, which reads as "no cost"). It is the only test that sees rendering at all: `tests/perf.tscn` runs headless, where the renderer does nothing.
-- **A surface's FINISH is most of what tells two materials apart** (`CharacterModel.Finish` — PLATE / CLOTH / METAL / HIDE). Everything used to come back at metallic 0 / roughness 0.75, so ceramic plate, a rubber undersuit and a gun barrel all caught light identically and a model read as one moulded piece. The metallic values are usable again *because* the sky is graded — the old "keep metallic under 0.15" rule existed because metal reflected a void. Every finish also carries `rim`, a fresnel term that brightens a surface as it turns away from the camera: on a box that lands as a bright line down every silhouette edge, which is **the cheapest available stand-in for a CHAMFER** — a real bevel would quadruple the triangle count of every body part, thirty boxes a character, four viewports, plus a shadow pass.
-- **A rifle is carried on the RIGHT SHOULDER, not flat across the chest** (`GUN_POS`/`GUN_ROT`). The old pose sat the weapon dead centre with no rotation, which put the receiver in the middle of the sternum and both arms in a symmetric hug — the most toy-like thing about the model. Nothing else had to change: `_hold()` solves both arms onto grip points in the WEAPON's own space, so moving the weapon carries the hands. **Tune it against the ARM EXTENSION the solve returns**, not by eye: at x 0.10 / z -0.235 the left arm came out at 94% of its length, and a two-bone IK at 94% is a straight arm that drags the shoulder up and gives every unit a hunch. Drawn in and yawed further across, the left sits at ~86% (bent elbow) and the right at ~52% (tucked at the trigger). `tests/guard_pose.tscn` still reports 0.00 mm hand-to-grip on every clip.
-- **`_carry()` carries the WEAPON's transform, not just the arms.** `_clip` keys the gun joint from the pose, so a pose that did not name the gun keyed it back to the origin unrotated — which put the weapon back in the middle of the chest on every frame of every clip the moment the carry stopped being centred.
-- **A muzzle flash is a REAL LIGHT** (`Weapon._muzzle_light`), built once and toggled, never allocated per shot — a repeater fires thirteen times a second. Shadows off, and it decays rather than switching off (a hard cut reads as a dropped frame). It is the best realism-per-line in the game: a shot that lights the wall beside you and the man you are shooting at reads as an explosion in a barrel, where an emissive sprite reads as a sticker — and it is the only dynamic light most of these maps ever get. A profile may state its own `flash` colour; plasma, gauss, tesla and needler families do. Rocket blasts get one too (rare, and everyone looks at them). Bolt IMPACTS deliberately do **not**: the bolt swells and fades using the node it already allocated, because a dynamic light per bullet impact is the one version of this the Pi cannot pay for.
-- **A style has THREE colours, not two** (`armor` / `dark` / `accent`, plus the team accent). Two tones was enough for a trooper in one palette, but a Spartan's gold visor, a Necron's green light and an ork's bare scrap metal are none of those — every one was being painted in the body colour and vanishing into it, which is why the non-Star-Wars units read as coloured blocks. `accent` defaults to `dark`, so a style with nothing to say says nothing.
-- **Silhouette accessories are what separate the factions**, not colour: `bigpauldron` (Astartes shoulders, standing clear of the arm and above the collar — the generic `pauldron` sits flush and merges into the torso, which is why a marine was a rectangle), `powerpack` with exhaust stacks, `aquila`, `tank` (the Unggoy methane bottle, bigger than the body carrying it), `ribs` (a Necron's exposed cage over a lit core), `scrap` and `shoulderplate` (ork armour, deliberately ASYMMETRIC — a matched pair reads as issued kit, which orks do not have), `collar`, `gauntlet`, `greaves`, `thighplate`. Two calibration notes from doing it: an accent "cap" on a pauldron must be a TRIM (0.03) not a lid (0.05), or the shoulder reads as a gold-topped crate; and a chest plate must stand PROUD of the team vest, not level with it, or the two are coplanar and the chest is one flat inset panel.
-- **Armour on the limbs is what stops a heavy unit reading top-heavy** — a Spartan or an Astartes with a slab of a chest on bare pipe-cleaner legs looks wrong however good the torso is. Measured after adding all of it: 11.8–13.3 ms a frame at 2x MSAA on a 4-viewport Kashyyyk match, which is inside the run-to-run noise of the same scene before it and well inside the 16.7 ms budget.
-- **The RUN clip carries the weapon ACROSS THE CHEST** (`RUN_GUN_POS` / `RUN_GUN_ROT`), not levelled. Nobody sprints with a rifle in the aim: it comes down and swings inboard. The big number is the YAW — at the standing carry's 20 degrees a running figure still reads as aiming, and it is only past about 55 that the weapon reads as stowed. It goes through `_hold` like every other pose, so both hands stay on the grips (`guard_pose` still reports 0.00 mm on the run clip) — a rifle needs two hands whatever the legs are doing, and arms swinging free beside a floating gun is worse than no sprint carry at all.
-- **The sprint carry shows in FIRST PERSON too** (`Viewmodel.sprinting`, set by `Player` through `Weapon.set_sprinting`). The third-person model already stowed the weapon while running, so everyone else could see a sprinting player lower their gun and the only person who could not was the one doing it. Same idea at a different scale: a first-person camera sits 30 cm from the receiver, so this drops the weapon out of the sight line and tips it inboard rather than swinging it 62 degrees. It rides ON TOP of the bob, the ADS slide and the recoil, so a stowed gun still moves with the stride. **The trigger cancels it**, and eases back twice as fast as it eases in — the weapon has to be up by the time you can shoot, or the first round of every engagement leaves a visibly stowed gun. A blade ignores it: melee has its own pose path and "not ready" means nothing for a sword.
-- **BOTS SPRINT, and until now they could not.** Their animation picked the run clip off a speed threshold of 3.9 m/s while their actual pace was `BASE_SPEED` 4.0 — so a bot flickered between walk and run at a standstill margin, and anything in plate or a heavy kit never reached the clip at all. Sprinting is a STATE now, exactly as it is for a player: `Bot._sprinting` is on while closing or patrolling and off the moment the bot is inside its own firing range, it multiplies speed by `SPRINT_MULT`, it picks the run clip, and — like a player — it DENIES the sights. So a bot that has broken cover now looks and behaves different from one that is posted.
-- **The upper body turns before the feet do** (`Player._update_torso_twist`, `CharacterModel.set_twist`). A `CharacterBody3D` yawing under a look input turns the whole body, feet included, so panning your aim while standing still pirouettes the model on the spot. The legs now keep a heading of their own (`_feet_yaw`) that the aim may lead by up to `TWIST_MAX`; the MODEL is counter-rotated back onto the feet and the model's own twist joint puts the chest back on the aim, netting to legs-where-the-feet-are and chest-where-the-crosshair-is. Moving, airborne or crouched, the feet catch up fast — a twist held through a walk cycle reads as a broken hip. Nothing about aiming, shooting or collision changes: `rotation.y` is still the body's true facing.
-- **The twist lives on its OWN joint (`Hips/Twist/Spine`), which no clip ever names.** Laying it on the Spine would put it in a fight with the AnimationPlayer, which rewrites every joint in `PATHS` every frame — the same trap already recorded for the crouch, where anything applied ON TOP of a clip survives only by process ordering. A joint the clips never touch cannot be clobbered and needs no ordering rule. Note this changed every path in `PATHS`, so anything reaching for `"Hips/Spine/..."` by string breaks (it did: `tests/guard_pose.gd` hung until it was moved onto `CharacterModel.PATHS`).
-- **Standing still, a body stands with its feet APART** (`CharacterModel._stance`, applied to the idle clip only — walk and run put the legs back under the body where they have to be to carry it). A splay is a roll at the hip, and **it has to drop the hips by what the splay costs in height** (`STANCE_HIP_DROP = LEG * (cos θ - 1)`) or the feet hang above the floor — the same rule, and the same fraction-of-LEG-not-HIP_Y trap, as the crouch. The ankle column of `tests/guard_pose.tscn` is what catches it.
-- **A round that lands leaves a mark** (`scripts/impact.gd`): a scorch on the surface, a brief flare and four sparks thrown along the bounce, oriented to the hit NORMAL so the scorch lies on the wall. Boxes and quads only — no particle system and no light, because this happens hundreds of times a second across four viewports. Capped at `IMPACTS_PER_SHOT` (a scattergun throws eight pellets and eight bursts on one wall is a mess), and spawned for WORLD hits only: a body already reports a hit three ways, and sparking off a chest reads as armour rather than flesh. Two things learned building it: `look_at_from_position`'s up vector must be perpendicular to the look axis, and the look axis here IS the normal — so `up` may be anything except the normal; and **a short-lived effect must clamp its own delta**, or a hitch hands it a whole second, ages it past its entire life and frees it before it is ever drawn. Judge these from gameplay distance — untextured, a quad is unavoidably a square, and a big one reads as a sticker.
-- **A look test must apply the grade**, or it photographs a lighting model the game does not ship — which is the whole failure mode a look test exists to catch. And it must PLAY an animation: a bare `CharacterModel` sits in its rest pose with both arms hanging, which is not a pose the game ever shows, and photographing it hid the fact that the carry was being judged from geometry alone.
-- Maps live in `godot/scenes/levels/`. All but the hangar are procedural: a map script `extends "res://scripts/arena.gd"` and overrides `_configure()` with a layout table (size/depth — leave `depth` 0 for square — cover, per-team spawns); `arena.gd` builds env/floor/walls/lights/cover and registers the spawns; a map can also override `_build_environment`/`_build_lights`/`_floor_material` (Overgrowth does, for daylight jungle) and add props in `_decorate()`. The hangar is a hand-authored `.tscn`. A map registers its per-team spawns in `_ready` (children ready before Main spawns players).
-- **A CHARACTER CLASS (`Loadout.Kit`) is a set of ALLOW-LISTS over the one catalogue, not a catalogue of its own.** CLONE / MANDALORIAN / FORCE / WOOKIEE all shop the same tables out of the same BUDGET; `KITS` states what each may reach (`gadgets`, `secondary_mods`, `armor`, `default_armor`, `gadget_slots`, `grenades`, optional `speed`/`health` multipliers, and optional `primaries`/`secondaries`/`sights`/`grenade_types` lists that mean ONLY those). A gun carrying a `"kit"` key in WEAPONS is that class's alone, so a kit with no `primaries` list still cannot take a lightsaber. Adding a gun or gadget is one table entry plus a decision about who may have it — never a parallel shop. `tests/kit_rules.gd` checks every rule and every AI preset against its own kit — and, per universe, that no class can reach a name from another one; run it after touching any of those tables. `tests/universe_match.tscn` boots a real match in every universe in both class modes, which is what catches a table that agrees with itself but cannot be played out of.
-- **All four catalogue allow-list rows share one rule** (`Loadout._allows_entry`, used by WEAPON/SECONDARY/SIGHT/GRENADE_TYPE): a `"kit"`-marked entry belongs to its owner alone and is always reachable by them (the saber, bowcaster, smoke, thermal holo — which is what lets a class keep its signature gear while shopping the ordinary catalogue); otherwise an optional per-kit list restricts to those, else anything ordinary goes. The only per-row difference is what a restrictive list matches on — a `Weapon.Class` for guns, a plain index for sights/grenades.
-- **Moving an item to a class takes it off everyone who already had it, INCLUDING the AI presets** — `kit_rules` is what says so, and it did: the Wookiee taking the T-21 made the clone GUNNER preset illegal (it now carries the Z-6), and taking the front shield did the same to SHOCK (rotary now). A `"kit"` key is a re-balance of the whole roster, not a label.
-- The WOOKIEE is the heavy: the T-21 HMG and the PLX-1 RPG are its primaries and nobody else's, the front shield is its gadget (a barrier in front of a rifleman is cover for a fire team; in front of a slow heavy it is the only way that heavy crosses open ground), plate or heavy plate only, x1.3 health and x0.9 speed. Its sidearm is the BOWCASTER and it carries nothing else — a hitscan with `pellets: 3`, which is the scattergun's mechanism and needed no new code. **Its kit forbids the SCOPE on the sidearm slot on purpose**: a scope means zero spread while aimed, and on a pellet weapon that collapses all three quarrels onto one point for 20 tokens.
-- The TRANDOSHAN is the skirmisher: a focused armoury (DC-15 rifle, A280 semi, Westar SMG, NT-242 sniper), fast (x1.15) and thin (x0.95), and the class that fights by not being where you shoot. It **owns SMOKE** (marked `"kit"` on the grenade type, so the default rule keeps every other kit off it) and the **THERMAL HOLO** sight (a `sights` allow-list is the only way to reach it) — the two are one idea: throw smoke, then read bodies inside it that nobody else can see. Its gadgets are CLOAK and DASH (the Force adept's `_dash` offered as a gadget, no `can_dash` needed).
-- **The thermal read is a per-viewport HUD overlay** (`Main._draw_thermal`), drawn only while that player aims a `has_thermal()` sight, so it is a scope they look through and never a shared tracker — the same teammates-only discipline the map screen keeps. It projects each enemy onto the player's own camera and boxes it, gated on a WORLD-layer raycast (mask 1): a wall blocks it, but smoke has no collider so a cloud does not — that is what makes it see through the class's own smoke.
-- **The CLOAK is invisibility to AI, a shimmer to humans.** `GameState.cloaked` is a set every AI vision check skips (`Bot`/`Turret._can_see`), exactly like `smokes` but per-body; the model fades to `CLOAK_ALPHA` via `CharacterModel.set_cloak` (safe because each character owns its own materials). It BREAKS on firing — the drop lives in `_on_weapon_fired`, which the wrist rocket routes through too — times out, and is cleared on death/respawn. Gotcha found in the writing: `_end_cloak` must guard on the cloaked STATE, not on `_cloak_left`, because the natural time-out decrements the timer to zero and *then* calls it — guarding on the timer made the cleanup skip itself and leave a permanent ghost in `GameState.cloaked` that no AI could ever see.
-- **`"kit"` gates the SHOP, and royale is not a shop.** An entry may carry `"royale": true` to stay in the crates anyway, for gear that is a class's by BALANCE rather than by mechanism — the heavy guns and the barrier work perfectly for a plain trooper, where a saber needs the guard and a Force power needs a button no class-free build has. `Pickup._grant` sets the field directly and never consults `allows`, which is what makes that work.
-- Changing class RESETS the build (`adopt_kit`) rather than converting it: half the selections would be illegal, and silently rewriting six rows under someone who nudged one is worse than starting clean. It also guarantees the result is inside BUDGET without a second pass.
-- Rows a kit does not have are HIDDEN, and the buy cursor skips them (`row_available` / `next_row`), because four players shop at once on one screen and a line you cannot move reads as a broken game. The sight/cooling/grip rows also vanish for a melee primary — they would otherwise sell a Force adept 65 tokens of nothing.
-- **`Row.KIT` was added at index 0, and the row_* functions fall through to `_upgrade_index` (`row - Row.COOLING`) for anything they do not name** — so a new row above COOLING without a case computes a NEGATIVE array index instead of failing where the mistake is. That function now asserts.
-- **Every class has TWO gadget slots, each with its OWN rebindable control.** Slot 0 is the GADGET 1 control (`gadget`, default pad X); slot 1 is the GADGET 2 control (`grenade`, keyboard G, default pad LB). Both are ordinary bindings now — `grenade` is `pad: true` in `Controls.ACTIONS`, so the settings screen configures the two slots independently per pad, and `Player._slot1_held`/`_slot1_pressed` just go through `Controls.held`/`_edge` like slot 0. (The old fixed LB+RB chord is gone.) If slot 1 is empty and the kit `can_dash`, that control is the dash. Anything reading a gadget must ask BOTH slots (`Player.has_gadget` / `slot_of`).
-- The MANDALORIAN's WRIST ROCKET (`Player._fire_wrist_rocket`) reuses the RPG's projectile whole — `rocket.gd` already flies, arms, splashes and credits its shooter — so it is a launch site and three numbers, not a second weapon. It launches from the HEAD, not the weapon anchor, so it fires exactly at the crosshair without lowering whatever gun is in hand (the point of it being on your wrist), and started 0.6 m ahead so it clears the shooter's own capsule. It is weaker than the RPG on purpose: a 7 s-cooldown gadget must not out-damage a 110-token primary. Bots fire it (`_fire_wrist_rocket_if_useful`) gated on range so an AI never splashes itself. Like the jetpack and cable it carries no `"kit"` key — the allow-list keeps it Mandalorian-only, and a rocket off the ground works fine for a class-free royale trooper.
-- The LIGHTSABER is an ordinary hitscan with a 3.4 m `range` and a `melee` flag, so it needs no new code path — it simply cannot reach. Aim does not zoom it; aim raises the GUARD (`Player.guard_up`), a pool that pays `BLOCK_COST` per point of damage stopped, only inside `BLOCK_ARC` in front, and BREAKS at zero until it recovers past `BLOCK_RECOVER_AT` (without that hysteresis a pool that refills to a sliver flickers the block on and off under fire). **The block is CONTINUOUS: hold the button and every round in front is stopped OUTRIGHT until the pool is spent.** The pool is a damage budget and nothing else — holding the guard costs no time (it used to drain 0.14/s, so a guard raised early was gone before the shooting started) and a hit is never split between the blade and your chest (the shot that empties the guard is still fully stopped; the NEXT one hurts). Both of those made a raised guard feel like it was randomly not working. Bots read `Weapon.max_range()` so a saber bot advances instead of holding at its tier's stand-off and swinging at air.
-- **The guard has to be VISIBLE, because everything else about it is a number.** The arc, the pool and the break are all invisible, so blocking is sold three ways: the first-person blade comes up across the right of the frame (never over the crosshair — it is a metre of solid white and would blind you exactly when you are being shot), a `parry()` knock-and-flare raised inside `_absorb_with_guard` (the one place that knows the block was actually paid for, same rule as the hit marker), and a third-person stance with the blade held vertical where the carry holds it flat. `tests/guard_block.tscn` proves the mechanic and `tests/guard_look.tscn` renders both viewpoints to PNGs — it must run WINDOWED (`--display-driver x11`), since appearance is the thing being judged.
-- **A third-person weapon that is only a blaster made the guard unreadable.** `CharacterModel.set_melee` swaps the held blaster for a lit blade on the same `HeldGun` joint, so the solved carry/guard IK is unchanged; Player calls it from `_announce_hand` (every swap, not just deploy) and Bot from `setup`. Before it, a Force adept charging you looked like a trooper standing oddly.
-- **A viewmodel's render layer must be re-applied on every REBUILD.** `Player._ready` stamped `mi.layers` on the meshes that existed at the time — which is none, since the gun is built by the `set_class` on the next line and again on every swap — so every rebuilt viewmodel sat on the shared layer and the other three players saw this one's first-person weapon floating at its face. Weapon carries the bit (`set_view_layer`) and `Viewmodel.configure` re-stamps it. A small dark rifle overlapping the third-person one is why it went unseen for so long; a lit blade is not subtle.
-- **Shoving somebody else is the hard part of the force powers.** A Bot writes its own velocity every physics frame and a Player rewrites `velocity.x/z` from the stick, so anything added to `velocity` is gone before it renders — the same trap as `kick_back` and the cable vault. Both expose `apply_impulse` and carry a decaying shove of their own; `ForcePowers` (static, shared by Player and Bot) calls it. A turret is bolted down and correctly has no such method.
-- **A combatant's origin is at its FEET, so any line traced between two of them grazes the ground and reports cover that is not there.** `ForcePowers` lifts both ends (`_eye`/`_torso`); the pull had been tracing feet-to-feet since it was written and FORCE LIGHTNING, which inherited it, is what found it — on a flat floor it hit nobody at any range.
-- FORCE LIGHTNING is the class's only ranged damage and the only power that kills. It is CHANNELLED — hold the button and it pours for `CHANNEL_TIME`, biting every `CHANNEL_TICK` and re-acquiring the cone on every bite, so a target that ducks behind cover cuts the stream and following them with the crosshair is the skill. The cooldown is charged when the channel ENDS, in proportion to how much was spent (a tap costs a quarter, a full hold the lot), which is the pull's "a miss should not lock the class out" rule made continuous. Player runs the channel in `_update_lightning_channel`; a Bot has to channel too (`_channel_left`/`_zap_once`) or its lightning is a single scratch. Each bite arcs to the bodies nearest THAT target, not nearest the caster, so it punishes a bunched group like the mortar does: up to `BOLT_CHAINS` jumps of `BOLT_CHAIN_RANGE`, each at `BOLT_CHAIN_FALLOFF` of the last and each re-checking sight from the previous victim. **The jump range is what decides whether it reads as chain lightning at all** — at 7 m it only ever caught enemies practically touching, so most bolts looked single-target; 9 m is what makes the chain something you see. `scripts/lightning_arc.gd` draws it from a FIXED pool of segments allocated once and only repositioned — the obvious ImmediateMesh rebuild allocates every frame, four viewports deep.
-- The jetpack always refilled on the ground but never told the HUD, so the gauge sat where it was when you landed and only jumped back on the next thrust — which reads exactly like a pack that does not recharge. Push a readout on BOTH the burn and the refill path.
-- `scripts/loadout.gd` (`class_name Loadout`) — the buy catalogue AND one player's selections: weapons with prices, upgrades, armour frames (health vs speed/jump), grenades and health kits, all inside `BUDGET` (200/life, not earned or banked). `step()` applies a change only if it stays in budget, and the `row_*` helpers render the screen, so the whole balance surface is this one file.
-- **Primary and sidearm have SEPARATE modification slots.** SIGHT/COOLING/GRIP fit the primary only (`primary_mods()`); the sidearm gets one pick from `SECONDARY_MODS` (`secondary_mods()`). `mods_for(on_secondary)` picks the right set, and everything that calls `Weapon.set_class` must go through it — passing the primary's mods to the sidearm is the bug this split exists to prevent. The SECONDARY row itself is kit-gated too now (`allows` has a `Row.SECONDARY` case and `_step_unchecked` WALKS it rather than clamping, or anyone could step onto the bowcaster), and `adopt_kit` seeds the sidearm with `_first_allowed` — a kit left holding an illegal row 0 is one the buy cursor cannot step off, because every direction from it is refused.
-- DUAL WIELD is the sidearm mod that changes how the gun is CARRIED, not how it shoots, so it contributes no profile flags. It puts a second Weapon node (`Head/WeaponOff`, always in the scene, hidden unless active) in the off hand: the fire control drives the right gun, the AIM control drives the left, and holding both fires both. ADS is suppressed while it's up — two guns and no sights is the trade. `dual_active()` gates all of it, and `_refresh_offhand()` must be called anywhere the hands can change (deploy, swap, rotary toggle).
-- **`WEAPONS`/`SECONDARIES` are indexed by position, so inserting a gun shifts every `BOT_BUILDS` preset below it** — and silently changed what `starter()` handed every player until it was made to look the gun up by class (`weapon_index()`). Adding a gun means re-checking both.
-- **Grenades are GADGETS now, not a counted consumable** (`Gadget.GRENADE_FRAG/STICKY/SMOKE`, mapped to a `GrenadeType` by `Loadout.GRENADE_GADGETS`): you fit one in a gadget slot and it recharges on a cooldown — the recharge IS the ammo. `Player._use_gadget` throws the type; `Bot._throw_grenade_if_useful` gates on owning one. SMOKE carries a `"kit": Kit.TRANDOSHAN` key, so only the Trandoshan may fit it. The projectile behaviours are unchanged: FRAG bounces and splashes; STICKY collides with BODIES too (mask 3, not 1) and rides whoever it stuck to (never `_thrower`); SMOKE leaves a sightblocking cloud.
-- **Health regenerates passively — there are no health kits.** `Player._update_regen` / `Bot._regen_if_calm` heal `REGEN_RATE`/s back to full once `REGEN_DELAY` seconds have passed since the last hit; `take_damage` resets `_since_damage`. The delay is what stops mid-firefight healing — you recover by breaking contact. Royale pickups are just PRIMARY/SIDEARM/GADGET now (grenades come through GADGET); the counted GRENADES/MEDKIT pickup kinds are gone.
-- **Smoke blocks sight without a collider.** A collider would stop bullets and bodies too, so `smoke_cloud.gd` registers with `GameState.smokes` and every AI vision check (`Bot._can_see`, `Turret._can_see`) calls `GameState.sight_blocked()` — a segment-vs-sphere test clamped to the segment, so a cloud behind the viewer or past the target doesn't count. That check is what makes smoke the one reliable way to break an AI's lock.
-- Every menu setting is a labelled DROPDOWN (`OptionButton`), map, mode and CLASSES included — a cycling chip shows one value at a time, so seeing the range meant walking it. They are rebuilt on every refresh rather than just re-selected, because what is legal moves: team size cannot fall below the humans already in a team, FREE FOR ALL needs a second player, and the VICTORY row's choices and unit depend on the mode (kills vs seconds; disabled for royale, as CLASSES is). Disabled, not hidden — an option that vanishes is one nobody learns exists.
-- **The VICTORY threshold is configurable** (`GameState.score_targets`, seeded from the fixed `SCORE_LIMITS` defaults; `score_limit()` reads it): deathmatch kills or zone-hold seconds, chosen from `menu.gd`'s `SCORE_CHOICES`. Royale is not tunable (last side standing is not a number), so its value stays 1 and the dropdown disables. `mode_blurb()` reflects the chosen number.
-- **Players pick their team on a screen between the menu and the match** (`team_select.gd`): each human moves a token onto a team box (A locks, B releases), and once all are locked it stores the picks in `GameState.chosen_teams` and loads the match. `team_for_player` returns a player's pick when there is a valid one, else the round-robin default — so `humans_on_team`/`ai_needed` (and thus AI fill) follow the picks for free. An out-of-range pick (team count changed) falls back safely. The screen polls each player's own device every frame (P1..P4 = pads 0..3, keyboard P1 under `--debug`), same pad-first model as the buy screen; START on any pad bails back to the menu.
-- **Both front-of-house screens are boxes now, and for different reasons.** The MENU (`menu.gd`) is all dropdowns now (map and mode included), because listing every map as a row stopped scaling once the roster grew past a handful. The BUY screen is a grid of category boxes (`Main.BUY_BOXES`) grouping each Loadout row under PRIMARY / SIDEARM / GADGETS / ARMOUR / AI SQUAD, with the active box taking the player's colour.
-- **The buy screen's boxes are INPUT, not layout** (`Loadout.BUY_BOXES`, which is why the table lives with the catalogue and not with the screen that draws it). A free-moving CURSOR (`Player.buy_cursor`, normalised, driven by the movement stick every frame) sweeps over the boxes; the box UNDER it must be OPENED with accept before any line inside it can change, and closed with back. It still runs on each player's own stick or keys — four players shop at once and only P1 has a mouse, so a click-to-select screen would work for exactly one of the four. Sizing is picked off `human_players`: the full-size layout runs off both edges of a quarter-screen viewport.
-- **The cursor opens ON the SPAWN box, closed, every time — that is the whole safety property.** The old screen put a live row-cursor on the CLASS row, so a stick still held on the frame you died re-rolled your kit, and `adopt_kit` RESETS the build. Now moving the cursor never touches the build at all — only accept on a box does — deploying is accept on a box you can see, and the ordinary respawn is still one press because the cursor starts on SPAWN. `tests/buy_screen.tscn` shoves the stick eight ways on the death frame, then drives the analog cursor through the real physics path, and asserts the build is byte-identical both times.
-- **Which box the cursor is over is resolved by Main, not Player** (`Main._resolve_buy_box`), because hidden boxes REFLOW the grid — a Mandalorian has no GRENADES panel — so only the code holding the real `PanelContainer` rects knows where a box actually landed. Player owns the normalised cursor and reads back `buy_box`; a headless test sets `buy_box` directly to stand in for the resolve. The reticle and the box hit-test both map the cursor across the union of the visible box rects, so they cannot disagree.
-- Three states have to be told apart across a four-way split, so each gets its own signal: selector-on-a-box is a coloured BORDER, open is a coloured FILL too, and the row caret exists ONLY inside an open box — a caret on a line you cannot currently change is exactly the lie the old screen told.
-- **The buy screen's BACK is the pad's B, fixed and unbindable**, like the controls screen's START/BACK: a mode you can get stuck inside needs an exit no rebind can take away. Accept stays on the `jump` binding (it has always been the deploy button, so it follows a rebind). This is not hypothetical — the project's own saved config has crouch on R3, so keying "close the box" to crouch would have hidden the exit.
-- Buy screen: nobody spawns directly. `Player.begin_deploy()` (called by Main *after* the HUD is wired — `_ready` would emit `died` into nothing) and every `_die` enter `_enter_buy_screen`, which opens on the build you last deployed with (`pending = loadout.duplicate_loadout()`). It stays up until the player presses jump/A; the timer is only a floor before that button arms (`DEPLOY_FLOOR`/`RESPAWN_FLOOR`). `_respawn` calls `_apply_loadout`. Main renders it in `_build_buy_screen`.
-- `scripts/viewmodel.gd` rebuilds the gun per class from its `SHAPES` table, so each weapon has its own silhouette. It must `remove_child` before `queue_free` when clearing the old parts: freeing is deferred to the end of the frame, so a rebuild in the same frame (deploy, then a weapon swap) otherwise stacks the new gun on top of the old one's parts.
-- The viewmodel's ADS slide is SOLVED, not hard-coded: `_build` cancels the Weapon anchor's offset and the fitted sight's own offset so the sight lands on the camera axis. With twelve different receiver heights a fixed offset drifts off centre, and a `TorusMesh`'s hole runs along +Y (it lies flat like a donut), so the holo ring needs the same `rotation.x = PI/2` the barrels use to stand upright.
-- Sights are one slot with several ALTERNATIVES (`Loadout.Sight`), not stackable toggles: iron, a RED DOT (`has_reddot()`, clear-view dot reticle — it also sets `holo` so it shares the no-blackout path), a holo ring (`has_holo()`, ring reticle), a SCOPE and a 4X SCOPE (`has_scope()`, blackout overlay, differing only in `zoom_fov`), and the Trandoshan's thermal holo. Fitting any one CLEARS the others — a clear-view optic clears `scope`, a scope sets it — because `has_scope()` is what grants pinpoint accuracy, so the reticle drawn and the accuracy dealt must never disagree. The HUD picks the reticle in `_add_reticle`'s refresh: reddot → dot, else holo → ring, else scope → blackout, else the bloom crosshair.
-- **A scope means zero spread while aimed, on any gun.** The rule is in `current_spread_deg()` (`0.0 if has_scope()`), not a zeroed `ads_spread` in the table, so it covers guns that ship with optics and can't be undone by a future profile that pairs `"scope": true` with a spread. `has_scope()` is therefore load-bearing for accuracy, not just for which HUD overlay draws.
-- Weapon upgrades never mutate `Weapon.PROFILES`: `set_class(c, mods)` folds the flags into a private duplicate (`_upgraded_profile`), so the shared table stays pristine for everyone else.
-- **The AI plans a route; it does not steer at the goal.** `scripts/nav_grid.gd` (`class_name NavGrid`, one shared instance on `GameState.nav`, built by Main) is an occupancy grid plus `AStarGrid2D`, stamped from `GameState.map_shapes` — the same collider footprints the map screen already scans. Reusing that scan is why this needs no navmesh bake and no per-map authoring: a new procedural map becomes navigable for free, exactly as it becomes drawable for free. `Bot._route` follows the waypoints, string-pulls across open ground so it does not walk the grid's staircase, and falls back to the straight line when no path is found — an AI that stops when pathing fails is worse than one that scrapes a wall. Measured across all ten maps: 94 of 220 journeys have a wall on the straight line, and 0 planned routes touch one, at a 1.06–1.36x detour.
-- Two things that make or break that grid, both found by measuring: a cell is stamped solid when an obstacle reaches its CENTRE, so a wall thinner than the cell spacing falls between two centres and A* routes a bot straight through it — `_stamp` therefore pads by half a cell as well as by CLEARANCE; and CLEARANCE plus cell size is what seals a tight map, so the cell size is chosen per map (`CELL_MIN`..`CELL_MAX`) and Catwalk's corridors need the fine end. `tests/nav_grid.tscn` checks every map: it re-tests each planned path against PHYSICS and only counts a BOX hit as a failure, because the grid is deliberately flat and a trimesh hit is the hillside the bot is meant to walk up.
-- `Bot._watch_for_snag` is the backstop for everything the grid cannot see (other bodies, non-box props, a lip in the terrain): trying to move but not moving for `STUCK_TIME` commits to a sidestep for `SIDESTEP_TIME`. It has to COMMIT — re-deciding every frame just jitters on the spot — and it peels off along the wall rather than reversing, because a bot that backs up walks into the same corner again.
-- **ROYALE HAS NO CLASSES.** Everyone drops in as a plain trooper, and `Loadout.royale_items` filters anything carrying a `"kit"` key out of the crates. This is not just policy: `_roll_pickup` rolled an index across the whole catalogue, so the moment classes landed, royale started scattering lightsabers and Force powers over players with no guard to use a blade with and no class to spend a power on. Mark a class's signature gear with `"kit"` and the rule holds for whatever gets added next.
-- Kit speed (`Loadout.kit_speed`) and kit health (`kit_health`, 1.25 on the adept — it can only close while everyone else shoots on the way in) MULTIPLY the armour frame rather than replacing it, so a Force adept in a light frame is quick and tough for both reasons (1.12 * 1.2) and the frames still differ inside a class. Everything that sets a body's health goes through `Loadout.max_health()` — Player, Bot's `setup` AND the bot medkit's ceiling — or a class tops up to a number it never deployed with. Bots apply the same multipliers, or the class would only be fast in human hands. The Jedi double jump is intrinsic to the class; the DASH is BOTH intrinsic (the empty-slot fallback on the GRENADE control, same as the Mandalorian's second gadget) AND selectable as an explicit `Gadget.DASH` in the FORCE kit's allow-list — fitting it keeps the dash in one slot while the other spends a Force power, rather than the dash only appearing when a slot is left empty. `kit_rules` allows DASH on the adept and the Trandoshan and nobody else.
-- The lightsaber viewmodel is built under its own PIVOT (`_build_saber`), because the viewmodel root's transform is already driven by recoil, bob and the ADS slide every frame, and the whole weapon has to swing as one piece. The blade is modelled along -Z like every barrel, so a POSITIVE pitch is what stands it upright — it pointed at the floor until that sign was fixed. `kick()` starts a swing instead of a recoil kick when a blade is in hand, alternating sides so a held attack reads as a sequence of cuts.
-- `scripts/bot.gd` (`class_name Bot`) — a bought AI squadmate. **Duck-typed against Player, not a shared base class**: everything that shoots or spawns only asks a combatant for `is_alive()` / `team` / `take_damage()` / `is_headshot()`, and hitscan already resolves by `has_method`. `GameState.combatants` holds players and bots together — anything that can be shot or shoved must be in it, or it won't block spawn markers and will re-trigger the capsule-stacking ejection.
-- Bot behaviour must stay mode-agnostic: presets, gadget use and patrolling all run the same in DEATHMATCH and ZONES, with `GameState.zone_active` only changing WHERE they push (the capture area, else the map centre). Anything keyed to the zone needs a deathmatch answer — turret placement is keyed to the bot's own patrol goal and to making contact for exactly that reason.
-- Bots deploy a `Loadout` from `Loadout.BOT_BUILDS`, not a hardcoded rifle: gun, sight, armour, gadget and consumables all come from the preset, and `SKILLS` is purely intelligence (its `health`/`speed` entries are MULTIPLIERS on the preset's armour). Main deals the presets out in order so a team fields a mix. Every preset must fit `BUDGET` — they're legal player loadouts, not cheats.
-- A Bot with no target does NOT stand still: `_patrol` sends it after its owner, or (team AI, or an orphaned squadmate) to a roaming point near the map centre. Team AI are spawned by Main with a null owner, so the owner-follow path alone left them standing on their spawns for the whole match.
-- **The top two skill tiers AIM DOWN SIGHTS** (`SKILLS[i]["ads"]`, tiers 2-3): once settled in range and roughly on target (`State.ENGAGE`, `on_aim`) a bot sets `weapon.aiming = true`, trading nothing — it has no camera to zoom — for the weapon's tight `ads_spread` instead of its hip cone, the same edge a human buys by aiming. Gated OUT of `ADVANCE` so a bot closing at a run still hip-fires, and cleared when it loses its target; the two low tiers never ADS.
-- **A Bot that grappled has to RELEASE its wire.** `_try_cable` now keeps `_cable_wire` and calls `release()` when the pull ends (on arrival OR when the timer runs out — either branch), the same as `Player._apply_gadget_motion`. Without it a cosmetic cable-wire node hung in the world forever after any AI grapple; it also self-frees on bot death via the muzzle-invalid path in `cable_wire.gd`.
-- Bot AI gotchas, all found by measuring damage per skill tier rather than watching it: aim error must be a **held** offset (per-frame noise fed through the aim lerp averages back out to a perfect shot), applied to **both** head axes; pitch must be solved from the head, not the body origin, or every shot flies a body height high; a target needs **memory** (`TARGET_MEMORY`) or flickering line-of-sight makes it re-acquire forever and never finish a reaction timer; and bots need a heat ceiling or they hold the trigger into a lockout. All tiers carry the same rifle on purpose so skill is the only variable.
-- Gadgets live on Player (`_use_gadget`, `_apply_gadget_motion`) with two props of their own: `scripts/front_shield.gd` and `scripts/turret.gd`. **The shield sits on physics layer 4 alone** — on the world layer it would shove its owner, on the player layer everyone would walk into it; layer 4 is in nobody's movement mask, so it only intercepts rays. Shooting *through your own* shield works via `Player.hitscan_exclusions()`, which `Weapon._fire_hitscan` honours when the shooter has it.
-- The cable's wire (`scripts/cable_wire.gd`) is cosmetic only — Player owns the timing and passes the same flight time, so the yank lands on the frame the claw bites. Two things it has to get right: the line starts a little AHEAD of the weapon (its origin sits at the owner's camera, so a line from there is blown up by perspective into a white wedge across their view), and its material is unshaded (a thin lit line goes black on its shadow side and vanishes on the dark maps).
-- The wrist cable ends its pull with a ballistic vault (`_begin_vault`): rise is solved from the anchor height so it scales to what you grappled, and it holds your heading for `CABLE_VAULT_TIME` because normal movement rewrites velocity.x/z from the stick every frame and would otherwise kill the arc instantly.
-- Jetpack gotcha: pure acceleration never leaves the ground, because `move_and_slide` re-zeroes vertical velocity while on the floor — takeoff needs an instant `JET_KICK` on the first thrust frame.
-- `scripts/player.gd` — CharacterBody3D. `input_device` -1 = keyboard/mouse (click captures the mouse, ESC releases), >= 0 = that joypad (polled, so MCP virtual pads work); Main hands out pads to everyone, so the -1 path is a fallback nobody is on by default. Each player's model renders on layer `2 + player_index`, cleared from their own camera's cull mask; the first-person weapon viewmodel uses a second per-player layer block (bit `10 + index`) seen ONLY by its owner.
-- `scripts/character.gd` (`CharacterModel`) — the humanoid rig + its code-built animations; `scripts/trooper.gd` extends it for decorative NPCs (looping anim + waypoint patrol).
-- **Every "box" in the game is a CHAMFERED box** (`scripts/meshes.gd`, `class_name Meshes`, static + cached). `CharacterModel._box`/`_limb`, `Corpse._box` and `Viewmodel._box` all funnel through `Meshes.chamfer_box(size)`, so one change bevelled every body part, corpse segment and weapon. A true box shades each face at one flat value and reads as cardboard however good the material is; a bevel puts a lit edge on the silhouette. This was explicitly deferred while the Pi was a target (44 tris against 12) — **measured after the switch it cost nothing**: 20.3 ms against 21.4 ms at 4 viewports, because these maps are fill-bound, not vertex-bound, and sharing one cached mesh per SIZE (both arms, both legs, every paired plate, across all twelve bodies) actually cut mesh resources. `rim` stays and is not redundant: the bevel does the silhouette, rim does the grazing-angle falloff.
-- **Never ship a generated mesh without a signed-volume check** (`tests/chamfer.gd`). The chamfer's edge strips were wound inward on half the sign combinations — the surface was all there and every normal pointed outward, so it looked *fine*, and the only symptom was that the solid quietly subtracted from itself (a 1 m cube came out at 74% of its own volume). Winding bugs do not raise errors and do not look like winding bugs; the near-black planet terrain cost a whole session to the same class of mistake. The test checks signed volume, outward normals, extents and triangle count.
-- **A weapon is MACHINED METAL plus MOULDED POLYMER, and the split has to be carried by albedo and roughness, not by `metallic`.** Every viewmodel part used to be `metallic 0.1 / roughness ~0.6` in three shades of near-black, so a steel barrel and a plastic grip shaded identically and the gun collapsed into one dark slab. Raising the steel to `metallic 0.8` made it **darker** — metal is lit by what it REFLECTS, and against this project's near-black skies that is nothing. `Grade`'s sky-sourced ambient softens that but does not repeal it. So: steel is lighter albedo + low roughness (it catches a hot specular off the DIRECT lights, which every map has) at moderate metallic; polymer is dark albedo + high roughness + `metallic 0.0`. Works on either renderer.
-- **A repeated small feature is what gives a surface SCALE** — the same lesson as the Coruscant tower mullions. Viewmodels now carry universal furniture sized off the receiver (trigger + guard, ejection port and lip, charging handle, a run of top-rail slots, sling loop, barrel heat vents, front sight block, stock cheek riser), because a bare extruded box could be any size and that is what made receivers read as blocks.
-- **Plate armour is one COLOUR at several VALUES.** `_build_body` mixes three tones of the class plate (`armor` / `armor_hi` / `armor_lo` via `_shade`, an HSV value+saturation shift — a highlight is a *paler* red, not just a brighter one). Sky-facing pieces (helmet, collar, thigh and shin plates) take `armor_hi`, hanging and back-mounted ones (kama, tabard, cape, jetpack) take `armor_lo`. Deliberately three shared materials and not a per-part tint: forty materials a character across twelve characters is exactly the allocation rule this project cares most about, and the eye is reading the BREAK between panels anyway. Note it barely shows on styles like the Astartes, where the big panels are `_suit_mat` (team colour) rather than `armor`.
-- **`Grade` returns early on non-RD renderers.** SSAO/SSIL/volumetric fog do not exist under GL Compatibility and setting them raises an error per environment per call, which buried the real output of every look test. `RenderingServer.get_rendering_device() == null` is the honest question — it is null on exactly the renderers that lack them.
-- **Every body part is a procedural box hung on a joint** (`CharacterModel._build_body` → `_limb`/`_box`/`_build_head`), sized/shaped per `Style`. `_limb(joint, to, ...)` spans a box from a joint to its child joint (in local space), so a limb always reaches the next joint however the skeleton is proportioned. The rig itself is `_joint_offsets()` — the retired trooper's bone offsets, arm quarter-turn correction included, so the arms hang down not out and every animation lands exactly where it always did. `set_style` frees the `Hips` subtree and rebuilds it; the sibling AnimationPlayer and its joint-name tracks re-bind to the new joints. Player must re-stamp its render layer after a rebuild (`_stamp_model_layers`) — same trap as the viewmodel: fresh meshes default to the shared layer, and the owner's camera would see its own body.
-- Three things that rig has to get right, all found by looking at the result: the joints must sit at the model's OWN bone positions rather than at nominal vertical limb lengths, or every piece hangs offset from the geometry it was cut from and the seams tear into spikes; the T-pose arms need a quarter turn baked into the MESH and never into the joint, since rotating the joint would rotate the axis the clips animate about and change every arm motion; and triangles that BRIDGE an arm and the torso must be dropped, because whichever side claims them the far end reaches toward geometry that has rotated away. Filtering those bridges by edge length is the obvious approach and is wrong — the model is low-poly enough that real body triangles are as long as the bridges, and it deletes the legs.
-- Re-proportioning the rig to the model costs the animation NOTHING, which is why it was the right move over stretching the mesh: every clip is a set of joint rotations, so changing a limb's length leaves the motion identical.
-- **The carry pose is SOLVED onto the gun, not dialled in** (`_carry` + `_arm_ik`). Two-bone IK puts both hands on grip points derived from `GUN_POS`, so the hold survives any change to arm lengths or where the weapon sits — hand-tuned shoulder angles only ever hold for one set of proportions, and swapping in the trooper's shorter arms left both hands short of the weapon. Verified at 0.0 mm hand-to-grip error in carry, crouch, walk and run.
-- **The arm does NOT hang along -Y, and `_arm_ik` has to be told so.** The skeleton is the trooper's, whose elbow offset is tilted ~13 degrees back off vertical, and `_build_body` runs the forearm and hand along that same offset direction. The solver used to assume a straight-down arm of length `UPPER_ARM` hanging off `Vector3(±SHOULDER_X, SHOULDER_Y, 0)` — three separate lies about the rig (the direction, the bone's true length, and the shoulder's 4 cm z offset) — so it solved a DIFFERENT arm from the one the model is made of and left every hand 8-14 cm off its grip. The tell is the SHOULDERS: the whole chain is rotated to plant a hand that is not where the solver thinks it is, so every character carrying a gun stood with its shoulders visibly wrong. `_arm_ik` now takes the elbow OFFSET (which carries both length and rest direction) and takes the law of cosines about that direction — only the part of the arm perpendicular to the elbow's +X axis swings, hence the `rest.x²` term.
-- **A pose test must probe where the MESH is, not where the solver thinks it is.** `guard_pose.tscn` read each hand as `elbow.global_transform * Vector3(0, -reach, 0)` — the same straight-down assumption `_arm_ik` was making — so it asked the pose the solver's own question and got 0.0 mm back while the hands hung 14 cm off the weapon. It now probes along the rig's own bone directions (`at["e"+side].normalized()`, and the same for the ankle), which is what makes the number mean anything.
-- `_carry()` hands out a COPY of its cached pose. Every caller mutates the dictionary it gets back (that is how a pose is built up), so returning the cache itself let `_crouch_base` write its own shoulder angles into it and permanently clobber the solved hold for every clip built afterwards.
-- The crouch does NOT compensate the arms for the torso lean any more. The gun hangs off the SPINE, so leaning carries the weapon and both hands with it as one piece; the old pose pitched the shoulders back by the lean angle, and doing that now drags the hands off the gun.
-- **Crouch is a posed clip pair (`crouch_idle`/`crouch_walk`), not a squashed model** — scaling `model.scale.y` just made a shorter person. It has to be a clip rather than a pose laid over the others because the AnimationPlayer rewrites every joint each frame, so anything applied on top would depend on process ordering to survive. Two solved constraints keep the feet honest: `CROUCH_KNEE_DEG` is exactly twice `CROUCH_HIP_DEG`, which puts the ankle under the hip (otherwise the body slides forward out of its own capsule); and the walk's knee only ever tucks FURTHER, never opens, because with a fixed knee a hip swing can only shorten the leg — letting the trailing knee open lengthens it and buries the foot 3 cm in the floor. **A hip drop is a fraction of the LEG, never of `HIP_Y`**: the crouch and the guard both used `LEG * cos(angle) - HIP_Y`, which silently assumes the hips sit exactly one leg off the ground — true of the box rig, false the moment the rig took the trooper's proportions (the pelvis is `HIP_DROP` above the thigh and the boot hangs below the ankle), so both poses dropped an extra 20 cm and the boots vanished into the floor. `CROUCH_HIP_DROP`/`GUARD_HIP_DROP` are `LEG * (cos - 1)`, and `tests/guard_pose.tscn`'s ankle column is what catches it. `scripts/weapon.gd` + `scripts/viewmodel.gd` — class-based blaster (ADS zoom, spread, heat) and its animated first-person gun.
-- **The two grip attachments are split by what they touch**: IMPROVED GRIP is HIP-FIRE ACCURACY only (`GRIP_SPREAD_MULT` on `hip_spread`), FRONT GRIP is KICK only (`FOREGRIP_RECOIL_MULT` on recoil/cam_recoil/kick_back). They are separate `Loadout.Row`s (COOLING/GRIP/FOREGRIP must stay contiguous and in UPGRADES order — `_upgrade_index` maps `row - Row.COOLING`).
-- **Stance drives spread** (`Weapon.stance_spread_mult`, set by `Player._update_stance_spread` each frame, multiplied into `current_spread_deg`): >1 moving, higher airborne, <1 crouched — they multiply, so a crouched still shot is the steadiest. The HUD bloom crosshair reads the same value, so the penalty is legible. A scope's 0 stays 0 (the pinpoint rule is absolute), and bots leave it at 1 (their own aim-error model). Crouch also drops the kick via `CROUCH_RECOIL_MULT`.
-- **You cannot ADS while RUNNING** (`Player._is_running`: sprint held, not crouched, stick pushed). Standing still even holding sprint still lets you aim — it is moving-at-sprint that denies the sights.
-- Recoil is three separate things off one `fired(cam_recoil, kick_back)` signal: the viewmodel kick (cosmetic, `Viewmodel.kick`), the camera climb (`Player._recoil_pitch`, settling at `RECOIL_RECOVER`), and a backwards shove on the body for the big guns. A gun's real cost is `cam_recoil / (fire_interval * RECOIL_RECOVER)` of steady climb, so raising a fast gun's `cam_recoil` costs far more than the same bump on a single-shot one. Aiming and crouching scale all three down, and the IMPROVED GRIP upgrade is the only way to buy them down.
-- **`kick_back` cannot just be added to `velocity`** — movement rewrites `velocity.x/z` from the stick every frame (same reason the cable vault has to hold its heading), so it rides alongside as its own decaying `_kick_vel`, like `_unstick_push`. It is flattened to horizontal on purpose: firing at the floor should stagger you, not launch you.
-- Hit confirmation (`scripts/hit_marker.gd` + `scripts/hit_tick.gd`, both plain scripts instanced by Main — no `class_name`, so no class-cache round trip). **The confirmation is raised inside the VICTIM's `take_damage`, not at the weapon**: that is the one place that knows the damage survived the friendly-fire check, and it covers hitscan, rockets, grenades and turret fire without repeating itself. The victim calls `attacker.on_hit_confirmed(headshot, killed)` if the attacker has it — Player does, bots don't need it. `take_damage` grew an optional third `headshot` arg (Player/Bot/Turret) so the target can pass that through rather than the shooter guessing from the damage number.
-- The marker is per HUD (each player only ever confirms their own hits) and added LAST in `_add_reticle` so it draws over the scope blackout. The click is one shared pool of voices: audio is NOT split four ways the way the screen is, so the whole couch hears every tick — there is no per-viewport audio bus to route it to. Pitch carries the detail (body / headshot / a second lower click on a kill) rather than three separate sounds.
-- **A BOT'S FIGHTING RANGE IS DERIVED, NOT TABLED** (`Bot._hit_reach` / `_hold_range`): a shot lands while the total angular error keeps it inside a body's width at that distance, so the stand-off falls out of the tier's own aim wobble plus the cone the gun leaves with. An elite behind a scoped rifle works out ~70 m, the same elite holding a scattergun works out eleven, and a recruit spraying a repeater has to walk in. The tier's `hold` is a FLOOR — nothing closes further than it used to, this only ever pushes the good tiers OUT. Three things go with it: ADS is no longer gated on ENGAGE (a bot has no sprint, so that rule denied the sights to exactly the shot they are for), aiming steadies the bot's own wobble and not just the gun's cone (`ADS_STEADY` — a tight cone around an aim that is still 1.8 degrees off is nothing), and the top tiers compensate for their own aim LAG against a strafing target (`AIM_LAG`; fire is hitscan, so this is not projectile lead). `tests/bot_range.tscn` prints the whole table and checks better aim never fights closer.
-- **A* IS RATE-LIMITED ACROSS THE WHOLE AI** (`NavGrid.PLANS_PER_FRAME`, asked via `may_plan()` before `path()`). Measured: one search costs 2.0 ms on Kashyyyk and 0.10 ms on a small arena, and a loaded match asks for about 16 a second — half a millisecond a frame on average, so the average was never the problem. Bots re-plan on their OWN timers, so nothing stopped eight landing on one frame: ~16 ms of A* in a 16.7 ms budget, a stutter with no visible cause. A refused bot keeps the route it has and asks next frame, so `_repath_cd` is only reset when a plan actually ran. Rejected on measurement: skipping the search when the straight line is clear — the check costs 17-64% of the search it might avoid and fired 0% of the time on the big maps, where the search is expensive.
-- **Do not trust the engine's TIME_PROCESS / TIME_PHYSICS_PROCESS monitors for a few-ms change.** Across identical runs of `tests/perf.tscn` they ranged 14.6-27.1 ms. Measure the specific thing with `Time.get_ticks_usec`, or count how often it happens; `tests/perf.tscn` does both and its ROUTING section is the part to read.
-- **Bots eat recoil too** (`Bot._on_weapon_fired`), or raising it across the board would be a one-sided nerf to the humans. It goes straight onto the head and `_aim_head` lerping back toward the target IS the recovery; `_patrol` levels the head out when there's no target, so nothing is left tilted. They ignore `kick_back` — a bot writes its own velocity every frame and would erase it.
-- A gun with `pellets` (the scattergun) fires that many rays through one cone, and **pools the damage per target before applying it**: seven separate `take_damage` calls would fire seven hit-ticks and seven markers for one trigger pull, and would let a single pellet's headshot flag decide the whole shot.
-- Spread is applied as two INDEPENDENT rotations, so the effective corner of a cone is ~1.4x the `hip_spread` number. Bloom also stacks fast — when measuring a gun's accuracy from a test harness, reset `_bloom` between pulls or you are measuring a saturated cone, not the gun.
-- `scripts/weapon.gd` — hitscan + `fx/blaster_bolt.tscn` tracer; call `try_fire` only from physics frames. Death → corpse + countdown → respawn at a team marker no living player is standing on (`GameState.get_spawn_point`/`clear_of_bodies`; two overlapping capsules eject each other out of the map, so never spawn onto a body).
-- **A CORPSE IS AN ARTICULATED RAGDOLL wearing the unit's own body** (`corpse.gd`): six segments — torso, head, two arms, two legs — hung off each other with `ConeTwistJoint3D`s, thrown by whatever killed it and left to fall. It was one stiff rigid body that tumbled, on the argument that a jointed solver "would be four viewports of work per death"; **half of that was wrong** — the RENDER cost is identical either way (same meshes, same number of draws) and what a ragdoll adds is physics bodies, which are simulated ONCE however many cameras are looking. Measured: **12 concurrent ragdolls (72 bodies) still holds the 60 Hz physics tick.** Six segments and not eleven because a separately hinging forearm and shin cost twice the bodies and joints to say something invisible at this scale; these are the segments whose SILHOUETTE changes when a body goes down.
-- **The ragdoll is built by taking a FINISHED model apart** — the `CharacterModel` is built and styled as before, then each segment's joints are `reparent`ed onto a RigidBody3D, so every mesh, colour and accessory stays right and the ragdoll knows nothing about how a body is made. `freeze_all()` stops the lot, for anything photographing the pose rather than the fall.
-- **RESOLVE EVERY JOINT BEFORE MOVING ANY OF THEM.** The segments are NESTED — Head, ShoulderL and HipL are all children of Hips — so the moment the torso reparents Hips, searching the model for any of the others finds nothing. That left five of six bodies empty at the corpse's origin, still pinned to a torso a metre above them, and the joints hauled them up: **that** is what launched corpses several metres into the air, and why no limb ever articulated (every mesh was still on the one body that resolved).
-- **A ragdoll starts STANDING, in the rest pose.** The pre-ragdoll corpse was posed into a hand-authored curl because it was one rigid body and had no other way to look dead. Doing that to a ragdoll is wrong twice: the curl IS the fetal tuck it then falls in, and the hip drop it needs put the leg collision boxes 44 cm THROUGH the floor, which the solver resolves by ejecting the whole body. Standing, every box starts clear of the ground and the fold on the way down is solved rather than drawn. (`collapse_pose` and its constants went with it.)
-- **The joints are PIN joints, not cone-twists, and that is deliberate.** A cone-twist is the anatomically right shape and was tried first, but its limits are measured about the JOINT'S OWN AXES — and those come from the character rig, where an arm carries a baked quarter turn and a leg points down. The limbs started outside their own cones and the solver spent the first frames forcing five joints back inside at once. A pin joint has no limits to violate; what it costs is anatomy (a knee can bend where a real one will not), which at box-limb fidelity is a far smaller lie than a body launching into the sky. Angular damping is what stops it looking boneless.
-- **There is no upward impulse anywhere in `corpse.gd`, and masses are anatomical RATIOS.** A body that is shot drops; the shove only decides which way it topples. A heavy head on a light torso whips, and near-equal masses across a joint make the solver argue with itself.
-- **CLASSIC DEATH is a toggle** (`Controls.classic_death()`, DEATH STYLE on the controls screen): the original generic box figure with its arms straight out. It reads as a T-posing mannequin, which is exactly why it is worth keeping. `tests/death_look.tscn` renders both.
-- **GAME OPTIONS live in `Controls._options`** (its own `[options]` section in `user://controls.cfg`), separate from bindings and from per-device feel settings, because they belong to the MACHINE rather than to a device or a match. They are shown at the bottom of the CONTROLS screen only because that is the only options screen the game has — **a real SETTINGS screen off the menu is owed**, and the storage is already split so that is a screen to write and not a migration.
-- Physics layers: 1 world, 2 players, 3 projectiles.
+### Catalogue: universes, kits, weapons
 
-## Gotchas
+- **A UNIVERSE is a set of CLASSES, the SIDES they fight for, and which of the
+  catalogue those classes can reach** (`Loadout.UNIVERSES`, `Loadout.Universe`, the
+  UNIVERSE dropdown). STAR WARS / HALO / WARHAMMER 40,000. Nothing about the rules,
+  modes, maps or shooting knows a universe exists: every weapon lives in the ONE
+  `Weapon.Class` enum and every body in the ONE `CharacterModel.Style` enum, so a
+  bolter is a hitscan with a heavy round and a Spartan is a table row. Every row states
+  its universe; **no key means STAR WARS** (what the catalogue was before this existed),
+  `ANY_UNIVERSE` for rows belonging to nobody. Star Wars and Warhammer field four sides,
+  Halo two.
+- **The universe enum lives in `Loadout`, not `GameState`; `GameState` MIRRORS it into
+  `Loadout.active_universe`.** `tests/kit_rules.gd` runs under `--script`, which has no
+  autoloads, so Loadout may never name GameState. `Loadout.ttk_health` is the same trick.
+  Both are pushed by GameState's property setters **and by `_init`**, because a
+  `var x := v` initialiser does not run its own setter.
+- **Allow-lists check the universe FIRST, derived from the KIT rather than read off the
+  setting** (`Loadout._allows_entry`). Only `Row.KIT` reads `active_universe`, because it
+  is the row that chooses which universe's class you are on — and it is WALKED, not
+  clamped, or a step off the last Star Wars class lands on a Spartan.
+- **A CHARACTER CLASS (`Loadout.Kit`) is a set of ALLOW-LISTS over the one catalogue,
+  not a catalogue of its own.** `KITS` states what each may reach (`gadgets`, `sustain`,
+  `secondary_mods`, `armor`, `default_armor`, `gadget_slots`, `grenades`, optional
+  `speed`/`health`, and optional `primaries`/`secondaries`/`sights`/`grenade_types`
+  meaning ONLY those). All four allow-list rows share one rule: a `"kit"`-marked entry
+  belongs to its owner alone and is always reachable by them (saber, bowcaster, smoke,
+  thermal holo); otherwise a per-kit list restricts, else anything ordinary goes. Adding
+  a gun is one table entry plus a decision about who may have it — never a parallel shop.
+- **Moving an item to a class takes it off everyone who already had it, INCLUDING the AI
+  presets.** A `"kit"` key is a re-balance of the whole roster, not a label. `kit_rules`
+  is what says so — the Wookiee taking the T-21 made the clone GUNNER preset illegal.
+- **A gadget from another universe is usually the same verb in different words**, so a
+  GADGETS row may carry `"like"` naming the gadget whose behaviour it uses
+  (`Loadout.gadget_action`). A bubble shield, an iron halo and a kustom force field are
+  three rows and one barrier. Everything that ACTS resolves the action first
+  (`Player._use_gadget`, `has_gadget`/`slot_of`, `Bot`'s `loadout.uses(action)`); the HUD
+  still NAMES what was bought. No `"like"` means its own case in `_use_gadget`.
+- **Presets name their gun by CLASS (`"primary"`/`"sidearm"`), not by index** —
+  `_build_from` translates through `weapon_index`/`secondary_index`. **A preset naming a
+  gun the catalogue does not sell in that slot is silently disarmed**: `weapon_index`
+  answers `NO_PRIMARY` and `secondary_index` answers 0, both legal and completely wrong.
+  `kit_rules` asks the strict question — *did you get the gun you asked for?* — across
+  all 126 presets. Fix by APPENDING the gun, never inserting.
+- **`secondary: 0` means "the cheapest row"**, which for Star Wars is the DL-44 — so all
+  32 Star Wars classes drew Han Solo's pistol, B1 droids included. `kit_rules` now
+  requires every authored class to NAME its sidearm; AI presets are exempt (a shop build
+  picking the free row is a budget decision).
+- **Primary and sidearm have SEPARATE modification slots.** SIGHT/COOLING/GRIP fit the
+  primary (`primary_mods()`); the sidearm gets one pick from `SECONDARY_MODS`.
+  `mods_for(on_secondary)` picks the set and everything calling `Weapon.set_class` must
+  go through it. `adopt_kit` seeds the sidearm with `_first_allowed` — a kit left holding
+  an illegal row 0 is one the cursor cannot step off, since every direction is refused.
+- **Weapon upgrades never mutate `Weapon.PROFILES`**: `set_class(c, mods)` folds flags
+  into a private `_upgraded_profile`.
+- **`Row.KIT` sits at index 0 and the `row_*` functions fall through to `_upgrade_index`
+  (`row - Row.COOLING`)** for anything they do not name — so a new row above COOLING
+  computes a NEGATIVE index instead of failing where the mistake is. That function
+  asserts. COOLING/GRIP/FOREGRIP must stay contiguous and in UPGRADES order.
+- **TIME TO KILL is a multiplier on HEALTH and nothing else** (`GameState.ttk`,
+  `TTK_HEALTH`, applied in `Loadout.max_health()` — the one function Player, `Bot.setup`
+  and the bot heal ceiling already share). REALISTIC/LOW/MEDIUM/HIGH = ×0.35/0.65/1.0/1.6;
+  MEDIUM is the game as it was. Scaling DAMAGE would mean every gun, splash, melee swing
+  and the guard pool, and any one missed becomes the best weapon in the game.
+- **Kit speed/health MULTIPLY the armour frame; UNIT physique REPLACES the kit's.** See
+  THE PHYSIQUE TABLE. Everything that sets health goes through `Loadout.max_health()`.
+- **Changing class RESETS the build** (`adopt_kit`) rather than converting it — half the
+  selections would be illegal, and it guarantees the result is inside BUDGET in one pass.
+- **Rows a kit does not have are HIDDEN and the cursor skips them** (`row_available` /
+  `next_row`): four players shop at once and a line you cannot move reads as a broken
+  game. Sight/cooling/grip vanish for a melee primary.
+- `BUDGET` is 200 per life, not earned or banked. `step()` applies a change only if it
+  stays in budget. **AI presets must fit it too** — they are legal player loadouts.
 
-- **GL Compatibility + dark sky**: metallic surfaces reflect the near-black starfield and render pitch dark. FIXED AT THE SOURCE — the sky is graded now and the ambient is partly sourced from it (see THE GRADE), so there is something to reflect and `metallic` is usable again; `CharacterModel.Finish.METAL` runs at 0.75. The old rule was "keep metallic <= ~0.15", which treated the symptom. The dim shadowless opposing fill light is still worth having.
-- **GL Compatibility rules out most of the modern realism toolkit**: no SSAO, SSIL, SSR, SDFGI, volumetric fog or depth of field. Everything in THE GRADE was picked to work without them. If realism ever has to go further, the honest next step is Forward+ on the Ubuntu laptops with Compatibility kept for the Pi (the renderer is a launch flag) — which means the two targets would genuinely look different, a design decision rather than a toggle.
-- **Never capture the mouse in `_ready`** — an unfocused/occluded window stalls to ~1 fps and it grabs the desktop pointer during automated runs.
-- The character is procedural boxes on clean joints (`scripts/character.gd`), so animations are simple local rotations — no skinning. Retired: the imported Battlefront GLB (`assets/models/rep/`, crude nearest-bone skinning, junk bone tails) and its `tools/animate_trooper.py` pipeline; both were dropped because subtle motion on that rigid-chunk mesh looked uncanny. Kept in the repo but unused.
-- **Autoload signals + lambdas leak across scene changes.** Godot drops a connection when its *target object* is freed, but a GDScript lambda that never touches `self` has no target — so a per-HUD lambda connected to `GameState.score_changed`/`match_won` survives the map it was built for and fires into freed labels on the next map ("Lambda capture at index 0 was freed"). Connect a **method of the node** instead: `main.gd` wires those two once in `_ready` and fans out to `_score_labels`/`_victory_banners`. Signals from the Player/Weapon are exempt — they die with the same scene as the HUD. **`get_tree().process_frame` is the same trap one signal further out**: the SceneTree outlives every scene, so the buy screen's per-frame cursor resolve now registers in `Main._buy_screens` and is driven from `_tick_overlays` (a method of Main) rather than connecting four lambdas that went on reading `panel.visible` off freed panels for the whole time the menu was up.
-- **Respawn places the body before clearing `_dead`.** The spawn picker skips dead players, so flipping `_dead` first makes a player treat the body it just left as an obstacle and shove itself off its own marker.
-- A new `class_name` (e.g. `Kit`) isn't visible to a CLI run until the global class cache is rebuilt — run `godot --headless --path godot --import` (or restart the editor), or scripts fail with "Identifier not declared".
-- After editing `project.godot` (autoloads/input) restart the editor; a game run picks up script/scene changes from disk without a restart.
+### Classes and rosters
 
-## Tests
+- **EIGHT CLASSES A SIDE.** Star Wars fields Republic, Separatist, Empire and Rebel
+  Alliance; Halo two of eight; Warhammer four. `FACTION_ROSTERS` is keyed by universe and
+  names classes by index into `FACTION_BUILDS` (see house rule 8). AI presets are not
+  keyed by universe — a preset's universe is derivable from the class it names
+  (`universe_builds`).
+- **A ROSTER IS BUILT FROM THE FANBASE'S OWN VOCABULARY, not from adjectives.** The first
+  attempt produced CLONE PILOT and REBEL HEAVY carrying recycled rifles, which is what a
+  roster looks like when it is generated rather than designed. Battlefront's structure is
+  four LINE classes (assault, heavy, officer, specialist) plus four REINFORCEMENTS, and
+  the reinforcements are the units people queue for: Droideka, Clone Commando, ARC
+  Trooper, BX Commando Droid, B2, Death Trooper, Flametrooper, Wookiee Warrior, Ewok
+  Hunter. **Halo works the other way round — the sandbox IS the roster**, so no two Halo
+  classes share a primary and each is named by the gun it walks in with.
+- **THE TEST OF A CLASS IS WHETHER IT NEEDED A NEW NOUN.** Sixteen weapons and nine
+  gadgets exist because a class could not be itself without them: a Droideka firing a
+  DC-15 is not a Droideka. `DROIDEKA_TWIN` is the highest sustained output behind the
+  shortest heat pool; `FLAMETHROWER` is the only weapon with no reach and no way to miss;
+  `EWOK_SPEAR` is the shortest reach and highest melee damage; `DC17M` is the only
+  three-round burst; the `DC17` exists so the ARC can carry TWO. All sixteen went into the
+  SHOP as well — a weapon only a faction class can hold is one most players never see.
+- **A CLASS IS A BODY, NOT A COLOUR — the PHYSIQUE table** (`Loadout.unit_speed` /
+  `unit_health` / `unit_jump` / `unit_stature`, read through `move_speed()` /
+  `max_health()` / `jump_power()` / `stature()`). Speed and health had only ever been
+  per-KIT, so all sixteen Clone Wars classes on the default kit were **byte-identical** —
+  a Droideka moved at a Scout Trooper's pace. Unit numbers REPLACE the kit's; the CLONE
+  TROOPER states nothing and is 1.0 by definition, every other number is read against it.
+  This is also what fixed the Royal Guard, who was on the FORCE kit and inheriting ×1.2
+  speed under heavy plate.
+- **STATURE IS ONE NUMBER AND EVERYTHING FOLLOWS IT** (`Player._apply_stature`, mirrored
+  in `Bot`): model scale, capsule HEIGHT, camera/eye height and the headshot line, because
+  the moment they disagree you get a head you can see but cannot hit. The capsule's RADIUS
+  is deliberately NOT scaled — width is what the nav grid, the unstick loop and every
+  doorway were tuned against. Capped at 1.16 for the same reason.
+- **Everything that AIMS AT a body must ask how tall it is** (`GameState.aim_height`,
+  duck-typed on `body_height()`). Bot, Turret and ForcePowers all used a flat 1.0 m chest,
+  which over a 1.12–2.09 m roster puts rounds over the small ones and into the belt of the
+  big ones — and does the same to the sight checks deciding if they are seen at all.
+- Notable kits: **WOOKIEE** heavy (T-21 and PLX-1 exclusive, front shield, plate only,
+  ×1.3 health ×0.9 speed; bowcaster sidearm is a 3-pellet hitscan, and its kit forbids the
+  SCOPE there on purpose — zero spread would collapse all three quarrels onto one point).
+  **TRANDOSHAN** skirmisher (×1.15 speed ×0.95 health, owns SMOKE and the THERMAL HOLO —
+  throw smoke, then read bodies inside it nobody else can see; gadgets CLOAK and DASH).
+  **FORCE** adept (×1.25 health — it can only close while everyone else shoots on the way
+  in; double jump intrinsic, dash both intrinsic and selectable as `Gadget.DASH`).
+  `kit_rules` allows DASH on the adept and Trandoshan and nobody else.
 
-Run these after touching anything they cover. Headless unless marked WINDOWED —
-appearance cannot be judged without a renderer, and `--headless` draws nothing.
+### Game modes
 
-| Test | What it protects |
-|---|---|
-| `kit_rules.gd` (`--script`) | Every class allow-list, every AI preset against its own kit, and per-universe isolation. **Runs with NO autoloads**, which is why `Loadout` may never name `GameState`. |
-| `universe_match.tscn` | Every universe boots a real match in both class modes; TTK reaches the body. |
-| `soak.tscn` | A long busy match ACCUMULATES nothing. The only test that catches per-shot leaks, orphaned nodes and material churn — everything else checks one frame. |
-| `conquest.tscn` | Capture, tickets, defeat, spawn transforms, faction rosters. |
-| `guard_pose.tscn` | Hand-to-grip and ankle error on every clip. **0.00 mm is the pass mark**; any pose change shows here first. |
-| `guard_block.tscn`, `force_lightning.tscn`, `gadgets.tscn`, `trandoshan.tscn`, `wookiee.tscn` | Individual mechanics. |
-| `buy_screen.tscn`, `character_select.tscn`, `settings_overlay.tscn` | The screens' state machines. |
-| `bot_range.tscn`, `nav_grid.tscn` | AI engagement ranges and routing across every map. |
-| `team_and_score.tscn`, `weapon_feel.tscn` | Team assignment, scoring, stance/ADS rules. |
-| `render_cost.tscn` | WINDOWED. Frame cost at each MSAA level. The ONLY test that sees rendering — `perf.tscn` is headless, where the renderer does nothing. Disables vsync itself. |
-| `perf.tscn` | Physics and A* budget. |
-| `map_look`, `universe_look`, `weapon_look`, `guard_look`, `death_look`, `select_look`, `buy_look`, `menu_look`, `sight_look`, `trandoshan_look` | WINDOWED. Screenshots for judging APPEARANCE. A look test must apply `Grade` and must PLAY an animation, or it photographs something the game never shows. |
+- `GameState.mode` picks the rules. **DEATHMATCH** scores on `add_frag`, **ZONES** on
+  `add_zone_tick`, both funnelling into `_award` with a per-mode `score_limit()`.
+- **The VICTORY threshold is configurable** (`GameState.score_targets`, seeded from
+  `SCORE_LIMITS`): kills or zone-hold seconds, from `menu.gd`'s `SCORE_CHOICES`. Royale is
+  not tunable (last side standing is not a number).
+- **CONQUEST is the Battlefront mode**: sides fight over CAPTURE POSTS (`command_post.gd`)
+  laid out by `conquest.gd`, and you DEPLOY on a post your side holds, picked in the
+  DEPLOY POST box (`Player._step_spawn_post`, `_conquest_spawn_transform`). `score_limit()`
+  is the REINFORCEMENT pool: `report_death` spends one and `conquest_bleed` drains the side
+  holding fewer posts by the deficit; zero loses (`_conquest_defeat`). `scores` mirrors
+  `tickets` so the scoreboard needs no special case.
+- **A CommandPost's ownership field is `owner_team`, NOT `owner`** — `Node.owner` is the
+  built-in scene-owner and unrelated. Capture is Zone's head-count (most living combatants
+  inside, ties freeze it) run toward a flip over `CAPTURE_TIME`; home posts start owned,
+  the rest neutral. Only while `match_live`.
+- **ROYALE** is not scored: nobody respawns, `check_last_standing()` awards the one point,
+  and `Player.begin_deploy` skips the buy screen because there is nothing to buy.
+  **Nothing respawns — and holding the players down is not enough**: Main was still
+  reinforcing team-fill AI on `_on_team_bot_lost`, so bots kept coming back while humans
+  stayed dead and the last side could never be decided. Anything that replaces a body
+  needs a ROYALE early-out.
+- **ROYALE HAS NO CLASSES.** Everyone drops in as a plain trooper and `Loadout.royale_items`
+  filters anything carrying a `"kit"` key out of the crates — otherwise `_roll_pickup`
+  scatters lightsabers over players with no guard to use one. An entry may carry
+  `"royale": true` to stay in the crates anyway, for gear that is a class's by BALANCE
+  rather than by mechanism (heavy guns, the barrier); `Pickup._grant` sets the field
+  directly and never consults `allows`.
+- Royale gear is all `Pickup`: every item is a change to the player's LOADOUT which is then
+  re-applied, so a rifle found on the ground behaves exactly like a bought one across the
+  weapon swap and rotary toggle with no second code path. Bots never collect — they deploy
+  with a full preset and would strip the map humans rely on.
+- **Standing on a crate does NOT take it.** A crate advertises through
+  `Player.pickup_in_reach` and waits for the rebindable `interact` control. The press is
+  published as `Player.pickup_pressed` and cleared by whichever crate acts on it — an edge
+  is consumed by whoever reads it first, so with overlapping crates only one would see it.
+- **`Storm` picks its next centre from INSIDE the current circle**, never from anywhere on
+  the map — that is what makes moving early a bet rather than a certainty. Damage rises per
+  phase so a late ring can break a stalemate. Testing note: forcing `radius` mid-close is
+  pointless (`_physics_process` lerps it every frame) — set `_closing = false` and a long
+  `_left` first.
+- `scripts/zone.gd` owns the capture area and counts `GameState.combatants`, so bots and
+  turrets hold ground too. **It places itself on the first PHYSICS frame, not in `_ready`**
+  — its placement raycast needs colliders that are not in the physics world yet.
+- **WHERE YOUR GEAR COMES FROM IS A SETTING, NOT THE MODE** (`GameState.class_mode`;
+  `faction_classes()` is the one question everything asks). CUSTOM opens the BUY SCREEN;
+  FACTION opens the CHARACTER SELECT (`spawn_screen.gd`) and deploys one of your side's
+  authored classes. Both work in EVERY mode — "Conquest has no buy screen" was never the
+  same decision as the rules Conquest plays by. Selecting a mode SEEDS the setting
+  (`default_class_mode`) and the player overrides it. ROYALE always answers false: it is
+  neither a shop nor a roster, it is scavenging. Bots follow the same switch.
+- **A team is just an index**, 0..`active_teams()-1` — 2, 3 or 4 sides, or FREE FOR ALL
+  (one team per player, no AI fill). `team_names`/`team_colors` are vars, not constants:
+  who the sides ARE comes from the universe. `Team.REPUBLIC`/`CIS` are still 0 and 1 so
+  maps naming them are untouched.
+- **With 3+ teams `place_corner_spawns` REPLACES the map's authored spawns.** Maps only
+  author two sets of markers, so extra sides would otherwise share somebody else's start —
+  in a free-for-all, spawning on an enemy. Two-team layouts are left alone. Ground height
+  comes from the level's own `height_at`, since colliders are not in the physics world yet.
 
-## Networking (not built yet)
+### Player, combat and gadgets
 
-Nothing is networked. Before starting a host/join mode, read the NETWORKING
-NOTES in README.md: what the current design already got right (one authority
-object in `GameState`, duck-typed combatants, N viewports per machine) and the
-four things that will fight it (everything is authoritative-by-accident,
-hitscan plus the guard needs lag compensation, unseeded RNG in the storm /
-pickups / spawns, and per-device polled input with no input snapshot).
+- `scripts/player.gd` — CharacterBody3D. `input_device` -1 = keyboard/mouse, >= 0 = that
+  joypad (polled, so MCP virtual pads work). Main hands out pads to everyone, so -1 is a
+  fallback nobody is on by default. Each player's model renders on layer `2 + player_index`
+  cleared from their own camera; the first-person viewmodel uses bit `10 + index`, seen
+  only by its owner.
+- **Death → corpse → countdown → respawn** at a team marker no living player is standing on
+  (`GameState.get_spawn_point`/`clear_of_bodies`) — two overlapping capsules eject each
+  other out of the map. **Respawn places the body BEFORE clearing `_dead`**: the picker
+  skips dead players, so flipping `_dead` first makes a player treat the body it just left
+  as an obstacle and shove itself off its own marker.
+- **Health regenerates passively — there are no health kits.** `Player._update_regen` /
+  `Bot._regen_if_calm` heal `REGEN_RATE`/s back to full once `REGEN_DELAY` has passed since
+  the last hit; `take_damage` resets `_since_damage`. The delay is what stops mid-firefight
+  healing — you recover by breaking contact.
+- **Friendly fire is tested on `team`, not on `attacker is Player`.** `take_damage` used to
+  let a friendly BOT through, which was harmless while the only AI weapon was a rifle and
+  started mattering the moment AI artillery dropped splash on your own side.
+- **Recoil is three things off one `fired(cam_recoil, kick_back)` signal**: the viewmodel
+  kick (`Viewmodel.kick`), the camera climb (`Player._recoil_pitch`, settling at
+  `RECOIL_RECOVER`) and a backwards shove for the big guns. A gun's real cost is
+  `cam_recoil / (fire_interval * RECOIL_RECOVER)` of steady climb, so raising a fast gun's
+  recoil costs far more than the same bump on a single-shot one.
+- **`kick_back` cannot just be added to `velocity`** — movement rewrites `velocity.x/z` from
+  the stick every frame — so it rides alongside as its own decaying `_kick_vel`, like
+  `_unstick_push`. Flattened to horizontal on purpose: firing at the floor should stagger
+  you, not launch you. **Same trap for the cable vault, the Force shove and anything else
+  that adds velocity to a body that writes its own.**
+- **Stance drives spread** (`Weapon.stance_spread_mult`, set by
+  `Player._update_stance_spread`, multiplied into `current_spread_deg`): >1 moving, higher
+  airborne, <1 crouched. The HUD bloom crosshair reads the same value so the penalty is
+  legible. A scope's 0 stays 0. Bots leave it at 1 (they have their own aim-error model).
+  Crouch also drops kick via `CROUCH_RECOIL_MULT`.
+- **A scope means zero spread while aimed, on any gun.** The rule is in
+  `current_spread_deg()` (`0.0 if has_scope()`), not a zeroed `ads_spread` in the table, so
+  it cannot be undone by a future profile pairing `"scope": true` with a spread.
+- **You cannot ADS while RUNNING** (`Player._is_running`: sprint held, not crouched, stick
+  pushed). Standing still holding sprint still lets you aim.
+- **Sights are one slot with ALTERNATIVES** (`Loadout.Sight`), not stackable toggles: iron,
+  RED DOT (`has_reddot()`, also sets `holo` to share the no-blackout path), holo ring, SCOPE
+  and 4X (differing only in `zoom_fov`), and the Trandoshan's thermal holo. Fitting any one
+  CLEARS the others, because `has_scope()` is what grants pinpoint accuracy — the reticle
+  drawn and the accuracy dealt must never disagree.
+- **The two grip attachments are split by what they touch**: IMPROVED GRIP is HIP-FIRE
+  ACCURACY only (`GRIP_SPREAD_MULT` on `hip_spread`), FRONT GRIP is KICK only
+  (`FOREGRIP_RECOIL_MULT`).
+- Spread is two INDEPENDENT rotations, so the effective corner of a cone is ~1.4× the
+  `hip_spread` number. **Bloom stacks fast — reset `_bloom` between pulls** when measuring
+  accuracy from a harness, or you are measuring a saturated cone.
+- A gun with `pellets` fires that many rays through one cone and **pools damage per target
+  before applying it** — seven `take_damage` calls would fire seven hit-ticks for one
+  trigger pull and let a single pellet's headshot flag decide the whole shot.
+- **DUAL WIELD changes how the gun is CARRIED, not how it shoots**, so it contributes no
+  profile flags. A second Weapon node (`Head/WeaponOff`, always in the scene, hidden unless
+  active): fire drives the right gun, AIM drives the left, both held fires both. ADS is
+  suppressed — two guns and no sights is the trade. `dual_active()` gates it and
+  `_refresh_offhand()` must be called anywhere the hands can change.
+- Call `try_fire` only from physics frames.
+
+#### Melee, the guard and Force powers
+
+- **Melee connects on a forward ARC, not a pinpoint ray** (`Weapon._melee_strike`, used by
+  any `is_melee()` weapon): nearest enemy inside `range` and `MELEE_ARC` (50°) with no wall
+  between, so a blade lands at the range it fights at instead of demanding the crosshair be
+  dead on a moving target. No headshots on a swing.
+- **The LIGHTSABER is an ordinary hitscan with a 3.4 m `range` and a `melee` flag** — no new
+  code path, it simply cannot reach. Aim does not zoom it; aim raises the GUARD
+  (`Player.guard_up`), a pool paying `BLOCK_COST` per point stopped, only inside `BLOCK_ARC`
+  in front, breaking at zero until it recovers past `BLOCK_RECOVER_AT` (without that
+  hysteresis a pool refilling to a sliver flickers under fire).
+- **The block is CONTINUOUS and never partial**: hold the button and every round in front is
+  stopped OUTRIGHT until the pool is spent. Holding costs no time (it used to drain 0.14/s,
+  so a guard raised early was gone before the shooting started) and a hit is never split
+  between blade and chest — the shot that empties the guard is still fully stopped, the NEXT
+  one hurts. Both of those made a raised guard feel randomly broken.
+- **The guard has to be VISIBLE, because everything else about it is a number.** Sold three
+  ways: the first-person blade comes up across the RIGHT of the frame (never over the
+  crosshair — a metre of solid white would blind you exactly when you are being shot); a
+  `parry()` knock-and-flare raised inside `_absorb_with_guard`, the one place that knows the
+  block was paid for (same rule as the hit marker); and a third-person vertical stance.
+- **The ELECTROSTAFF (`Weapon.Class.STAFF`) is the saber's mechanism with a different LOOK**
+  — melee hitscan, `range` 4.3 m, `damage` 78, `melee`+`staff` flags, same guard. `staff`
+  routes `viewmodel._build_staff`: a dark segmented pole on the saber's swing pivot (so the
+  animation is unchanged) with a `_staff_emitter` at each end and purple lightning arcs that
+  re-jag each frame (`_crackle_staff`, fixed segment pool like `lightning_arc.gd`). Arcs are
+  first-person only; third-person carries static violet tips. The off-hand `_shield` is the
+  BX commando-droid shield (`_build_shield`), layered by z AND `render_priority` so the
+  transparent panels sort right. Reached via `Loadout.primary_override` (a Weapon.Class that
+  beats the WEAPONS lookup, so a faction-only gun needs no WEAPONS row and shifts no index —
+  the Super Battle Droid's wrist cannon uses the same door).
+- **A melee weapon's LOOK is six profile keys** (`blade_core`, `blade_glow`, `blade_len`,
+  `blade_width`, `blade_energy`, `hilt_len` — `Weapon.melee_look()`), read by BOTH viewpoints,
+  so a lightsaber, an energy sword, a chainsword and a thunder hammer are one builder and
+  four rows. **`blade_energy` 0 is a METAL weapon**, and metal is a LIT surface: only plasma
+  is `SHADING_MODE_UNSHADED` (a lit blade goes black on its shadow side, which is where a
+  glowing sword is most of the point). **Unshaded bypasses lighting but NOT the tonemap**, so
+  a mid-grey steel albedo through AgX at exposure 1.6 came out a flat near-white slab at one
+  value on every face — frosted glass, which is why a chainsword looked "shiny, transparent
+  and glowing" at once. Steel builds as an ordinary material.
+- **AN ADDITIVE AURA MAKES WHATEVER IS UNDER IT TRANSLUCENT** — right for plasma, wrong for
+  everything else. So the sleeve is built ONLY around a blade that is actually light.
+  `Weapon.BLADE_HEAD_WIDTH` splits a slim blade (builds as a cylinder) from a fat one (builds
+  as a boxed HEAD), and **that shape split doubles as the field rule so no profile needs a
+  key**: every boxed head is a power weapon and gets a CAP proud of its striking face and
+  inside the head's own width; every steel cylinder is a plain length of metal and gets
+  nothing.
+- **FORCE LIGHTNING is the class's only ranged damage and the only power that kills.** It is
+  CHANNELLED — hold and it pours for `CHANNEL_TIME`, biting every `CHANNEL_TICK` and
+  re-acquiring the cone on every bite, so cover cuts the stream and following with the
+  crosshair is the skill. The cooldown is charged when the channel ENDS, in proportion to
+  what was spent. A Bot has to channel too (`_channel_left`/`_zap_once`) or its lightning is a
+  single scratch. Each bite arcs to the bodies nearest THAT target, not the caster, so it
+  punishes a bunched group: `BOLT_CHAINS` jumps of `BOLT_CHAIN_RANGE`, each at
+  `BOLT_CHAIN_FALLOFF` and each re-checking sight from the previous victim. **The jump range
+  decides whether it reads as chain lightning at all** — 7 m only caught enemies practically
+  touching; 9 m is what makes the chain visible.
+- **A combatant's origin is at its FEET, so any line traced between two grazes the ground and
+  reports cover that is not there.** `ForcePowers` lifts both ends (`_eye`/`_torso`); the pull
+  had traced feet-to-feet since it was written, and lightning inheriting it is what found it —
+  on a flat floor it hit nobody at any range.
+- **Shoving somebody else is the hard part.** Both Player and Bot rewrite velocity every
+  frame, so both expose `apply_impulse` and carry their own decaying shove; `ForcePowers`
+  (static, shared) calls it. A turret is bolted down and correctly has no such method.
+- `scripts/lightning_arc.gd` draws from a FIXED pool of segments allocated once and only
+  repositioned — the obvious ImmediateMesh rebuild allocates every frame, four viewports deep.
+
+#### Gadget slots
+
+- **Every class has THREE gadget slots and the third is a different KIND of thing.** Slots 1
+  and 2 are what you THROW or DROP — a press, an effect, a cooldown. Slot 3 (`gadget3`,
+  `Row.GADGET3`) is what you PUT UP AND KEEP — cloak, barrier, overshield, fury — where the
+  decision is not *when to press it* but *when to be under it*, and the cost is that it runs
+  on a clock whether or not it is doing you any good.
+- **Slot 3 has its OWN catalogue** (`KITS["sustain"]`), not a filtered view: nothing in
+  `gadgets` can reach it and nothing in `sustain` can reach slots 1–2 — `kit_rules` asserts
+  both directions, because a barrier fittable in both would put one ability on two buttons.
+  Every class has at least one thing to put up; an empty third slot is a class that was
+  forgotten, not one that chose nothing.
+- Controls: slot 0 = `gadget` (pad X), slot 1 = `grenade` (keyboard G, pad LB), slot 2 =
+  `sustain` (keyboard R, pad Y). If slot 1 is empty and the kit `can_dash`, that control is
+  the dash; slot 3 has no such fallback. **Anything reading a gadget must ask ALL THREE**
+  (`Player.has_gadget` / `slot_of`).
+- **THE PAD FACE BUTTONS MOVED, all three.** A sustained ability earns a face button rather
+  than a chord, so it took Y; **weapon swap moved to B**; crouch moved off B onto **R3**.
+- **Grenades are GADGETS, not a counted consumable** (`Gadget.GRENADE_FRAG/STICKY/SMOKE`,
+  mapped by `Loadout.GRENADE_GADGETS`): you fit one in a slot and the recharge IS the ammo.
+  FRAG bounces and splashes; STICKY collides with BODIES too (mask 3, not 1) and rides
+  whoever it stuck to (never `_thrower`); SMOKE leaves a sightblocking cloud.
+- **A GRENADE IS A SMALL FAST SPHERE, WHICH IS THE ONE SHAPE PHYSICS LOSES.** At 22 m/s a 0.11 m
+  ball covers 0.37 m in a 60 Hz tick — three times its own diameter — so with discrete collision it
+  starts a step above the ground and finishes below it, having touched no triangle. That is
+  "grenades fall through the floor", and **it got worse the moment the throw got stronger**: the fix
+  for reach made the other fault more likely. `continuous_cd` is the fix; `_keep_above_the_floor`
+  (the map's own `height_at`, past a slack the resting case needs) is the backstop, and in testing it
+  never has to fire. **A box floor cannot reproduce any of this** — the real ground is one
+  `ConcavePolygonShape3D` skin, and `tests/grenade_throw.tscn` builds a trimesh heightfield for that
+  reason, having first passed with both defences removed while it used boxes.
+- **HOW IT FLIES AND HOW IT SETTLES ARE SEPARATE, and the damping is applied on FIRST CONTACT.**
+  Damping the throw would make a strong throw impossible; damping the landing is what stops a grenade
+  trickling down a slope away from where it was aimed. Contact monitoring is on for every type now,
+  not just the sticky — a frag needs to know it has landed even though it does not stick. Launch spin
+  came down from +/-8 rad/s to 3.5: a hard-spinning sphere turns that straight into travel the moment
+  it touches friction. Measured on a 14-degree slope: worst roll 2.64 m before, 1.57 m after.
+- **The throw is 22 m/s, not 13** (`Player.GRENADE_THROW_SPEED`), which is ~24 m of carry instead of
+  ~14 — the old one could not reach the cover you were shooting at on any of the big maps. `GRENADE_LOB`
+  is a SHARE of the throw, not a fixed rise, so the arc keeps its shape when the speed changes.
+- **Smoke blocks sight without a collider** — a collider would stop bullets and bodies too.
+  `smoke_cloud.gd` registers with `GameState.smokes` and every AI vision check calls
+  `GameState.sight_blocked()`, a segment-vs-sphere test clamped to the segment so a cloud
+  behind the viewer or past the target doesn't count.
+- **The CLOAK is invisibility to AI, a shimmer to humans.** `GameState.cloaked` is a set every
+  AI vision check skips; the model fades via `CharacterModel.set_cloak` (safe because each
+  character owns its own materials). It BREAKS on firing (the drop lives in
+  `_on_weapon_fired`, which the wrist rocket routes through), times out, and is cleared on
+  death. **`_end_cloak` must guard on the cloaked STATE, not on `_cloak_left`** — the natural
+  time-out decrements to zero and *then* calls it, so guarding on the timer made the cleanup
+  skip itself and leave a permanent ghost in `GameState.cloaked` no AI could ever see.
+- **OVERSHIELD** is a second health pool taking damage FIRST that does not regenerate — spent,
+  not worn down, so it buys a fixed number of rounds rather than a percentage. **FURY**
+  (aliased by RED THIRST and WAAAGH!) is speed, resistance and a heavier swing at once — one
+  buff rather than three gadgets, because a player has to be able to say what a button does in
+  four words. Neither suppresses the hit marker or damage flash: the shooter is still landing
+  shots and both of you should be told. **BIOFOAM** is the only instant heal since the medkits
+  went, priced as a long cooldown rather than a big number so it can never out-sustain
+  somebody actually shooting you. **DEFLECTOR** is a bigger pool than the overshield over a
+  shorter window and it LOCKS THE TRIGGER — one buys you rounds, the other a reposition.
+- **The SCAN DART (`Gadget.SCAN_DART`, `scan_dart.gd`) is a team-wide, wall-piercing reveal**:
+  flies like the rocket, STICKS on impact, and every `SCAN_INTERVAL` marks enemies within
+  `SCAN_RADIUS` into `GameState.scanned` for the thrower's team. `Main._draw_scan` boxes them
+  THROUGH walls — no line-of-sight check, a scan is a ping. Cleared on death/respawn via
+  `unregister_combatant` and `reset_match`.
+- **The thermal read is a per-viewport HUD overlay** (`Main._draw_thermal`), drawn only while
+  that player aims a `has_thermal()` sight, so it is a scope they look through and never a
+  shared tracker. Gated on a WORLD-layer raycast (mask 1): a wall blocks it, smoke has no
+  collider so a cloud does not — which is what makes it see through the class's own smoke.
+- **The MANDALORIAN's WRIST ROCKET reuses the RPG's projectile whole** (`rocket.gd` already
+  flies, arms, splashes and credits its shooter), so it is a launch site and three numbers. It
+  launches from the HEAD, not the weapon anchor, so it fires at the crosshair without lowering
+  whatever gun is in hand, started 0.6 m ahead to clear the shooter's own capsule. Weaker than
+  the RPG on purpose: a 7 s-cooldown gadget must not out-damage a 110-token primary.
+- **Jetpack gotcha**: pure acceleration never leaves the ground, because `move_and_slide`
+  re-zeroes vertical velocity while on the floor — takeoff needs an instant `JET_KICK` on the
+  first thrust frame. **Push a readout on BOTH the burn and the refill path** — it refilled on
+  the ground and never told the HUD, which reads exactly like a pack that does not recharge.
+- **The wrist cable** ends its pull with a ballistic vault (`_begin_vault`): rise is solved
+  from the anchor height so it scales to what you grappled, and it holds your heading for
+  `CABLE_VAULT_TIME`. The wire (`cable_wire.gd`) is cosmetic — Player owns the timing and
+  passes the same flight time so the yank lands on the frame the claw bites. Two details: the
+  line starts a little AHEAD of the weapon (its origin sits at the owner's camera, so a line
+  from there is blown up by perspective into a white wedge across their view) and its material
+  is unshaded (a thin lit line goes black on its shadow side and vanishes on dark maps).
+- **The front shield sits on physics layer 4 alone** — on the world layer it would shove its
+  owner, on the player layer everyone would walk into it; layer 4 is in nobody's movement
+  mask, so it only intercepts rays. Shooting *through your own* shield works via
+  `Player.hitscan_exclusions()`, honoured by `Weapon._fire_hitscan`.
+
+#### Aim assist and the torso twist
+
+- **Aim assist only ever changes where the VIEW points** (`Player._assist_*`) — slowdown near
+  a target plus a nudge — and never bends a shot. The nudge is gated on stick input: assist
+  that keeps working while you hold still is an aimbot. Strength is PER PLAYER
+  (`Controls.aim_assist_strength`, cached as `_assist_mult`, refreshed by `refresh_settings()`);
+  0 turns it off for that one player even while the match has it on.
+- **The upper body turns before the feet do** (`Player._update_torso_twist`,
+  `CharacterModel.set_twist`). A `CharacterBody3D` yawing under a look input turns the whole
+  body, so panning while standing still pirouettes the model. The legs keep a heading of their
+  own (`_feet_yaw`) that the aim may lead by `TWIST_MAX`; the MODEL is counter-rotated back
+  onto the feet and the model's twist joint puts the chest back on the aim. Moving, airborne
+  or crouched, the feet catch up fast — a twist held through a walk cycle reads as a broken
+  hip. `rotation.y` is still the body's true facing.
+- **The twist lives on its OWN joint (`Hips/Twist/Spine`), which no clip ever names.** On the
+  Spine it would fight the AnimationPlayer, which rewrites every joint in `PATHS` every frame.
+  A joint the clips never touch needs no process-ordering rule. **Note this changed every path
+  in `PATHS`** — anything reaching for `"Hips/Spine/..."` by string breaks; go through
+  `CharacterModel.PATHS`.
+- **THE WRISTS AND ANKLES ARE JOINTS, AND THAT IS THE FIX FOR "CHUNKY".** A limb that bends in
+  exactly one place reads as a mannequin however good the mesh on it is, and the two worst offenders
+  were the two ends: the boot turned rigidly with the shin, so every stride pointed the toe and a
+  deep crouch stood the whole unit on its heels; the hand was a block on the end of the forearm, so
+  bending the elbow rolled the grip off the weapon. **They cost nothing to add and that is the
+  point** — both sit at exactly the position the boot and hand boxes already occupied, so NO
+  GEOMETRY MOVED, and a pose that does not name a joint leaves it at rest, so every existing clip
+  kept working the moment they appeared and each opted in on its own terms. 11 animated joints → 15.
+- **The ankle CANCELS what the hip and knee did** (`_ankle`, one line, because composing about X all
+  the way down means the foot's pitch is just the sum above it). Total while crouched (a squat is
+  stood on flat feet), partial while striding plus a toe-off (a real foot rolls off, and a fully
+  levelled one reads as sliding), least in the air. The wrist does the same to the elbow
+  (`WRIST_FOLLOW`), read off the IK solve rather than posed — a hand-set wrist angle is right for one
+  gun position and wrong for the guard, the run carry and every unit with different arm lengths.
+- **Measured (A/B, 24 bodies, headless): the animation tick costs 0.001 ms across all of them** —
+  the four extra joints are free. `tests/rig_cost.tscn` reports it as the DIFFERENCE between playing
+  and paused, because the first version timed whole frames and came back with 6.8 ms, which is true
+  and says nothing.
+
+### The character model
+
+`scripts/character.gd` (`class_name CharacterModel`) — a fully procedural box humanoid on
+Node3D joints with idle/walk/run/jump/crouch animations built in code. `scripts/trooper.gd`
+extends it for decorative NPCs.
+
+- **Each unit is its OWN model.** `STYLES` (keyed by `Style`) gives every unit a colour
+  scheme, a HEAD shape, a bulk multiplier and accessories. The SKELETON (`_joint_offsets`, the
+  retired trooper's bone proportions kept as constants) and every animation are SHARED, so a
+  new look is a table row. `set_style(id)` frees the `Hips` subtree and rebuilds in place; the
+  sibling AnimationPlayer and its joint-name tracks re-bind.
+- **A style has THREE colours, not two** (`armor` / `dark` / `accent`, plus the team accent).
+  Two tones was enough for a trooper in one palette; a Spartan's gold visor, a Necron's green
+  light and an ork's bare scrap are none of those and were all being painted in the body
+  colour. `accent` defaults to `dark`, so a style with nothing to say says nothing.
+- **The class colours are the BODY; `set_team_color` rides the ACCENTS** (`_suit_mat`:
+  shoulder bells, chest vest, belt, knee pads, helmet crest) — so a unit reads as armour with
+  team markings and still calls its side at a glance. `Loadout.character_style()` picks it: a
+  faction build sets an explicit `style`, everything else reads the `"style"` key off its KIT
+  row (a table lookup, not a match on the enum — a match statement is every class written a
+  second time).
+- **Plate armour is one COLOUR at several VALUES.** `_build_body` mixes `armor` / `armor_hi` /
+  `armor_lo` via `_shade` (an HSV value+saturation shift — a highlight is a *paler* red, not
+  just a brighter one). Sky-facing pieces take `armor_hi`, hanging and back-mounted ones
+  `armor_lo`. Deliberately three shared materials and not a per-part tint: forty materials a
+  character across twelve characters is exactly the allocation rule this project cares most
+  about, and the eye reads the BREAK between panels anyway.
+- **A surface's FINISH is most of what tells two materials apart** (`Finish` — PLATE / CLOTH /
+  METAL / HIDE). Everything used to come back at metallic 0 / roughness 0.75, so ceramic plate,
+  a rubber undersuit and a gun barrel caught light identically and a model read as one moulded
+  piece. **All four are dielectrics** (house rule 12): `roughness` decides how tight the
+  highlight is and `specular` how strong. METAL is the sharpest — brushed steel, not a mirror.
+  Every finish also carries `rim`, a fresnel that brightens a surface as it turns away, which
+  went in as a stand-in for a CHAMFER. **The parts are genuinely chamfered now, so rim is down
+  to a whisper (0.05–0.14)** — it is the same edge paid for twice, and a bright edge all the
+  way round a part is itself a translucency cue.
+- **THE HELMET IS THE UNIT**, and for a long time Star Wars did not have one: twelve styles
+  shared a generic `"helmet"` while every other universe got its own head the moment it landed.
+  They are nine heads now (`clone` T-visor and keel, `commando` lit band and rangefinder,
+  `stormtrooper` brow/lenses/raised nose/frown, `shoretrooper` centre keel and wide neck guard,
+  `scout` wraparound goggle, `deathtrooper` flat visor and red lenses, `rebel` bowl over a
+  visible face, `pilot` visor block and oxygen mask, `cap` peaked officer's cap, `royalguard`
+  one vertical slit). **Cost is materials, not boxes** — `_merge_parts` collapses every box on
+  a joint sharing a material into one mesh — so a head is as detailed as it likes provided it
+  reuses `armor`/`dark`/`_suit_mat` and adds at most one of its own.
+- **A head kind with no `match` case falls through to the BARE face and says nothing.**
+  `GEONOSIAN`, `EWOK` and `JACKAL` all asked for `"muzzle"`, which `_build_head` never had —
+  three units shipped with a generic head and no error anywhere. There is no other check.
+- **Silhouette accessories are what separate the factions, not colour**: `bigpauldron`
+  (Astartes shoulders standing clear of the arm and above the collar — the generic `pauldron`
+  sits flush and merges into the torso, which is why a marine was a rectangle), `powerpack`,
+  `aquila`, `tank` (the Unggoy methane bottle, bigger than the body carrying it), `ribs`,
+  `scrap` and `shoulderplate` (ork armour, deliberately ASYMMETRIC — a matched pair reads as
+  issued kit, which orks do not have), `collar`, `gauntlet`, `greaves`, `thighplate`. Two
+  calibrations: an accent cap on a pauldron must be a TRIM (0.03) not a lid (0.05) or the
+  shoulder reads as a gold-topped crate; and a chest plate must stand PROUD of the team vest,
+  not level with it, or the two are coplanar and the chest is one flat inset panel.
+- **Armour on the limbs is what stops a heavy unit reading top-heavy** — a slab chest on bare
+  pipe-cleaner legs looks wrong however good the torso is.
+- **A SMALL PART IS NOT WORTH DRAWING FROM ACROSS THE MAP** (`DETAIL_SMALL`/`DETAIL_MEDIUM`,
+  set in `_box`). A unit is thirty-odd meshes drawn four times plus a shadow pass, and most are
+  trim and pouches a pixel wide past forty metres. `visibility_range_end` is the engine doing
+  this **per camera and for free** — exactly right for split screen, since the same body keeps
+  its detail beside its own player and loses it in the other three. **Limbs and heads go
+  through `_limb`/`_build_head` and are never culled** — the silhouette that says which unit
+  that is stays.
+- **`CharacterModel` REMEMBERS its render layer (`set_render_layers`)** rather than being
+  stamped from outside once: it rebuilds on a style change and a melee swap, and fresh
+  `MeshInstance3D`s default to the shared layer, so a player who stamped at spawn saw its own
+  third-person blade hanging in front of its camera. Player must re-stamp after a rebuild
+  (`_stamp_model_layers`). Same trap one node out as `Viewmodel.view_layer`.
+- **`set_melee(on, staff)` swaps the held blaster for a lit blade on the same `HeldGun`
+  joint**, so the solved carry/guard IK is unchanged. Player calls it from `_announce_hand`
+  (every swap, not just deploy), Bot from `setup`. Before it, a Force adept charging you looked
+  like a trooper standing oddly.
+
+#### The rig, the carry and the poses
+
+- **Every body part is a procedural box hung on a joint** (`_build_body` → `_limb`/`_box`/
+  `_build_head`). `_limb(joint, to, ...)` spans a box from a joint to its child joint in local
+  space, so a limb always reaches the next joint however the skeleton is proportioned.
+- Three things the rig has to get right, all found by looking: joints must sit at the model's
+  OWN bone positions rather than nominal vertical limb lengths, or every piece hangs offset
+  from the geometry it was cut from and the seams tear into spikes; T-pose arms need a quarter
+  turn baked into the MESH and never into the joint, since rotating the joint rotates the axis
+  the clips animate about; and triangles that BRIDGE an arm and the torso must be dropped.
+  **Filtering bridges by edge length is the obvious approach and is wrong** — the model is
+  low-poly enough that real body triangles are as long as the bridges, and it deletes the legs.
+- **Re-proportioning the rig costs the animation NOTHING** — every clip is a set of joint
+  rotations, so changing a limb's length leaves the motion identical. That is why it was right
+  over stretching the mesh.
+- **The carry pose is SOLVED onto the gun, not dialled in** (`_carry` + `_arm_ik`). Two-bone IK
+  puts both hands on grip points derived from `GUN_POS`, so the hold survives any change to arm
+  lengths or weapon position. Hand-tuned shoulder angles only ever hold for one set of
+  proportions.
+- **The arm does NOT hang along -Y, and `_arm_ik` has to be told so.** The skeleton's elbow
+  offset is tilted ~13° back off vertical and `_build_body` runs the forearm along it. The
+  solver used to assume a straight-down arm of length `UPPER_ARM` off `(±SHOULDER_X, SHOULDER_Y,
+  0)` — three lies about the rig (direction, true bone length, the shoulder's 4 cm z offset) —
+  and left every hand 8–14 cm off its grip. **The tell is the SHOULDERS**: the whole chain
+  rotates to plant a hand that is not where the solver thinks it is. `_arm_ik` now takes the
+  elbow OFFSET (carrying both length and rest direction) and takes the law of cosines about it —
+  only the part perpendicular to the elbow's +X axis swings, hence the `rest.x²` term.
+- **A pose test must probe where the MESH is, not where the solver thinks it is.**
+  `guard_pose.tscn` read each hand as `elbow.global_transform * Vector3(0, -reach, 0)` — the
+  same straight-down assumption — so it asked the solver its own question and got 0.0 mm back
+  while the hands hung 14 cm off. It probes along the rig's own bone directions now.
+- **`_carry()` hands out a COPY of its cached pose.** Every caller mutates what it gets back,
+  so returning the cache let `_crouch_base` write its shoulder angles into it and permanently
+  clobber the hold for every clip built afterwards.
+- **`_carry()` carries the WEAPON's transform, not just the arms.** `_clip` keys the gun joint
+  from the pose, so a pose that did not name the gun keyed it back to the origin unrotated —
+  putting the weapon in the middle of the chest on every frame of every clip.
+- **A rifle is carried on the RIGHT SHOULDER** (`GUN_POS`/`GUN_ROT`), not flat across the chest
+  — the old centred pose put the receiver on the sternum and both arms in a symmetric hug, the
+  most toy-like thing about the model. **Tune it against the ARM EXTENSION the solve returns**,
+  not by eye: at x 0.10 / z -0.235 the left arm came out at 94% of its length, and a two-bone IK
+  at 94% is a straight arm that drags the shoulder up and gives every unit a hunch. Drawn in and
+  yawed across, left sits ~86% (bent elbow) and right ~52% (tucked at the trigger).
+- **The RUN clip carries the weapon ACROSS THE CHEST** (`RUN_GUN_POS`/`RUN_GUN_ROT`). Nobody
+  sprints with a rifle in the aim. **The big number is the YAW** — at the standing 20° a running
+  figure still reads as aiming, and only past ~55° does it read as stowed. It goes through
+  `_hold` like every other pose, so both hands stay on the grips: arms swinging free beside a
+  floating gun is worse than no sprint carry at all.
+- **The sprint carry shows in FIRST PERSON too** (`Viewmodel.sprinting`, set by Player through
+  `Weapon.set_sprinting`) — everyone else could see a sprinting player lower their gun and the
+  only person who could not was the one doing it. A first-person camera sits 30 cm from the
+  receiver, so it drops the weapon out of the sight line rather than swinging it 62°. It rides
+  ON TOP of the bob, ADS slide and recoil. **The trigger cancels it, easing back twice as fast
+  as it eases in** — the weapon must be up by the time you can shoot. A blade ignores it.
+- **Standing still, a body stands with its feet APART** (`_stance`, idle clip only — walk and
+  run put the legs back under the body where they have to be to carry it). A splay is a roll at
+  the hip, and **it must drop the hips by what the splay costs in height**
+  (`STANCE_HIP_DROP = LEG * (cos θ - 1)`) or the feet hang above the floor.
+- **Crouch is a posed clip pair (`crouch_idle`/`crouch_walk`), not a squashed model** — scaling
+  `model.scale.y` just makes a shorter person, and a pose laid over the others would depend on
+  process ordering to survive the AnimationPlayer. Two solved constraints keep the feet honest:
+  `CROUCH_KNEE_DEG` is exactly twice `CROUCH_HIP_DEG`, putting the ankle under the hip; and the
+  walk's knee only ever tucks FURTHER, never opens, because with a fixed knee a hip swing can
+  only shorten the leg.
+- **A hip drop is a fraction of the LEG, never of `HIP_Y`.** Both crouch and guard used
+  `LEG * cos(angle) - HIP_Y`, silently assuming the hips sit exactly one leg off the ground —
+  true of the box rig, false once it took the trooper's proportions (the pelvis is `HIP_DROP`
+  above the thigh and the boot hangs below the ankle), so both poses dropped an extra 20 cm and
+  the boots vanished into the floor. `CROUCH_HIP_DROP`/`GUARD_HIP_DROP` are `LEG * (cos - 1)`.
+  **`tests/guard_pose.tscn`'s ankle column is what catches it.**
+- **The crouch does NOT compensate the arms for the torso lean.** The gun hangs off the SPINE,
+  so leaning carries the weapon and both hands as one piece; the old pose pitched the shoulders
+  back by the lean angle, which now drags the hands off the gun.
+
+#### Corpses
+
+- **A CORPSE IS AN ARTICULATED RAGDOLL wearing the unit's own body** (`corpse.gd`): six
+  segments — torso, head, two arms, two legs — thrown by whatever killed it. Six and not eleven
+  because a separately hinging forearm costs twice the bodies and joints to say something
+  invisible at this scale; these are the segments whose SILHOUETTE changes when a body goes down.
+  Measured: 12 concurrent ragdolls (72 bodies) still holds the 60 Hz physics tick. The RENDER
+  cost is identical to one rigid body — physics is simulated once however many cameras look.
+- **Built by taking a FINISHED model apart** — the `CharacterModel` is built and styled as
+  before, then each segment's joints are `reparent`ed onto a RigidBody3D, so every mesh, colour
+  and accessory stays right and the ragdoll knows nothing about how a body is made.
+  `freeze_all()` stops the lot for anything photographing the pose.
+- **RESOLVE EVERY JOINT BEFORE MOVING ANY OF THEM.** The segments are NESTED — Head, ShoulderL
+  and HipL are all children of Hips — so the moment the torso reparents Hips, searching for any
+  of the others finds nothing. That left five of six bodies empty at the origin, still pinned to
+  a torso a metre above, and the joints hauled them up: **that** is what launched corpses into
+  the air, and why no limb ever articulated.
+- **The joints are PIN joints, not cone-twists, deliberately.** A cone-twist is anatomically
+  right and was tried first, but its limits are measured about the JOINT'S OWN AXES — which come
+  from a rig where an arm carries a baked quarter turn — so limbs started outside their own cones
+  and the solver spent the first frames forcing five joints back inside. A pin joint has nothing
+  to violate; what it costs is anatomy, which at box-limb fidelity is a far smaller lie than a
+  body launching into the sky. Angular damping is what stops it looking boneless.
+- **A ragdoll starts STANDING, in the rest pose.** The old hand-authored curl is the fetal tuck
+  it then falls into, and its hip drop put the leg boxes 44 cm THROUGH the floor, which the
+  solver resolves by ejecting the whole body.
+- **There is no upward impulse anywhere in `corpse.gd`, and masses are anatomical RATIOS.** A
+  body that is shot drops; the shove only decides which way it topples. A heavy head on a light
+  torso whips, and near-equal masses across a joint make the solver argue with itself.
+- **A CORPSE IS THE SIZE THE UNIT WAS** (`launch`'s `stature`). The model is scaled BEFORE its
+  joints are read; the rigid bodies are set from an **orthonormalized** transform with their box
+  shapes scaled explicitly, because a RigidBody3D with a scaled basis scales its own collision
+  shape a second time. Without it an Ewok stood up to full trooper height on landing.
+- **A death nobody can see is not built at all** (`VIEW_RANGE`) and the floor holds `MAX_ALIVE`,
+  oldest evicted first. A human's own death is `forced` past both: you watch that one. Anything
+  spawning a corpse outside a match has to force it too, or it measures an early-out.
+- **THERE ARE THREE DEATH STYLES, NOT TWO** (`Controls.death_style()` → RAGDOLL / ANIMATED /
+  CLASSIC), and neither of the first two wins outright — which is why both ship. The RAGDOLL lands
+  correctly on a slope, against a cover box, half over a ledge, and is thrown by whatever killed you.
+  The ANIMATED fall reads more cleanly, plays the same way every time, and **knows nothing about what
+  it is landing on** — on the procedural worlds, where the collision mesh already sits above the
+  analytic curve, a body will sometimes end part-way into a hillside. That is the cost and it is why
+  RAGDOLL is still the default. `Corpse._build_animated` keeps the finished model whole instead of
+  taking it apart, which is the entire difference.
+- **`OPT_DEATH_STYLE` sits ALONGSIDE the old `classic_death` boolean rather than replacing it.**
+  There are real `user://controls.cfg` files with that key in them; read as an int it comes back 1
+  and silently selects ANIMATED for anybody who ever turned the classic look on. `death_style()`
+  migrates, `set_death_style()` writes both.
+- **A CANNED FALL PIVOTS ABOUT THE EDGE IT GOES OVER, and that is four different edges**
+  (`CharacterModel.DEATH_PIVOT`). Rotating the Hips alone swings the body about hip height and drives
+  the head into the floor; rotating about a point between the FEET fixes that and then puts the
+  down-side leg through the ground on a sideways fall, because you go over the OUTSIDE OF A FOOT, not
+  over a spot between two. Measured: 26 cm of boot under the floor until the pivot moved out to 0.25 m.
+- **THE RIFLE IS THE LONGEST THING ON A BODY AND IT GOES INTO THE GROUND FIRST.** The barrel reaches
+  37 cm past the joint it hangs on — further than any limb — so `DEATH_GUN_SHIFT` shoves it toward
+  whichever side ends up on top. Note the trap: a sideways topple rotates about Z, and **a Z rotation
+  leaves the barrel (which runs along -Z) pointing exactly where it was**, so no amount of changing
+  the weapon's ANGLE lifts it — only its POSITION does. Two rounds of tuning went into the arm on the
+  down side, which was innocent; `tests/death_clip.tscn` prints WHICH PART is lowest for that reason.
+- **A body does not tip a full ninety degrees** (`DEATH_TIP_DEG` 74). A pure quarter turn maps
+  everything behind the pivot axis to negative y — the pack, the heels, the rifle — and measured 76 cm
+  under the floor at its worst. Stopping short still reads as unmistakably down. Resist raising
+  `DEATH_LIE_LIFT` to make the floor test pass: it hides which part is low and a body whose hips end
+  half a metre up is hovering, which is the worse artefact.
+- **CLASSIC DEATH** (`Controls.classic_death()`, now derived from the above): the original generic box figure
+  with its arms straight out. It reads as a T-posing mannequin, which is exactly why it is worth
+  keeping.
+
+### Weapons: the viewmodel and the look
+
+`scripts/weapon.gd` + `scripts/viewmodel.gd` — class-based blaster (ADS zoom, spread, heat) and
+its animated first-person gun. `viewmodel.gd` rebuilds per class from `SHAPES`.
+
+- **It must `remove_child` before `queue_free` when clearing old parts** — freeing is deferred to
+  the end of the frame, so a rebuild in the same frame stacks the new gun on the old one's parts.
+- **A viewmodel's render layer must be re-applied on every REBUILD.** `Player._ready` stamped
+  `mi.layers` on the meshes that existed at the time — none, since the gun is built by the
+  `set_class` on the next line and again on every swap — so every rebuilt viewmodel sat on the
+  shared layer and the other three players saw this one's weapon floating at its face. Weapon
+  carries the bit (`set_view_layer`) and `Viewmodel.configure` re-stamps it.
+- **The ADS slide is SOLVED, not hard-coded**: `_build` cancels the Weapon anchor's offset and
+  the fitted sight's own offset so the sight lands on the camera axis. With twelve receiver
+  heights a fixed offset drifts off centre. A `TorusMesh`'s hole runs along +Y, so the holo ring
+  needs the same `rotation.x = PI/2` the barrels use.
+- **EVERY GUN IS A DIELECTRIC AND EVERY FACTION BUILDS OUT OF THE SAME BOXES** (`Viewmodel.Make`,
+  `PALETTES`, `_dress`) — see house rule 12 for why `metallic` is 0.0 in all six palettes. What
+  separates a UNSC rifle from a Covenant one is COLOUR, PROPORTION and one or two parts nobody
+  else has: Star Wars gunmetal with a red heat cell; UNSC olive drab with a carry handle and a
+  lit ammo counter; Covenant violet with **no straight lines** (canted shell fins round a glowing
+  plasma core, the only family built from round parts); Astartes dark red with a shell box, a
+  purity seal and a muzzle collar; Necron near-black with a lit spine and swept vanes; Ork rust
+  scrap, deliberately asymmetric. Unlisted classes are Star Wars.
+- **A repeated small feature is what gives a surface SCALE** — the same lesson as the Coruscant
+  tower mullions. Viewmodels carry universal furniture sized off the receiver (trigger + guard,
+  ejection port and lip, charging handle, top-rail slots, sling loop, barrel heat vents, front
+  sight block, stock cheek riser), because a bare extruded box could be any size.
+- The lightsaber viewmodel is built under its own PIVOT (`_build_saber`), because the viewmodel
+  root's transform is already driven by recoil, bob and the ADS slide and the whole weapon has to
+  swing as one piece. The blade is modelled along -Z like every barrel, so a POSITIVE pitch is
+  what stands it upright. `kick()` starts a swing instead of a recoil kick when a blade is in
+  hand, alternating sides so a held attack reads as a sequence of cuts.
+- **Every "box" in the game is a CHAMFERED box** (`scripts/meshes.gd`, `class_name Meshes`,
+  static + cached). `CharacterModel._box`/`_limb`, `Corpse._box` and `Viewmodel._box` all funnel
+  through `Meshes.chamfer_box(size)`. A true box shades each face at one flat value and reads as
+  cardboard however good the material is. Deferred while the Pi was a target (44 tris against 12);
+  **measured after the switch it cost nothing** — 20.3 ms against 21.4 ms at 4 viewports, because
+  these maps are fill-bound, and sharing one cached mesh per SIZE actually cut mesh resources.
+- **Never ship a generated mesh without a signed-volume check** (`tests/chamfer.gd`). The
+  chamfer's edge strips were wound inward on half the sign combinations — the surface was all
+  there and every normal pointed outward, so it looked *fine*, and the only symptom was that the
+  solid quietly subtracted from itself (a 1 m cube came out at 74% of its own volume). Winding
+  bugs do not raise errors and do not look like winding bugs; the near-black planet terrain cost
+  a whole session to the same class of mistake.
+
+#### Muzzle flash, bolts and impacts
+
+- **A muzzle flash is a REAL LIGHT** (`Weapon._muzzle_light`), built once and toggled, never
+  allocated per shot. Shadows off, and it decays rather than switching off (a hard cut reads as a
+  dropped frame). It is the best realism-per-line in the game — a shot that lights the wall beside
+  you reads as an explosion in a barrel where an emissive sprite reads as a sticker — and it is
+  the only dynamic light most maps ever get. Rocket blasts get one too.
+- **A GUN HAS ONE COLOUR AND THREE THINGS READ IT** (`Weapon.bolt_color` — tracer, muzzle light,
+  impact scorch). They used to disagree: light and scorch took the profile's `flash` while every
+  bolt in all three universes was one shared burnt-orange material. Resolved per trigger pull
+  rather than once at spawn, because it depends on the profile AND the shooter and those are
+  assigned in either order by Player, Bot and Turret.
+- **The colour falls through to the SIDE, and that is what makes Star Wars look like Star Wars**
+  (`Loadout.UNIVERSES["bolts"]` → `GameState.bolt_colors`). Stated only for EXCEPTIONS, exactly
+  like `VOICES`: a weapon with a colour of its own keeps it, so plasma stays plasma. Everything
+  unlisted is every ordinary blaster row, and those rows are SHARED by all four Star Wars sides.
+  Clone blue against droid red, Imperial green against Alliance orange. A second array rather than
+  reusing `team_colors` because the Empire's chip is grey plate and its bolts are green, and a
+  grey tracer is no tracer at all. **A look test that hardcodes a colour photographs a colour the
+  game does not fire** — `night_look` had its own copy of the old orange.
+- **A round that lands leaves a mark** (`scripts/impact.gd`): a scorch on the surface, a brief
+  flare and four sparks along the bounce, oriented to the hit NORMAL. Boxes and quads only — no
+  particle system, no light by day. Capped at `IMPACTS_PER_SHOT` and spawned for WORLD hits only:
+  a body already reports a hit three ways, and sparking off a chest reads as armour rather than
+  flesh. Two lessons: `look_at_from_position`'s up vector must be perpendicular to the look axis,
+  and here the look axis IS the normal — so `up` may be anything except the normal; and **a
+  short-lived effect must clamp its own delta**, or a hitch hands it a whole second, ages it past
+  its entire life and frees it before it is ever drawn. Judge these from gameplay distance —
+  untextured, a big quad reads as a sticker.
+- **`Blast` (`scripts/blast.gd`, static) is every explosion in the game.** A rocket, a grenade and
+  a mortar shell were three copies of the same twenty lines that had already drifted — the rocket
+  had grown a real light and the other two never had one, so a frag at your feet lit nothing. One
+  call, sized off the weapon's own splash radius.
+- Hit confirmation (`hit_marker.gd` + `hit_tick.gd`, plain scripts instanced by Main — no
+  `class_name`, so no class-cache round trip). **The confirmation is raised inside the VICTIM's
+  `take_damage`**, the one place that knows the damage survived the friendly-fire check, which
+  covers hitscan, rockets, grenades and turret fire without repeating itself. The victim calls
+  `attacker.on_hit_confirmed(headshot, killed)` if it has it. `take_damage` grew an optional third
+  `headshot` arg so the target passes it through rather than the shooter guessing from the number.
+  The marker is per HUD and added LAST in `_add_reticle` so it draws over the scope blackout. The
+  click is one shared pool of voices — audio is NOT split four ways the way the screen is — and
+  PITCH carries the detail rather than three separate sounds.
+
+### AI
+
+`scripts/bot.gd` (`class_name Bot`). Duck-typed against Player (house rule 15). Bots deploy a
+`Loadout` from `BOT_BUILDS` — gun, sight, armour, gadget all from the preset — and `SKILLS` is
+purely intelligence (its `health`/`speed` entries are MULTIPLIERS on the preset's armour). Main
+deals presets out in order so a team fields a mix. **Bots apply the same kit multipliers as
+players, or a class is only fast in human hands.**
+
+- **Bot behaviour must stay mode-agnostic.** Presets, gadget use and patrolling run the same in
+  every mode, with `GameState.zone_active` only changing WHERE they push. Anything keyed to the
+  zone needs a deathmatch answer — turret and mortar placement are keyed to the bot's own patrol
+  goal and to making contact for exactly that reason.
+- **A Bot with no target does NOT stand still**: `_patrol` sends it after its owner, or (team AI,
+  or an orphaned squadmate) to a roaming point near the map centre. Team AI are spawned with a
+  null owner, so the owner-follow path alone left them standing on their spawns all match.
+- **A bought squadmate is LEASHED to its owner** (`_leashed`): it only engages what is near them
+  and gives ground rather than chasing past `LEASH`. That limits where it walks, not what it
+  fights. Team-fill AI have no owner and roam freely.
+- **A bot in contact ALTERNATES between digging in and circling** (`_update_post`). It used to
+  circle for as long as the fight lasted, which reads as a body that cannot keep still and is also
+  bad soldiering — the whole reason to stop advancing is to shoot from somewhere. It POSTS UP:
+  plants, drops to `crouch_idle` and fires for `POST_TIME`, then circles for `ROVE_TIME`, flipping
+  its strafe direction each time so it never steps back into the line it was just shot from.
+  Measured over a 4v4: in contact 79% of the time, dug in for 59% of it, still trading normally.
+- **Posting has to COST something as well as pay.** Crouched, a bot's aim wobble tightens
+  (`POST_STEADY`) exactly as a crouched player's cone does, and its capsule shrinks to
+  `CROUCH_HEIGHT` on the same eased curve — so what a shot has to hit matches what is on screen.
+  Without the second half the crouch is a free accuracy bonus paid for by nothing.
+- **A BOT'S FIGHTING RANGE IS DERIVED, NOT TABLED** (`_hit_reach` / `_hold_range`): a shot lands
+  while total angular error keeps it inside a body's width at that distance, so the stand-off
+  falls out of the tier's own wobble plus the gun's cone. An elite behind a scoped rifle works out
+  ~70 m, the same elite with a scattergun eleven. The tier's `hold` is a FLOOR — this only pushes
+  the good tiers OUT.
+- **The top two skill tiers AIM DOWN SIGHTS** (`SKILLS[i]["ads"]`), trading nothing (they have no
+  camera to zoom) for the weapon's tight `ads_spread`. Gated OUT of `ADVANCE` so a bot closing at
+  a run still hip-fires, and cleared when it loses its target. **Aiming steadies the bot's own
+  wobble too** (`ADS_STEADY`) — a tight cone around an aim still 1.8° off is nothing. Top tiers
+  also compensate for their own aim LAG against a strafing target (`AIM_LAG`; fire is hitscan, so
+  this is not projectile lead).
+- **BOTS SPRINT.** Their animation used to pick the run clip off a speed threshold of 3.9 m/s
+  while their pace was `BASE_SPEED` 4.0 — so they flickered between walk and run at a standstill
+  margin and anything in a heavy kit never reached the clip. Sprinting is a STATE now: on while
+  closing or patrolling, off the moment the bot is inside its own firing range, multiplying speed
+  by `SPRINT_MULT`, picking the run clip, and — like a player — DENYING the sights.
+- **Bots eat recoil too** (`_on_weapon_fired`), or raising it across the board would be a
+  one-sided nerf to the humans. It goes straight onto the head and `_aim_head` lerping back IS the
+  recovery; `_patrol` levels the head out when there is no target. They ignore `kick_back` — a bot
+  writes its own velocity every frame and would erase it.
+- **Bot AI gotchas, all found by measuring damage per skill tier rather than watching it**: aim
+  error must be a **held** offset (per-frame noise fed through the aim lerp averages back out to a
+  perfect shot), applied to **both** head axes; pitch must be solved from the head, not the body
+  origin, or every shot flies a body height high; a target needs **memory** (`TARGET_MEMORY`) or
+  flickering line-of-sight makes it re-acquire forever and never finish a reaction timer; and bots
+  need a heat ceiling or they hold the trigger into a lockout. All tiers carry the same rifle on
+  purpose so skill is the only variable.
+- **Bots fire the mortar** (`_call_mortar_strike`), but a bot has no map, so its knowledge gate is
+  its OWN target: it only shells somewhere it has actually seen an enemy, never the whole level.
+  It aims at the centroid of the group that target is standing in, so artillery punishes a bunched
+  push rather than chasing one runner.
+- **A Bot that grappled has to RELEASE its wire** — `_try_cable` keeps `_cable_wire` and calls
+  `release()` on arrival OR timeout (either branch), or a cosmetic node hangs in the world forever.
+- **A Bot firing the wrist rocket is gated on range** (`_fire_wrist_rocket_if_useful`) so an AI
+  never splashes itself.
+- Bots read `Weapon.max_range()`, so a saber bot advances instead of holding at its tier's
+  stand-off and swinging at air.
+
+#### Navigation
+
+- **The AI plans a route; it does not steer at the goal.** `scripts/nav_grid.gd`
+  (`class_name NavGrid`, one shared instance on `GameState.nav`, built by Main) is an occupancy
+  grid plus `AStarGrid2D` stamped from `GameState.map_shapes` — the same collider footprints the
+  map screen scans. **Reusing that scan is why this needs no navmesh bake and no per-map
+  authoring**: a new procedural map becomes navigable for free. `Bot._route` follows the
+  waypoints, string-pulls across open ground so it does not walk the grid's staircase, and falls
+  back to the straight line when no path is found — an AI that stops when pathing fails is worse
+  than one that scrapes a wall. Measured across all ten maps: 94 of 220 journeys have a wall on
+  the straight line, 0 planned routes touch one, at a 1.06–1.36× detour.
+- Two things that make or break the grid, both measured: **a cell is stamped solid when an
+  obstacle reaches its CENTRE**, so a wall thinner than the cell spacing falls between two centres
+  and A* routes straight through it — `_stamp` pads by half a cell as well as by CLEARANCE; and
+  CLEARANCE plus cell size is what seals a tight map, so cell size is per map
+  (`CELL_MIN`..`CELL_MAX`) and Catwalk's corridors need the fine end.
+- **A\* IS RATE-LIMITED ACROSS THE WHOLE AI** (`NavGrid.PLANS_PER_FRAME`, asked via `may_plan()`).
+  One search costs 2.0 ms on Kashyyyk and 0.10 ms on a small arena, and a loaded match asks for
+  ~16 a second — so the average was never the problem. Bots re-plan on their OWN timers, so
+  nothing stopped eight landing on one frame: ~16 ms of A* in a 16.7 ms budget, a stutter with no
+  visible cause. A refused bot keeps its route and asks next frame, so `_repath_cd` is only reset
+  when a plan actually ran. **Rejected on measurement**: skipping the search when the straight
+  line is clear — the check costs 17–64% of the search it might avoid and fired 0% of the time on
+  the big maps, where the search is expensive.
+- **`Bot._watch_for_snag` is the backstop for everything the grid cannot see** (other bodies,
+  non-box props, a lip in the terrain): trying to move but not moving for `STUCK_TIME` commits to
+  a sidestep for `SIDESTEP_TIME`. It has to COMMIT — re-deciding every frame just jitters — and it
+  peels off along the wall rather than reversing, because a bot that backs up walks into the same
+  corner again.
+
+### Maps
+
+Maps live in `godot/scenes/levels/`. All but the hangar are procedural: a map script
+`extends "res://scripts/arena.gd"` and overrides `_configure()` with a layout table (size/depth —
+leave `depth` 0 for square — cover, per-team spawns); `arena.gd` builds env/floor/walls/lights/cover
+and registers the spawns. A map may override `_build_environment`/`_build_lights`/`_floor_material`
+and add props in `_decorate()`. **A map registers its per-team spawns in `_ready`** (children ready
+before Main spawns players).
+
+- **`height_at()` is the ANALYTIC surface; what you collide with is a heightfield MESH on a coarse
+  grid, and across a hollow its flat triangles sit ABOVE the curve.** So anything placed at exactly
+  `height_at` starts INSIDE the ground and cannot get out — the "characters caught in the ground"
+  symptom. Spawn markers get `GameState.SPAWN_LIFT` and crates a similar nudge, then drop the last
+  step. The lift must exceed the worst grid-cell sag, so it scales with the map's `CELL`, not with
+  the body.
+- **`ConcavePolygonShape3D.backface_collision` defaults to false, and the side it keeps is not the
+  side the surface normals face.** A generated terrain collider silently lets everything walk
+  through it with no error anywhere. Terrain wants it true regardless — it also stops anything
+  launched under the map drifting up through the hill. **Symptom to recognise: the collider exists
+  with the right face count and y-range, and rays still pass through.**
+- **A heightfield is a ONE-SIDED skin over a hollow interior**, so any camera that gets under it
+  sees the mountain vanish and the props float. `terrain_ground.gdshader` is `cull_disabled` with a
+  `FRONT_FACING` branch painting the underside as cave rock — and **Godot forbids an early `return`
+  in `fragment`**, so that branch is a branchless select.
+- Two traps when generating terrain: a `PlaneMesh`'s UVs run 0..1 across the WHOLE plane, so a noise
+  shader shared with a world-UV mesh renders the entire ground as one flat wash unless told the map
+  size; and skipping skin cells below a height cutoff leaves the terrain's leading edge as a lip
+  hanging above the base plane, so players walk UNDER the mountain instead of up it — emit from the
+  first raised corner so the skin's outer edge sits exactly on y=0.
+- `scripts/map_highridge.gd`: `height_at()` is the single source of truth for the mesh, its trimesh
+  collider and every prop on the ground. **The walkable-slope guarantee is arithmetic, not luck** —
+  a smoothstep falloff's gradient peaks at `1.5 * HILL_HEIGHT / (HILL_RADIUS - PLATEAU_RADIUS)`, so
+  those constants plus a tiny `ROLL` and a `LOBE` that varies how far the slope REACHES (varying the
+  HEIGHT leaves the flat plateau standing proud of its own flanks, which measured 60°) keep the
+  steepest face near 27°.
+- **The big maps are big in three different SHAPES, on purpose**: Geonosis is open ground you
+  navigate by landmark, Kashyyyk (220 m) is groves-and-clearings where trunks block the view and are
+  real `cover_boxes`, Senate District (240 m) is a grid whose avenues are map-length sight lines,
+  Boneyard (260 m) is a scatter of enormous hulls whose GAPS are the map. Two things every one needs,
+  both measured: **fog at a FRACTION of a small map's** (0.006 over 220 m was a flat green wash that
+  buried the layout) and **`directional_shadow_max_distance` pulled in to ~80 m** — the atlas is
+  capped project-wide and spreading it over 260 m cost all its depth precision, rendering the whole
+  near ground solid black.
+- Two lighting traps, both measured: fog density that looks atmospheric in a screenshot buries the
+  map (Foundry at 0.026 was a flat orange wash with cover invisible from spawn — 0.010 works), and on
+  a light-coloured map everything else must be painted genuinely DARK or cover, props and players all
+  wash into the ground. Relay shows the design version: it was given a blizzard, which cancelled the
+  long sight lines that are the entire point of the map.
+- **The MAP screen (`scripts/map_view.gd`, one per viewport) shows TEAMMATES only** — a live enemy
+  tracker on a shared screen would end the game. What it draws of the level is SCANNED, not authored:
+  `GameState.scan_map_geometry()` flattens every world-layer box collider to a footprint at match
+  start, so a new map appears on it for free. Arena declares exact bounds; anything else falls back
+  to the scanned extents.
+- **Opening the map STOPS you moving and repurposes movement to steer a cursor** — reading the map is
+  a commitment, not a glance. That cursor is also the mortar's aiming surface.
+
+### Deployables
+
+- **THE PLACED HARDWARE IS A TRIPOD AND A BIPOD, built in code** (`Turret._build_model`,
+  `Mortar._build_model`; the `.tscn`s are only the collider and the pivots the aiming code drives).
+  Both were two primitives — a cone with a box on it, and a cone with a cylinder leaning out of it —
+  which is a signpost, not a machine. They are bought from the same screen and cost about the same,
+  **so the first thing they must do is tell themselves APART at the twelve metres where you decide
+  whether to walk round one**: the turret splays LEGS, the mortar spreads a PLATE, and the only long
+  thing on either is the mortar's tube. One repeated small feature each for scale (the turret's vent
+  slats, the mortar's three bands) — a bare cylinder could be any length.
+- **THE TURRET HAD NO GUN.** Its `Weapon` node has no `Viewmodel` child — that is a first-person rig
+  driven by bob, an ADS slide and a sprint carry that mean nothing bolted to a post — so
+  `find_children(..., "MeshInstance3D")` in `setup` stamped a render layer onto nothing and it fired
+  out of an empty node. It read as a television on legs. Twin barrels at the turret's own scale with
+  a jacket bridging them (two bare pipes read as thin from anywhere but head-on).
+- **The head YAWS and the cradle PITCHES** (`$Head/Cradle`, and `_track` writes the pitch there). An
+  armoured housing tipping its whole self at the sky is a box on a stick; a turret swings and only
+  its gun climbs.
+- **The sensor slit is EMISSIVE IN THE TEAM COLOUR, at 1.3 and not 2.6.** It is the only part
+  carrying information — at forty metres, through smoke, on a night map, a lit eye is what tells you
+  whose turret is tracking you. But AgX at exposure 1.6 takes emission much past unity to WHITE, and
+  a white slit carries no team, which is the entire reason it is lit rather than painted.
+- **The tripod's legs are offset by half a turn** (`LEG_ANGLES` starts at PI), so two face the way
+  the gun does and one braces behind. The other way round puts a single leg between you and the post,
+  which from the front is a bipod with something odd in the middle — **and a two-legged thing with a
+  head on top is a BODY**, the one silhouette an emplacement must never be mistaken for.
+- **The MORTAR is placed like a turret but never picks its own targets** — the map cursor marks the
+  barrage. Placing the tube opens the map immediately (an unaimed tube does nothing, and the map is
+  the only place to aim it); picking it back up does not. Once marked it shells that spot
+  INDEFINITELY on a `BURST_TIME`/`REST_TIME` cycle (5 s on, 5 s off) until re-aimed, picked up or
+  destroyed.
+- **Re-aiming restarts the burst**, which is what a player wants and what silently broke the AI: a
+  bot re-aiming every `BURST_TIME` landed in the middle of every rest phase and cancelled it, so AI
+  mortars fired continuously and never rested (1499 damage in 16 s against the ~1000 the cycle can
+  produce). **`Bot.MORTAR_REAIM` is derived from the tube's FULL cycle, not its burst.**
+- **The mortar TRAVERSES to face its barrage** (`_want_yaw`, lerped onto a `Turntable` carrying the
+  tube and bipod while the baseplate and ammo rack stay put). Shells solve their own arc from the
+  tube's origin, so where the barrel points has never affected where they land — which is exactly why
+  it was left aimed wherever it was dropped and looked broken. It is purely cosmetic and it is the
+  whole read: a mortar that traverses is a mortar somebody is aiming. **Note the rest pitch in the
+  scene was +38° where `_recoil` tweens to -38°**, so the tube pointed backwards until the first
+  shell corrected it.
+- Shells solve their own ballistic arc (`mortar_shell.gd`) so a barrage lands where the cursor was at
+  any range, and detonate on first contact. **Apex scales with the SQUARE of hang time**, so the
+  flight-time constants are the arc-height dial: at 57 m it peaks ~23 m up. **A shell needs an
+  `ARM_TIME` before its impact ray goes live** — a steep lob leaves the tube travelling almost
+  straight up, right past whoever placed it.
+
+#### Vehicles
+
+- **ONLY STAR WARS HAS VEHICLES, and that rule lives in exactly one function**
+  (`Vehicle.spawns_for(universe)`, which returns an empty array for Halo and Warhammer).
+  Every caller loops over what it returns rather than testing the universe itself, so the
+  loop is simply empty elsewhere and a second setting getting vehicles is a table row here
+  and no change anywhere else. It is a deliberate scope line: a speeder is what this
+  setting is built out of, where a Warthog and a Trukk are whole vehicle families that
+  would each want their own handling model, seat count and gunner.
+- **One speeder per faction, four rows in `Vehicle.VEHICLES`**: Republic BARC SPEEDER,
+  Separatist STAP, Imperial 74-Z SPEEDER BIKE, Rebel T-47 AIRSPEEDER. Everything that
+  differs is in the row (health, top speed, accel, turn, hover height, gun, hull, and which
+  `_build_*` silhouette); the flying, hovering, shooting, mounting and dying is shared.
+- **They are spread across the handling envelope on purpose, not one speeder in four
+  colours.** A STAP is the fastest thing on the field and dies to a grenade; a T-47 will
+  survive being shot at and cannot turn. If they all flew the same, the faction it belonged
+  to would be the only difference and nobody would ever choose one over walking —
+  `tests/vehicles.gd` asserts the spread (fastest/slowest, toughest/flimsiest) as a guard
+  rail, and that every one of them beats sprinting.
+- **A CharacterBody3D, NOT a VehicleBody3D.** Godot's is a wheeled raycast-suspension car,
+  and these maps are heightfield terrain: the documented `height_at`-vs-collision-mesh split
+  means a wheel would ride flat triangles sitting above the curve, with a seam every cell.
+  A repulsorlift does not care — it solves a hover height off one downward ray and rides
+  what it actually collides with. It also keeps the vehicle inside `move_and_slide`, so it
+  stops at exactly the walls, cover boxes and prop hulls everything else stops at.
+- **The hover ray masks WORLD ONLY (layer 1).** Masking bodies too would make a speeder
+  ride up over anybody it drove across. The spring is critically damped: softer wallows
+  through a dip like a boat, stiffer turns every terrain seam into a kick.
+- **Bank and pitch are applied to the `Body` child, never to the vehicle itself** — rolling
+  the CharacterBody3D would roll its collision box and its hover ray with it, so the thing
+  would climb its own bank.
+- **Mount/dismount rides the EXISTING interact edge** (`Player.pickup_in_reach` advertises,
+  `Player.pickup_pressed` is consumed), not a control read of its own — an edge is consumed
+  by whoever reads it first, so a speeder parked over a royale crate would otherwise race it
+  and one of the two would silently never respond.
+- **THE TEAM GATE IS ON THE ACTION, NOT ONLY ON THE ADVERTISEMENT** (`Vehicle.may_drive`,
+  asked by the mount area AND by `_claim_waiting_driver`). The first version checked team
+  only in `_on_body_entered`, and `pickup_in_reach` is a plain public field anything can
+  set — so an enemy could take your speeder with no error anywhere. `tests/vehicles.gd`
+  sets the field directly for exactly this reason and caught it.
+- **A mounted player is hidden, its collision is off, and its transform is slaved to the
+  seat.** That reuses the death-cam's precedent and means the existing `RemoteTransform3D`
+  on the player's Head is untouched: camera follows head, head follows body, body follows
+  seat. Both a mount and a dismount are TELEPORTS and call
+  `reset_physics_interpolation()` (house rule 10).
+- **`exit_vehicle` must NOT restore the body if the player is DEAD.** Dying at the controls
+  reaches it through the vehicle's own `_eject`, and `_enter_buy_screen` has already hidden
+  the model and killed the collision for the death cam — restoring them stands a live body
+  up next to its own corpse. `_respawn` is what restores those, and always was.
+  `_enter_buy_screen` also drops the mount itself, so nothing downstream can ever see a dead
+  player who is still flying.
+- **The hull does not SHIELD the driver, it exposes them** (`DRIVER_BLEED`, 20%). Without
+  it, sitting in a speeder is strictly better than standing anywhere and the vehicle is a
+  bunker.
+- **The gun follows the driver's look inside a cone and no further** (`GUN_YAW_LIMIT` 38°).
+  A speeder whose gun tracks anywhere the camera points is a flying turret, which removes
+  the entire reason the thing has a facing; clamping it makes aiming and steering one
+  decision.
+- **A vehicle is a COMBATANT** (house rule 15), so bots shoot at it and it blocks a spawn
+  marker — which also means **a battle FREES them as it runs**, and anything holding a list
+  of vehicles across an `await` has to re-check `is_instance_valid` (the same trap already
+  on record for the massive-battle roster; the cost harness died on it first time out).
+- **Parked at each side's own spawn, offset and lifted.** On the marker it would body-block
+  a respawn every life, and at the exact analytic ground height it starts inside the
+  collision mesh. ROYALE and MASSIVE field none — royale is scavenging and a faction speeder
+  is not scavengeable, and a hundred bodies is already the whole frame budget.
+
+## Screens, input and controls
+
+- **`scripts/controls.gd` (`class_name Controls`, all static — no autoload, so it works from
+  `GameState._init`) owns every binding.** The keyboard half is applied to the InputMap as `kb_<id>`
+  actions, so a key rebind is just rewriting that action. **The pad half cannot work that way** — an
+  InputMap action is device-wide and four players are on four pads — so pad input stays polled per
+  device: `Controls.held(device, id)`. Stored per device with `ALL_PADS` (-1) as the fallback profile,
+  which makes "rebind every pad" and "rebind player 3's pad" one mechanism. Saved to
+  `user://controls.cfg`.
+- **Player 1's pad is the house layout.** `bindings_for` falls back device-own → PLAYER 1 → ALL_PADS →
+  default, so a rebind on P1 is inherited by pads 2–4 — four pads at a couch are four copies of one
+  controller. A pad given its OWN binding keeps it. **`tests/controls_inherit.gd` SNAPSHOTS
+  user://controls.cfg first, because every mutating Controls call SAVES** — an earlier version wiped a
+  real rebind off a real machine.
+- **The game is PAD-FIRST** (Main puts every player on a joypad, P1..P4 = pads 0..3; keyboard is a
+  fallback that still works). Two things that has to buy, neither of which Godot gives you: the engine
+  ships joypad events on `ui_up/down/left/right` and **nothing else**, so out of the box a pad moves
+  the menu's focus and then cannot press what it landed on — `Controls.apply_ui_pad()` adds A/B to
+  `ui_accept`/`ui_cancel` with `device = -1` (ALL devices, or only P1's pad could work the menu); and
+  a rebind listen swallows every input so it can capture any button, which would trap a keyboardless
+  player in the row they opened — so **START always cancels and BACK clears a pad's override, and
+  neither is bindable.**
+- **Godot's geometric focus search is not good enough for a laid-out menu, and `menu.gd` is the
+  proof**: from the 400×200 MAP box, RIGHT landed on TEAM SIZE two rows down and the MODE box beside
+  it took four presses. `_wire_focus` states all four neighbours from the row table, wrapping in every
+  direction (a press that appears to do nothing reads as a hung menu) and crossing rows by POSITION IN
+  THE ROW, which needs no layout — nothing has been sized yet when it runs.
+- **Every menu setting is a labelled DROPDOWN** (`OptionButton`), map, mode and CLASSES included — a
+  cycling chip shows one value at a time, so seeing the range meant walking it. **They are rebuilt on
+  every refresh rather than re-selected, because what is legal moves**: team size cannot fall below the
+  humans already in a team, FREE FOR ALL needs a second player, and VICTORY's choices and unit depend
+  on the mode. **Disabled, not hidden** — an option that vanishes is one nobody learns exists.
+- **Players pick their team on a screen between the menu and the match** (`team_select.gd`): each human
+  moves a token onto a team box (A locks, B releases), and once all are locked it stores the picks in
+  `GameState.chosen_teams`. `team_for_player` returns a player's pick when there is a valid one, else
+  the round-robin default — so `humans_on_team`/`ai_needed` follow the picks for free. An out-of-range
+  pick falls back safely. FREE FOR ALL skips the screen entirely.
+- **The two deploy screens are ONE mechanic** (`scripts/box_screen.gd`, `class_name BoxScreen`, all
+  static): a grid of bordered boxes with a free cursor, the box under the cursor in the player's
+  colour, accept to open (which fills it and gives a caret inside), back to close, accept on SPAWN to
+  deploy. Both the buy screen (`Main._build_buy_screen`) and the character select build out of it, so
+  "the character select looks just like the buy screen" is true by construction.
+- **The cursor opens ON the SPAWN box, closed, every time — that is the whole safety property.** The
+  old screen put a live row-cursor on the CLASS row, so a stick still held on the frame you died
+  re-rolled your kit, and `adopt_kit` RESETS the build. Moving the cursor never touches the build; only
+  accept on a box does; and the ordinary respawn is still one press because the cursor starts on SPAWN.
+- **The buy screen's boxes are INPUT, not layout** (`Loadout.BUY_BOXES`, which is why the table lives
+  with the catalogue and not with the screen that draws it). It runs on each player's own stick or keys
+  — four players shop at once and only P1 has a mouse, so a click-to-select screen would work for
+  exactly one of four. Sizing is picked off `human_players`: the full-size layout runs off both edges of
+  a quarter-screen viewport.
+- **Which box the cursor is over is resolved by Main, not Player** (`Main._resolve_buy_box`), because
+  hidden boxes REFLOW the grid — a Mandalorian has no GRENADES panel — so only the code holding the real
+  `PanelContainer` rects knows where a box landed. Player owns the normalised cursor and reads back
+  `buy_box`; a headless test sets `buy_box` directly. The reticle and the hit-test both map the cursor
+  across the union of visible box rects, so they cannot disagree.
+- **Three states have to be told apart across a four-way split**, so each gets its own signal:
+  selector-on-a-box is a coloured BORDER, open is a coloured FILL too, and the row caret exists ONLY
+  inside an open box — a caret on a line you cannot currently change is exactly the lie the old screen
+  told.
+- **The buy screen's BACK is the pad's B, fixed and unbindable**, like the controls screen's START/BACK:
+  a mode you can get stuck inside needs an exit no rebind can take away. Accept stays on the `jump`
+  binding (it has always been the deploy button, so it follows a rebind). Not hypothetical — this
+  project's own saved config has crouch on R3, so keying "close the box" to crouch would have hidden the
+  exit.
+- The character select and the buy screen index the SAME `Player.buy_box` field from DIFFERENT box
+  tables (`PICK_CLASS_BOX`/`PICK_POST_BOX`/`PICK_SPAWN_BOX` vs `Loadout.BUY_BOXES` + `SPAWN_BOX` +
+  `POST_BOX`). They are never up at once and each handler only uses its own set — but
+  `_enter_buy_screen` has to open on the right one, which is why it branches on `faction_classes()`.
+- **Nobody spawns directly.** `Player.begin_deploy()` (called by Main *after* the HUD is wired —
+  `_ready` would emit `died` into nothing) and every `_die` enter `_enter_buy_screen`, which opens on
+  the build you last deployed with (`pending = loadout.duplicate_loadout()`). It stays up until
+  jump/A; the timer is only a floor before that button arms (`DEPLOY_FLOOR`/`RESPAWN_FLOOR`).
+- **The in-game START overlay (`scripts/settings_overlay.gd`) is PER PLAYER, not a pause.** It opens
+  over that player's own screen while the other three keep playing; the opener stands still like the map
+  screen (`Player.settings_open`). It edits LOOK SENSITIVITY and AIM ASSIST (per-device, in
+  `Controls._settings`), rebinds any button in place, and stores/loads whole configs under a CUSTOM NAME
+  (sensitivity + assist + that device's bindings, loadable onto whatever device a player is on next
+  match). Driven by polling THIS player's own device plus `_input` for rebind capture and name typing —
+  verified that **`_input` DOES reach a node inside a SubViewport**, both keys and pad.
+- **GAME OPTIONS live in `Controls._options`** (its own `[options]` section in `user://controls.cfg`),
+  separate from bindings and per-device feel settings, because they belong to the MACHINE rather than to
+  a device or a match. They are shown at the bottom of the CONTROLS screen only because that is the only
+  options screen the game has — **a real SETTINGS screen off the menu is owed**, and the storage is
+  already split so that is a screen to write and not a migration.
+
+## HUD
+
+- **THE MINIMAP IS A WINDOW, NOT A SMALL COPY OF THE MAP SCREEN** (`scripts/minimap.gd`, top left).
+  They answer different questions and are priced differently: opening the map STOPS you moving, so it
+  can afford the whole level, the mortar cursor, a grid and labels. The minimap is up the whole time and
+  costs you nothing, **so it may only answer the two things you can ask mid-fight — where am I facing,
+  and who is near me.** Everything else was left out for that reason and not for room. It draws
+  `RADIUS_M` (45 m) around you with you at the centre: a 260 m map in 116 pixels is a smear with four
+  dots in it, true and useless, where a fixed metres-per-pixel window means a dot's distance from the
+  middle is a real distance you can act on.
+- **It is a SQUARE because a Control clips to its RECT.** Drawn as a disc first, the footprints ran
+  straight out past the rim — nothing in Godot clips a canvas item to a circle, and masking with an
+  opaque annulus is not available since the HUD is transparent over the 3D scene. `clip_contents` on a
+  square is the whole fix, and a square spends its corners on map instead of nothing. Corner reach is
+  1.4× the short axis, hence `CORNER_M` and a BOX test rather than a radius for contacts.
+- **NORTH-UP, matching the map screen.** A rotating minimap is easier to steer by and would then
+  disagree with the map screen, which is north-up because a level laid out north-up is how everyone has
+  already learned it. Two pictures of the same map that turn different ways is worse than either. **What
+  carries your heading is that YOU are an arrow and not a dot.**
+- **A SCAN DART PUTS THE ENEMY ON YOUR WHOLE SIDE'S MINIMAPS, and that is the only thing that ever
+  does.** Teammates are always drawn; an enemy appears only while `GameState.is_scanned_for(body, team)`.
+  Same discipline as the map screen and thermal read, but a scan is a thing somebody spent a slot on and
+  it expires. **A scanned contact is a HOLLOW DIAMOND, not a coloured dot** — at 116 pixels a marker's
+  colour is the first thing to go, and "is that one of mine" has to survive a glance.
+- **The shape cull runs in PACKED ARRAYS, and the dictionaries were the cost.** `map_shapes` is an array
+  of dictionaries; walking it four viewports deep meant four hashed lookups per footprint per viewport
+  over several hundred footprints. Flattened into `PackedFloat32Array`/`PackedVector2Array` once at
+  build with a squared-distance reject: **1.68 ms baseline, 2.58 ms as dictionaries, 2.05 ms as packed
+  arrays** — the widget costs ~0.35 ms for four, and two thirds of the naive cost was hashing.
+- **It redraws on MOVEMENT, per viewport — the opposite of the scan overlay on purpose.** The scan's "is
+  anything live" is one answer for everybody so it is ticked globally; a minimap's picture moves when ITS
+  OWN player moves, so one player sprinting must not cost the other three a redraw. `should_redraw()`
+  gates on `MOVE_EPSILON` (0.35 m), a turn, and the scan/post revisions.
+- **The player tag moved BELOW the minimap, not beside it.** The scoreboard is a centred full-rect label,
+  so on a quarter-screen viewport at 13pt it starts far enough left that a tag pushed sideways lands on
+  "REPUBLIC 0". **Layout is a property of the WHOLE SCREEN**, so a look test building one widget against
+  a backdrop cannot see it — `tests/hud_frame.tscn` boots `main.tscn` and photographs a real match.
+- **HEALTH IS A NUMBER *AND* A BAR** (`scripts/health_gauge.gd`). It was the number alone, which is exact
+  and unreadable: a number has to be *read*, and reading is the one thing nobody is doing mid-fight on a
+  quarter screen. The bar carries the glance, the number stays for deciding whether you can take another
+  hit. The CHIP (a pale ghost falling to the real value over ~⅓ s) is what makes a hit read as a hit
+  rather than as the bar simply being shorter. **Low health cannot be signalled by turning the bar red
+  alone: P1's own colour IS red** — it also thickens the outline to white and turns the number red.
+- **AN ABILITY IS A ROUND GAUGE, Battlefront-style** (`scripts/ability_gauge.gd`): white while ready, the
+  PLAYER'S OWN COLOUR the moment it is spent, refilling from the bottom, with a one-off flash when it
+  comes back. It replaced a line of text per gadget ("CABLE 3s") — accurate, and useless at the edge of
+  vision where a HUD is actually read. **Spent takes the player's colour rather than grey** because on a
+  four-way split every player already reads their own quadrant by that colour, so a charging ability
+  reads as *theirs* rather than as a disabled control.
+  - **The fill is a VERTICAL WIPE, not a pie slice.** A radial sweep reads as a clock ("how long"); a bar
+    reads as "how much", the honest question for fuel, a guard pool and a cooldown alike. Clipped to the
+    circle by drawing the disc and masking the top with the background colour — no stencil, no shader.
+  - **One widget, three kinds** (`KIND_GADGET`/`KIND_DASH`/`KIND_GUARD`): the dash and the saber guard
+    are not gadgets but are read exactly the same way. It asks the gadget's ACTION, not what was bought,
+    so a jump pack shows the jetpack's fuel and an iron halo shows the barrier's icon. The cloak DRAINS
+    while up — what matters then is how much invisibility is left, not the next cooldown.
+  - **Icons are drawn, not textured** — twelve images to author, import and keep in step with the
+    catalogue, against a dozen lines of vector art each that scale to any HUD size. Deliberately crude:
+    at 46 px an icon is a silhouette whose only job is to be told apart from the other one you carry.
+    `tests/hud_look.tscn` renders a contact sheet of every icon at three charge levels, which is the only
+    way to judge a set drawn blind — it caught FORCE PUSH and FORCE PULL rendering identically (the icon
+    has to MIRROR, not just change an arc radius nobody can see).
+  - **Redraw only when the picture changes.** The value is quantised to 64 steps, so a six-second
+    cooldown redraws about ten times a second and a full one never.
+- **An overlay on `process_frame` re-records its canvas item every frame even when it draws nothing.**
+  Scan, thermal, the bloom crosshair and the two royale readouts all go through ONE
+  `Main._tick_overlays`: scan and thermal redraw only while something is live plus the one clearing frame
+  after, the crosshair only when that player's own cone has moved, the royale readouts on a 10 Hz slow
+  group. One tick function rather than six closures, so the per-frame cost of the HUD is visible in one
+  place. **`_tick_scans` is ticked ONCE for all four viewports**, because "is anything live" is a global
+  answer and a per-overlay check would let the first viewport flip the flag and the other three miss
+  their clearing redraw.
+- **A HUD that rebuilds itself every frame pays for glyph shaping every frame.** Assigning `Label.text`
+  re-shapes whether or not the string changed, and the Conquest spawn screen is up for every dead player
+  at once. It compares a handful of scalars first (`GameState.posts_revision` — an O(1) token bumped when
+  a post changes hands — plus tickets, the player's picks and the countdown IN WHOLE SECONDS, which is
+  all it prints).
+- The HUD picks the reticle in `_add_reticle`'s refresh: reddot → dot, else holo → ring, else scope →
+  blackout, else the bloom crosshair.
 
 ## Procedural worlds
 
-- **`map_planet.gd` (`PlanetMap`) generates a map from a PLANET**, chosen on the menu (Geonosis / Kashyyyk / Coruscant / Mustafar / Hoth / RANDOM), re-seeded every match from `GameState.planet_seed`. A planet is a table row in `PLANETS`: palette, sky, sun, terrain octaves, weather density and which `_lay_*` function places its landmarks. A sixth world is a row and one function.
-- **THE RULE EVERYTHING ELSE FOLLOWS FROM: terrain is always walkable, structures are always boxes.** The nav grid is stamped from BOX COLLIDERS only (`GameState.map_shapes`) and cannot see a trimesh — so a heightfield allowed to make cliffs would have bots pathing into them forever. Terrain carries the LOOK; boxes carry the scale, cover and routing, and are understood by the nav grid, the map screen and every sight check for free. That is why a generated map is playable with no navmesh bake.
-- **The slope budget is arithmetic, not tuning.** The height function is a sum of sines, so each octave contributes at most `amp * freq` to the gradient and the sum is normalised under `MAX_GRADIENT` (0.50 = 26°). Whatever anyone puts in the octave table stays walkable.
-- **A structure's SHAPE and its COLLIDER are separate.** `_solid` always builds a box collider (the nav grid needs one) but the mesh may be a cone, a faceted column, a wedge or a crag. A world built only from cubes reads as a blockout however well it is lit.
-- **`_solid` clamps every footprint to `NAV_MIN_WIDTH`.** A box thinner than the nav grid's cell spacing falls between two cell centres and A* routes straight through it. Clamping at the call sites was tried and is not enough — `_stack` clamped width but let depth vary below it, and low cover never clamped at all, which produced a nav test that passed or failed *by seed*.
-- **Caves, bunkers and trenches are built UP, never carved.** A carved passage is a hole the AI cannot see with walls too steep to climb out of; a box shell sitting on the ground is a cave you fight through and the grid understands its walls and its opening.
-- **Rivers and lava are one mechanism**: a plane through the terrain, at a level MEASURED from the height distribution (`_sea_level`). The height function is a sum of products of sinusoids so its median is ~0 and nothing about the amplitudes tells you where the 15th percentile is — two hand-picked fractions both produced an open ocean.
-- **TERRAIN MUST NOT GO BELOW y = 0** (`height_at` adds `terrain_amplitude()`). `GameState.scan_map_geometry` discards any box whose TOP is at or below `MAP_FLOOR_TOP` — that is how it throws away a map's floor slab. With terrain running to -5 m, every structure standing in a hollow had its top below zero and was silently dropped from the scan: **invisible to the nav grid and to the map screen while physics still collided with it.** That is the "routes pass through real geometry" failure, and it depended on where the generator dropped things, which is why it failed *by seed* and survived two wrong fixes (thin berms, then a minimum-width clamp). Any future map with negative ground has the same trap.
-- **GREEBLING is what makes box architecture read as built** (`_greeble` / `_lamp` / `_drift`, collected during layout and emitted as three MultiMeshes). A flat face has no scale; the moment small repeated shapes sit on it the eye reads the whole object as large — the reason the ILM model shop did it. None of it collides.
-- **A Coruscant tower is a GRAMMAR, not a stack**: podium → shaft segments that step in at setbacks → crown → mast, with vertical mullions, horizontal floor bands and lit window rows on all four faces, plus skybridges between neighbours. Those four masses in the right proportions are what the eye recognises as architecture; no amount of detail rescues the wrong proportions.
-- **A face-mounted greeble's yaw is `PI/2 - a`, not `-a`.** `Basis(UP, t)` sends +Z to `(sin t, 0, cos t)`, so that is the rotation putting a piece's thin axis INTO the facade. Using `-a` turns every piece ninety degrees, and the lit window bands stuck out of the towers as glowing shelves.
-- **Hoth is a snowfield people dug into, not a glacier**: the relief lives in the terrain (its octaves are the tallest of the five) and what stands on it is low and built — bunkers with a sloped glacis and an embrasure, ice revetments, trenches, caves, and dark rock outcrops. **Snow is already the brightest albedo in the game**, so it is the one planet that wants LESS exposure (1.02 against 1.4-1.6); at the others' exposure every value collapses into white. The dark outcrops are the only value contrast on the map and have to be genuinely dark or they vanish.
-- **Kashyyyk's underbrush is decoration, deliberately.** A dense low mat plus taller clumps at head height that break a sight line — you walk and shoot straight through all of it. That is both the project rule (decoration never quietly becomes a wall) and the better map: a forest floor you cannot cross is worse than a bare one. It also means the nav grid and the AI need to know nothing about it. Foliage blobs are squashed low-poly SPHERES: a prism at that size reads as a tent from every angle.
-- **THE BUG THAT COST THE MOST: the terrain mesh winding was inverted**, so its normals pointed DOWN and the sun never touched the ground. It renders as a dark, muddy plain under a perfectly good sun while every box standing on it lights correctly — which reads exactly like a palette problem, and the palette and the sun angle each got "fixed" once while chasing it. The isolation that finally worked: **force `ALBEDO = vec3(1.0)` and measure.** A white surface still rendering at 0.30 cannot be an albedo problem. Flipping the winding took the same ground from 0.27 to 0.76.
-- **A generated map cannot be judged from one screenshot** — it is different every run. `tests/planet_look.tscn` shoots all five worlds from a high wide, a real spawn at eye level, and a mid three-quarter.
+`map_planet.gd` (`PlanetMap`) generates a map from a PLANET chosen on the menu (Geonosis / Kashyyyk /
+Coruscant / Mustafar / Hoth / RANDOM), re-seeded every match from `GameState.planet_seed`. A planet is a
+table row in `PLANETS`: palette, sky, sun, terrain octaves, weather density and which `_lay_*` function
+places its landmarks. **A sixth world is a row and one function.**
 
-## Performance rules
+- **THE RULE EVERYTHING ELSE FOLLOWS FROM: terrain is always walkable, structures are always boxes.** The
+  nav grid is stamped from BOX COLLIDERS only and cannot see a trimesh — so a heightfield allowed to make
+  cliffs would have bots pathing into them forever. Terrain carries the LOOK; boxes carry the scale, cover
+  and routing, and are understood by the nav grid, the map screen and every sight check for free.
+- **The slope budget is arithmetic, not tuning.** The height function is a sum of sines, so each octave
+  contributes at most `amp * freq` to the gradient and the sum is normalised under `MAX_GRADIENT`
+  (0.50 = 26°). Whatever anyone puts in the octave table stays walkable.
+- **A structure's SHAPE and its FOOTPRINT are separate, and physics follows the SHAPE.** `_solid` always
+  builds a box (the nav grid needs one) but the mesh may be a cone, a faceted column, a wedge or a crag —
+  a world built only from cubes reads as a blockout however well it is lit. Those shapes collide as
+  themselves via `mesh.create_convex_shape()`; until that, a spire was solid out to the full width of its
+  base all the way to the tip. **The footprint box stays in the tree, DISABLED** —
+  `scan_map_geometry` reads the shape resource off the node and never asks physics — so the nav grid and
+  map screen keep the conservative box while bullets and bodies get the real silhouette. A hull is never
+  larger than the box it replaces, so nothing new can trap anybody.
+- **`_solid` clamps every footprint to `NAV_MIN_WIDTH`.** A box thinner than the nav grid's cell spacing
+  falls between two cell centres and A* routes straight through it. **Clamping at the call sites was tried
+  and is not enough** — `_stack` clamped width but let depth vary below it, and low cover never clamped at
+  all, which produced a nav test that passed or failed *by seed*.
+- **Caves, bunkers and trenches are built UP, never carved.** A carved passage is a hole the AI cannot see
+  with walls too steep to climb out of; a box shell on the ground is a cave you fight through and the grid
+  understands its walls and its opening.
+- **Rivers and lava are one mechanism**: a plane through the terrain at a level MEASURED from the height
+  distribution (`_sea_level`). The height function is a sum of products of sinusoids so its median is ~0
+  and nothing about the amplitudes tells you where the 15th percentile is — two hand-picked fractions both
+  produced an open ocean.
+- **TERRAIN MUST NOT GO BELOW y = 0** (`height_at` adds `terrain_amplitude()`). `scan_map_geometry`
+  discards any box whose TOP is at or below `MAP_FLOOR_TOP` — that is how it throws away a map's floor
+  slab. With terrain running to -5 m, every structure standing in a hollow had its top below zero and was
+  silently dropped: **invisible to the nav grid and the map screen while physics still collided with it.**
+  That is the "routes pass through real geometry" failure; it depended on where the generator dropped
+  things, which is why it failed *by seed* and survived two wrong fixes. **Any future map with negative
+  ground has the same trap.**
+- **GREEBLING is what makes box architecture read as built** (`_greeble` / `_lamp` / `_drift`, collected
+  during layout and emitted as three MultiMeshes). A flat face has no scale; the moment small repeated
+  shapes sit on it the eye reads the whole object as large. None of it collides.
+- **A face-mounted greeble's yaw is `PI/2 - a`, not `-a`.** `Basis(UP, t)` sends +Z to
+  `(sin t, 0, cos t)`, so that is the rotation putting a piece's thin axis INTO the facade. Using `-a`
+  turns every piece ninety degrees, and the lit window bands stuck out of the towers as glowing shelves.
+- **A Coruscant tower is a GRAMMAR, not a stack**: podium → shaft segments stepping in at setbacks → crown
+  → mast, with vertical mullions, horizontal floor bands and lit window rows on all four faces, plus
+  skybridges between neighbours. **Those four masses in the right proportions are what the eye recognises
+  as architecture**; no amount of detail rescues the wrong proportions.
+- **Hoth is a snowfield people dug into, not a glacier**: the relief lives in the terrain (its octaves are
+  the tallest of the five) and what stands on it is low and built — bunkers with a sloped glacis and an
+  embrasure, ice revetments, trenches, caves, dark rock outcrops. **Snow is already the brightest albedo in
+  the game**, so it is the one planet that wants LESS exposure (1.02 against 1.4–1.6). The dark outcrops
+  are the only value contrast on the map and have to be genuinely dark.
+- **Kashyyyk's underbrush is decoration, deliberately** — a dense low mat plus taller clumps at head height
+  that break a sight line, all of which you walk and shoot straight through. A forest floor you cannot
+  cross is worse than a bare one, and the AI needs to know nothing about it. Foliage blobs are squashed
+  low-poly SPHERES: a prism at that size reads as a tent from every angle.
+- **THE BUG THAT COST THE MOST: the terrain mesh winding was inverted**, so its normals pointed DOWN and
+  the sun never touched the ground. It renders as a dark muddy plain under a perfectly good sun while every
+  box on it lights correctly — which reads exactly like a palette problem, and the palette and sun angle
+  each got "fixed" once while chasing it. **The isolation that finally worked: force `ALBEDO = vec3(1.0)`
+  and measure.** A white surface still rendering at 0.30 cannot be an albedo problem. Flipping the winding
+  took the same ground from 0.27 to 0.76.
+- **A generated map cannot be judged from one screenshot** — it is different every run.
+  `tests/planet_look.tscn` shoots all five worlds from a high wide, a real spawn at eye level, and a mid
+  three-quarter.
 
-- **THE RASPBERRY PI TARGET HAS BEEN DROPPED.** The renderer is now a documented CHOICE in `project.godot`, measured on the dev machine (Intel UHD 620, 4 viewports, Kashyyyk): `gl_compatibility` ~26 ms/frame, `forward_plus` ~126 ms. Forward+ buys SSAO, SSIL, volumetric fog and soft shadows and looks dramatically better — Hoth becomes a real blizzard, Mustafar's lava lights the air above it — and is unplayable on integrated graphics. **Even ONE viewport with every screen-space effect disabled measured 68 ms, so the cost is the renderer and the geometry, not the effects.** On a discrete GPU that flips. `Grade` applies the Forward+ half unconditionally; Godot ignores those properties under Compatibility, so switching is one line.
-- Every mesh renders 4× (one per viewport) plus a shadow pass — keep draw calls and material count low; prefer procedural shaders over textures. Still true, and still the reason 4-player split screen is the hard case.
-- No per-frame allocations in scripts; target 60 fps at 1080p (4 × 960×540).
-- **"No per-frame allocations" means MATERIALS above all.** Conquest's lag was `CommandPost._paint` building three fresh `StandardMaterial3D`s every physics frame for every post — five posts measured **1.7 ms a frame** doing it, more than the whole 16.7 ms budget allows for one feature, and that is on a laptop with the dummy renderer. A marker's materials are built ONCE in `_build_marker` and `_paint` only writes an `albedo_color`, and only when the colour actually moved. Anything that recolours per frame (a capture ring, a pulse, a fade) must own its material, never make one.
-- **PER-SHOT allocation is the same rule as per-frame allocation, and easier to miss.** A weapon fires thirteen times a second per shooter across up to twelve shooters, so anything built per round is built hundreds of times a second. Two things were caught doing it: `blaster_bolt` DUPLICATED its material on every impact (so each bolt could fade its own emission, the scene's material being shared), and `impact.gd` built six materials and six meshes per burst. The bolt now animates SCALE only — per-instance state, free — and the impact shares one static quad and one static box across every burst that will ever exist, plus one material for all four of its sparks.
-- **The bolt's duplicated material was a real defect, not just waste**: a material created and destroyed hundreds of times a second made the rendering server log `Parameter "material" is null` about thirty times a match. A clean tree logged none. Found by `tests/soak.tscn`, and it took a `git worktree` at HEAD to prove it was new rather than pre-existing — worth doing before spending time on any "is this mine?" question.
-- **Nothing is spawned for an effect no human could see** (`Weapon.IMPACT_VIEW_RANGE`). In a 4v4 most rounds fired are bots shooting bots elsewhere on a 220 m map, and every one of those was building a burst, running it for a quarter of a second and freeing it with nobody watching. Humans only — bots have no camera.
-- **When N things ask the same question every frame, ask it once.** Zones runs its head count once a SECOND for one area; Conquest ran the identical count on every command post every physics frame, each re-walking `GameState.combatants` and re-taking the validity / `is_alive()` / `global_position` / `team` reads per body — the scan multiplied by the post count. `GameState.sample_combatants()` takes those four reads once per physics frame into `live_points`/`live_teams`/`live_n` (packed arrays, grown in blocks, never shrunk) and every post reads the same snapshot. Not an approximation: within one physics frame every post saw the same unmoved bodies anyway. Together with the materials that is **2.65 ms → 0.05 ms** per physics frame, ~50x.
-- **An overlay on `process_frame` re-records its canvas item every frame even when it draws nothing.** The scan overlay was fixed for this; the THERMAL read (one class in the game has the sight) and the BLOOM crosshair were not, and the two royale readouts rebuilt their strings sixty times a second to print whole seconds. They all now go through ONE `Main._tick_overlays`: scan and thermal redraw only while something is live plus the one clearing frame after, the crosshair only when that player's own cone has actually moved, and the royale readouts on a 10 Hz slow group. One tick function rather than six closures, so the per-frame cost of the HUD is visible in one place.
-- **A HUD that rebuilds itself every frame pays for glyph shaping every frame.** Assigning `Label.text` re-shapes whether or not the string changed, and the Conquest spawn screen is up for every dead player at once. It now compares a handful of scalars first (`GameState.posts_revision` — an O(1) token bumped whenever a post changes hands — plus tickets, the player's post/class pick and the countdown IN WHOLE SECONDS, which is all it prints) and rebuilds only on a real change. Same for redraws: `Main._tick_scans` only queues the scan overlay's `queue_redraw` while a scan is live, plus the one frame after the last mark expires so what was drawn gets cleared — and it is ticked ONCE for all four viewports, because "is anything live" is a global answer and a per-overlay check would let the first viewport flip the flag and the other three miss their clearing redraw.
+## Night
+
+- **TIME OF DAY is a property of the WORLD, so it belongs to the generated one and nothing else**
+  (`GameState.time_of_day`, `is_night()`, the dropdown disabled on hand-laid maps exactly as PLANET is). An
+  authored arena's lighting IS that map being itself; a generated world is a table row, and night is
+  another row.
+- **NIGHT IS A SECOND PALETTE, NOT A DIMMER.** The obvious version — one multiplier over the day table —
+  takes the picture to mud and puts the cover boxes into unreadable black, which is a *gameplay* bug.
+  **What night changes is the RATIO between things, not their sum**: the ground goes down a long way, the
+  ambient goes down less, and anything that is genuinely a light source goes **up**, because in the dark
+  being the brightest thing on the map is its entire job. Each planet carries a `"night"` block laid OVER
+  its day row (`PlanetMap.world()`, merged one level deep, resolved ONCE per match into `_world` — **nothing
+  may read `PLANETS[planet]` any more** or it builds half a night map).
+- **The terrain palette is DERIVED, not authored** (`PlanetMap.nightfall`), so a new world gets a night for
+  free the way it gets a nav grid for free. Three things move together and all three matter: value,
+  **saturation** (a colour only *darkened* stays as saturated as it was, which is the tell that gives away a
+  scene merely turned down) and a pull toward the moon's own hue. `NIGHT_EMISSIVE` (`vein_col`) is exempt:
+  lava does not get darker when the sun goes down, it gets more important.
+- **NIGHT COMPRESSES THE RANGE, IT DOES NOT SCALE IT** — hence `NIGHT_FLOOR` *plus* `NIGHT_ALBEDO` rather
+  than a multiplier. A plain multiplier failed on precisely the worlds that needed it most: it took a bright
+  desert to a readable dark and a forest floor already dark in daylight to pure black, so the two worlds
+  with no light of their own were the two the derivation ruined. **`NIGHT_FLOOR` is deliberately the same
+  number as `night_palette.gd`'s `MIN_GROUND_V`**, so a derived colour cannot fail the test by construction
+  and only an AUTHORED override ever can — which is where a mistake actually gets made (Hoth's rock did, and
+  the test caught it).
+- **Each world's night is its own, and the authored block is for where the derivation is wrong.** Geonosis
+  is the darkest and the biggest sky — hard starlight, no cloud, and the moon deliberately HIGH, because a
+  low light over flat hardpan is grazing light and the plain returns nothing. Kashyyyk has no moon worth
+  speaking of (the canopy takes it) so its AMBIENT is the highest of the five and is the only thing holding
+  the forest floor up. Coruscant and Mustafar get *brighter* in places: window rows, city glow and lava are
+  already emissive, so with the sky pulled to nothing they stop being decoration and become the
+  illumination. Hoth is the brightest night for the same reason it was the dimmest day.
+- **THE GUNS ARE THE LIGHTING, and that is three changes, not a mood.** The muzzle flash reaches ~20 m
+  instead of 6.5 and lasts nearly twice as long (`Weapon.NIGHT_FLASH_*`, **resolved once at spawn** — a
+  repeater fires 13×/s and this cannot change inside a match). Every round that LANDS lights the ground it
+  landed on (`Impact`), which by day is deliberately not done: **the flash shows the shooter where they are,
+  the impacts show everyone else where the shooting is going.** Every explosion reaches 2.4× as far.
+- **The impact lights are a FIXED POOL of 14, claimed round robin and never allocated** — so a repeater and
+  a hundred-body battle cost the same as one pistol (house rule 4). The pool hangs off the current scene and
+  is rebuilt on the next map.
+- **Two things had to come DOWN at night, which is the opposite of what you expect.** The blast's additive
+  sphere was tuned against a sun; in the dark it saturates flat and comes back as an opaque orange DISC with
+  a hard edge and no falloff inside it. It is turned down AND made smaller than the light it throws, so its
+  silhouette lands on ground that is already lit. The real light does the work.
+- **Measured (Intel UHD 620, 4 viewports, 2x MSAA, generated world):** night by itself is FREE — 25.2 ms
+  against the same map by day, within noise. With every light the mode can produce held on at once
+  (`QS_NIGHT=2`) it is **~27.9 ms, about +2.7 ms**, for a state that in play lasts a tenth of a second.
+- **A night map photographed in silence proves nothing** — the mode is never in that state.
+  `tests/night_look.tscn` shoots each world dark and quiet with two bodies in frame (the READABILITY shot),
+  the same view with rounds landing and a blast through the real code paths, and a high wide. Its first
+  version put the strikes at a height off the camera and photographed six impact lights floating three
+  metres up lighting nothing — it managed to photograph the feature and show none of it.
+
+## Rendering: the Grade and the Quality tiers
+
+- **THE GRADE (`scripts/grade.gd`, `class_name Grade`, all static) is how light is RENDERED, in one place.**
+  A map builds its own environment and lights — sky, fog colour, sun position — because that IS the map's
+  identity. But the response curve, ambient model, glow threshold and shadow settings are not per-map
+  decisions, and they had been copy-pasted into thirteen `_build_environment` overrides that then drifted.
+  `Grade.apply_to(node, exposure)` runs OVER whatever was built. Five parts: **AgX tonemapping** (before it,
+  anything brighter than white clipped — a pale cover box in daylight was a flat white silhouette);
+  **sky-sourced ambient BLENDED with the map's own colour** at `SKY_AMBIENT` 0.3, never replacing it;
+  **glow on an HDR threshold** with `glow_bloom` zeroed; **aerial perspective + height fog**; and a
+  contrast/saturation pass, because AgX is deliberately flat. Per-map override: `grade_exposure`.
+- **Exposure was measured, not guessed.** AgX sits well below the Filmic curve these maps were lit under.
+  Rendered at 1.15 / 1.6 / 2.0 against the darkest map (Crossfire at night) and the brightest (Overgrowth at
+  noon): **1.6 is the only value where the night map's cover boxes stay readable AND the daylight map's pale
+  cover keeps a face on it.**
+- **Two traps in the grade, both found by looking**: sky ambient at 0.55 took half the fill off every night
+  map and put the cover boxes into unreadable black — a *gameplay* bug, hence the 0.3 minority share; and
+  glow weighted toward the WIDE levels (1.0 at level 3) turned a muzzle flash lighting the floor into a
+  white pool the size of the arena, because the lit ground crossed the HDR threshold and was then smeared
+  across ten metres. **The levels are weighted toward the SMALL end now** — that is the difference between a
+  halo and a wash.
+- **The starfield sky is GRADED, not black, and that is load-bearing rather than decorative.** The grade
+  sources part of its ambient from the sky, so whatever the shader paints is what lights the shadow side of
+  everything on a night map — a black sky contributes black. It runs zenith → horizon with a tight band at
+  the skyline.
+- **`Grade` returns early on non-RD renderers.** SSAO/SSIL/volumetric fog do not exist under GL
+  Compatibility and setting them raises an error per environment per call, which buried the real output of
+  every look test. `RenderingServer.get_rendering_device() == null` is the honest question. `Grade` applies
+  the Forward+ half unconditionally; Godot ignores those properties under Compatibility, so switching
+  renderer is one line.
+- **`Quality` (`scripts/quality.gd`, all static) is what the picture is ALLOWED to cost, in one place.**
+  Three tiers (LOW / MEDIUM / HIGH) each state a shadow atlas size, soft-shadow filter, whether blend splits
+  and glow run, an MSAA level and a render scale — **and the scale and shadow entries are arrays indexed by
+  VIEWPORT COUNT, because one player and four players are not the same machine.** `apply_global` /
+  `apply_to_viewport` / `apply_to_light` / `apply_to_environment` are the only places any of this is set —
+  same argument as `Grade`. AUTO (the default) starts at MEDIUM and hands the rest to the governor.
+- **MSAA is set on the SUBVIEWPORTS (`Quality.apply_to_viewport`, which is also where render scale lands),
+  not just in project.godot** — the project setting only reaches the root viewport, and the game never
+  renders into that. It is worth more here than in most games: the scene is untextured flat-shaded boxes, so
+  essentially all of its aliasing is geometric edges, which is exactly what MSAA fixes and a post-process AA
+  smears. Measured (4 viewports, Kashyyyk, vsync off): **off 12.03 ms, 2x 13.87, 4x 14.32, 8x 16.78.** 2x
+  ships as the conservative default; 4x costs almost nothing over 2x, so it is the first dial to turn up.
+- **Four shadow splits cost ~2 ms and two do not.** `Grade.light` ships `SHADOW_PARALLEL_2_SPLITS`. Four was
+  chosen because these maps run to 260 m and one split over that distance makes near-ground shadows crawl;
+  two keeps most of that. **If a discrete GPU ever becomes the target, this is the first thing to put back.**
+
+## Smoothness
+
+- **"LAGGY" WAS NEVER A FRAME-TIME PROBLEM, IT WAS A FRAME-PACING PROBLEM.** The averages on record
+  (~20 ms at a four-way split) are only 20% over budget, which should read as a slightly soft game and not
+  the stutter it was. What makes it stutter is **vsync's failure mode**: a frame that misses is not
+  presented slightly late, it is HELD and presented at the next refresh, so 18 ms of work becomes 33 ms of
+  latency and every third frame shows a body twice as far along. A game at a rock-solid 30 is smooth; a
+  game averaging 55 is not. **The goal is not a lower average, it is a frame time that lands inside its
+  interval every time** — pick an interval the machine can hold, then spend what is left on the picture.
+- **ADAPTIVE VSYNC AND PHYSICS INTERPOLATION ARE WHAT "SMOOTH" ACTUALLY MEANT** (`project.godot`), and
+  neither makes the frame cheaper. Adaptive tears on a missed frame instead of holding it. Physics
+  interpolation fixes the other half: bodies step at 60 Hz and are drawn whenever the frame is ready (see
+  house rule 10 for what that costs you).
+- **THE MACHINE'S SPEED IS NOT A CONSTANT, WHICH IS WHY THIS HAD TO BE ADAPTIVE.** The same scene measured
+  **26 ms cold and 48 ms after ten minutes of play** — the GPU thermally throttles to roughly half clock,
+  and no static quality setting is right on both sides of that.
+- **`FrameGovernor` (`scripts/frame_governor.gd`) HOLDS THE FRAME TO ITS INTERVAL BY MOVING THE RENDER
+  SCALE, and drops the RATE only when resolution runs out.** It samples a `WINDOW` (0.6 s) and reads the
+  average and the FRACTION OF LATE FRAMES. Over budget → trim `scaling_3d_scale` by `STEP` (0.05) down to
+  `MIN_SCALE` (0.55). Bottomed out and still missing → drop an FPS rung (60 → 30), doubling the budget in
+  one move. Comfortable for `RAISE_WINDOWS` in a row → give resolution back one step at a time.
+  **Resolution is the right first lever because the frame is fill-bound** (three independent measurements
+  say so), so it is the one dial whose cost is close to linear and whose reduction is least visible — at
+  0.85× on a 960×540 quadrant of flat-shaded boxes, nobody has ever noticed.
+- **THE TAIL IS WHAT YOU FEEL, SO THE TAIL IS WHAT IT STEERS BY** (`LATE_FRAC`, 0.2). With vsync on, a
+  window where four frames in five hit 16.6 ms and the fifth takes 33 averages to 19.9 ms — comfortably
+  "nearly fine" — and what the player sees is a hitch five times a second.
+- **A RUNG DROP MUST NOT RESET THE RESOLUTION**, or the governor oscillates and the cure is worse than the
+  disease: it walks the scale back down, misses the new rung, drops another and snaps back — a sawtooth in
+  *both* dials whose every tooth is a visible stutter. The scale is left where it was and the ordinary raise
+  path climbs it back, which makes the whole system monotonic: one dial, one step, one direction per window.
+- **CLIMBING BACK IS A PROBE WITH EXPONENTIAL BACKOFF, because under vsync the obvious test is
+  unanswerable.** "The average is well under the interval" can never be true — a frame meeting a 30 fps cap
+  measures at 33 ms BY DEFINITION. So a rung raise is a PROBE: climb, watch for `RUNG_WINDOWS`, then commit
+  or fall back and DOUBLE the interval before trying that rung again (`_probe_windows`, up to
+  `PROBE_WINDOWS_MAX`). Without the backoff a machine 5% short of 60 fps re-probes forever, and every probe
+  is a second of stutter.
+- **A BIG MISS SKIPS THE STAIRCASE** (`RUNG_NOW`, 1.45). Walking the scale down one step per 0.6 s window
+  from full to 0.55 is nine windows — five and a half seconds of visible stutter before the rung it was
+  always going to need.
+- **THE FOUR DIALS THAT ACTUALLY MOVE THE FRAME, measured** (`render_cost.tscn` `QS_ABLATE=1`, 4 viewports,
+  generated world, thermally settled): **directional shadow atlas 4096 → 2048 is 8.08 ms**, **render scale
+  0.60× is 8.66 ms**, **MSAA off is 2.99 ms**, **shadow blend splits off is 2.97 ms**. Everything else is at
+  the edge of noise, glow included (1.3 ms). **The shadow atlas being the single biggest line was a surprise
+  worth recording** — it is a full-screen-ish depth pass per split and it was at the engine default, so it
+  had never been priced.
+- **THE TERRAIN AND SKY SHADERS WERE THE PRIME SUSPECTS AND ARE INNOCENT — 0.07 ms and 0.00 ms.**
+  `planet_ground.gdshader` runs several octaves of value noise per fragment and looks *exactly* like the
+  cause of a fill-bound frame, which is why it was measured before anything was rewritten. Replacing it with
+  a flat albedo changed nothing. **Do not go optimising procedural noise on instinct.**
+- **AND THE CPU IS NOT THE PROBLEM EITHER** (`perf.tscn` `QS_CPU=1`): disabling all bot, player and weapon
+  processing in turn accounts for a small fraction of the tick. This matters because "laggy" is exactly as
+  consistent with a script bottleneck as with a fill one, and the fix for each is the opposite of the other.
+- **`QS_SMOOTH=1` IS THE ACCEPTANCE TEST and the only mode that keeps the SHIPPED settings** — vsync, the
+  cap and the governor all live, because every other mode in that harness disables exactly what is being
+  judged. It reports p50/p95/worst against the rate the governor SETTLED on (not against 60, which would
+  fail a perfectly smooth 30), plus the percentage past one interval and past two — **that last is the hitch
+  count, and it has to be zero.** Shipped result, 12 bodies, generated world by day: **1 viewport 60 fps at
+  full resolution, p50 16.64 / p95 17.18 / worst 19.19 ms, 0% late, 0% hitches. 4 viewports a locked 30 fps
+  at FULL resolution** (it dropped the rate, then climbed the scale back), **p50 33.20 / p95 33.79, 0.4%
+  late, 0% hitches. 4 viewports at 100 bodies: 30 fps at 0.80×, 2.1% late, 0% hitches.**
+- **A LOOK TEST MUST TURN THE GOVERNOR OFF** (`Quality.governor_enabled`). It makes frame time consistent by
+  making RESOLUTION inconsistent, so a screenshot suite left under it photographs whatever scale the machine
+  happened to be at, and two runs disagree for reasons unrelated to the change being reviewed.
+- **QUALITY and FPS CAP are machine options on the controls screen** (`Controls.graphics_quality` /
+  `fps_cap`). The cap is a real setting, not a debug dial: capping to a rate the machine can hold is what
+  stops the GPU sprinting into its own thermal limit, and the governor's rung ladder respects it.
+
+## Performance
+
+See HOUSE RULES 1–5 and 17 first — those are the rules; this section is the measurements behind them.
+
+- **THE PHYSICS ENGINE IS PINNED TO JOLT, and the measurement is why.** It was on `DEFAULT`, which
+  in Godot 4.7 silently resolves to Jolt — so the backend had already changed under the project
+  without anyone choosing it, and every physics figure recorded before the 4.7 move was taken on the
+  other one. Measured on the generated world, 4 viewports: at **14 bodies the two are the same**
+  (physics 6.58 vs 6.59 ms). At **100 bodies they are not**: Jolt holds the tick (physics 16.1 ms,
+  wall 16.69 ms — it kept up) where GodotPhysics3D does not (22.0 ms, wall 18.12 ms, and a p50 frame
+  of **84.9 ms against Jolt's 33.1**, with 289 frames past 50 ms against 6). MASSIVE is the mode that
+  decides this and it is not close. Pin it explicitly whatever the engine default becomes.
+- **TRANSPARENCY WAS THE PRIME SUSPECT AND IS INNOCENT** (`QS_ABLATE=4`). Smoke clouds, blast spheres
+  and bolt tracers are the only things in the game that cannot early-Z, so on a fill-bound frame they
+  were the obvious unpriced cost — and the harness had never measured any of them. Held on at once:
+  **3 clouds 1.17 ms, 6 blast spheres -0.25 ms, 24 tracers 1.59 ms**, against a 1.5 ms noise floor.
+  Cheap because these maps have one directional light and the transparent surfaces are unshaded; if
+  either changes, price it again. Still unmeasured: standing INSIDE a cloud.
+- **THE EXTENDED RIG IS FREE AT SCALE.** 15 animated joints against the old 11, measured as an A/B
+  between playing and paused: **0.003 ms for 100 bodies**. Wrists and ankles cost nothing to tick.
+- **THE RASPBERRY PI TARGET HAS BEEN DROPPED.** The renderer is a documented CHOICE in `project.godot`,
+  measured on the dev machine (Intel UHD 620, 4 viewports, Kashyyyk): `gl_compatibility` ~26 ms/frame,
+  `forward_plus` ~126 ms. Forward+ buys SSAO, SSIL, volumetric fog and soft shadows and looks dramatically
+  better — Hoth becomes a real blizzard, Mustafar's lava lights the air above it — and is unplayable on
+  integrated graphics. **Even ONE viewport with every screen-space effect disabled measured 68 ms, so the
+  cost is the renderer and the geometry, not the effects.** On a discrete GPU that flips.
+- **THE FRAME IS FILL-BOUND, NOT DRAW-CALL BOUND, and three plausible culprits were measured and cleared
+  before that was believed:** prop shadows off (no change), glow off (no change), and merging every body's
+  boxes by joint and material (2620 → 2553 draws at 24 bodies, no change in ms). **At 6 bodies the frame is
+  15.0 ms and at 24 it is 15.5** — the bodies are not the cost, the *map* is, drawn once per viewport. The
+  merge stayed because it is free at runtime and worth more at a hundred bodies, but nobody should expect a
+  millisecond from geometry here.
+- **THE 4-VIEWPORT FRAME WAS ALREADY OVER BUDGET, and that is what a "lag spike" actually is.** Measured
+  (Intel UHD 620, Kashyyyk, 2x MSAA, vsync off): **12 combatants 18.3 ms, 26 combatants 20.7 ms** against a
+  16.7 ms budget. Two changes took it back: 2 shadow splits instead of 4, and per-part visibility ranges on
+  the small stuff. Together ~20.7 → ~16.5 ms at 26 bodies. **Run-to-run spread is ±1.5 ms, so read these as
+  three-run averages.**
+- **WHERE THE CAMERA IS BARELY CHANGES WHAT THE FRAME COSTS, and that was measured to answer a question
+  about VEHICLES** (`QS_VEHICLE=1`). The worry was that a vehicle would outrun the draw-distance tuning set
+  for walking pace. **It does not, and the reason is worth more than the answer.** At 4 viewports, 12
+  bodies: an infantryman at eye height is **20.4 ms and ~1520 draws / 563k tris**; a speeder at 2.8 m is
+  **20.0 ms and ~1200 draws / 551k tris**; a gunship at 20 m is **20.9 ms and ~1110 draws / 549k tris**. A
+  raised camera draws **27% FEWER calls**, because from up there more small parts fall outside their
+  visibility range — the culling vehicles were expected to defeat actually favours them. Note it measures
+  the CAMERA, so it says nothing about a vehicle's own mesh or about vehicles bringing more bodies into one
+  place.
+- **THE TRIANGLE COUNT IS ALMOST INVARIANT TO CAMERA POSE (within 3%), because the map is emitted as a
+  handful of MAP-SPANNING objects and an object is culled as a whole.** `PlanetMap._build_terrain` runs ONE
+  `SurfaceTool` for the entire heightfield, and set dressing is one MultiMesh per prop TYPE — so each has an
+  AABB covering the level, none can ever be frustum-culled, and every viewport draws the whole map every
+  frame. **The batching that made props affordable is the same thing that makes them un-cullable**; a trade
+  worth knowing about, not a defect.
+- **AND IT IS INDEPENDENT CONFIRMATION THAT THE FRAME IS FILL-BOUND.** Draw calls moved 1520 → 1110, a 27%
+  swing, and the millisecond figure did not move (20.4 → 20.9, inside the ±1.5 ms spread). **Chunking the
+  terrain or LODing the props would buy little** — the cost is per-pixel work at 4×960×540 with MSAA, not
+  what is in frustum. The levers that move it are resolution, MSAA and viewport count.
+- Every mesh renders 4× (one per viewport) plus a shadow pass — keep draw calls and material count low,
+  prefer procedural shaders over textures. Target 60 fps at 1080p (4 × 960×540).
+
+## Massive battle (50v50)
+
+- **MASSIVE is the scale mode**: two sides of up to fifty, **procedural maps only**, playing by deathmatch
+  rules. The rules are not the point at that body count — what a player is there for is being one rifle in a
+  hundred, and any objective would just be a place the crowd stands. Locked to the generated world in BOTH
+  the menu and `Main._ready` (so map rotation cannot walk it onto Hangar): the hand-laid arenas are
+  eight-body maps. `GameState.MASSIVE_SIZES` offers 15/25/35/50 because the frame cost is real and a couch
+  that cannot hold fifty should be able to play twenty-five.
+- **A LINE TROOPER (`Bot.line`) IS DEFINED BY WHAT IT DOES NOT DO.** `Loadout.line_build()` is a rifle, a
+  scope and nothing else — no gadget, no grenades, no squad, no mods. **The scope is the one thing they DO
+  get**, because a bot's stand-off is derived from its cone, so without it a hundred of them walk into your
+  face. The gun comes from the universe's own default kit, so a massive battle in 40k is fought with bolters
+  and no table says so.
+- **The four things that made a hundred bodies possible, in the order they mattered — every one measured:**
+  1. **`_apply_unstick` was O(bodies) PER BODY with three script calls per pair** — `is_alive()` and
+     `global_position` on every combatant, ten thousand times a physics tick. **28 ms a tick**, which put the
+     loop into a catch-up spiral (five physics steps per rendered frame, 5 fps). It reads the frame's snapshot
+     now (`sample_combatants` gained `live_bodies`). Still O(n²) — the constant was the problem, not the
+     exponent.
+  2. **Line troopers do not sweep against each other** (`collision_mask = 1`, layer unchanged).
+     `move_and_slide` was 13.9 ms of a 22 ms tick, and a crowd is nothing but bodies near each other. They
+     still stop at walls, are still hit by every ray, are still seen and still block spawns; what separates
+     them is `_apply_unstick`, which was already doing that job. **Soft bodies in the crowd, hard geometry
+     everywhere else.**
+  3. **They step on alternate ticks at twice the velocity** (`MOVE_EVERY`), phase dealt at spawn. Identical
+     displacement, thinking still every tick, collision sampled at 30 Hz — thirteen centimetres a step at a
+     walk. `_apply_unstick` is gated to the same tick, since velocity written on any other tick is thrown away.
+  4. **They are drawn as a crowd** (`CharacterModel.crowd`): no shadow at all, everything culls at 45% of the
+     usual distance, the whole body gone past 130 m. One trooper's shadow among a hundred is not information
+     anybody uses.
+- **The cheap scan takes the nearest THREE, not the nearest one.** One candidate and one ray was cheaper and
+  measurably wrong in the situation this mode is made of: in a crowd the nearest enemy is usually standing
+  behind a FRIENDLY body, `_can_see` fails, and the bot finds nobody — **three of nine line troopers acquiring
+  while stood in a firefight, nine of nine with three candidates.**
+- **They also never plan a route.** A* is globally rate limited, so a hundred bots asking would starve the
+  queue for the veterans and for each other, and each would then walk a route computed seconds ago through
+  ground that has since filled with ninety-nine other people. Straight line plus `_watch_for_snag`, which
+  handles what is actually in their way at this density: the crowd.
+- **A few per side are ordinary bots** (`Main.MASSIVE_VETERANS`), because a battle of nothing but line
+  troopers has no texture — nobody digs in, nothing gets shelled. **Every REPLACEMENT is a line trooper
+  whatever it replaced**: the veterans are a seasoning dealt at the start, not a quota.
+- **A hundred bodies cannot be built on one frame** — a character model is ~0.6 ms, so a hundred at once is a
+  60 ms freeze exactly where the match starts. `Main._deal_massive` deals them out in batches of six across
+  frames; nothing waits, because `match_live` is already gated on the humans deploying plus a countdown.
+- **Measured (Intel UHD 620, 2x MSAA, 100 bodies, generated world):** script+physics **11.9 ms** a tick (from
+  27.9 before the four fixes). Rendering: **1 viewport 11.6 ms / 86 fps, 2 viewports 13.9 ms / 72 fps, 4
+  viewports 20.3 ms / 49 fps** (from 29.8).
+- **Two traps found writing its test, both about the generated map rather than the mode:**
+  `GameState.map_center` is a HORIZONTAL centre — dropping bodies at `map_center + Vector3(x, 2, z)` puts them
+  inside the hill, where nothing can see or walk; and a battle FREES bodies as it runs, so any roster
+  collected before it has to re-check `is_instance_valid` on the way out.
+
+## Audio
+
+- **EVERY SOUND IS SYNTHESISED IN CODE** (`scripts/sfx.gd`, `class_name Sfx`, static), for the same reasons
+  the models are: no assets, no licences, no import step, and a new weapon earns a voice the way it earns a
+  silhouette. **A sound is an envelope on a pitch on a timbre**: the envelope makes it an event rather than a
+  note, the PITCH SWEEP is what stops it being a beep (struck things fall in pitch as they decay), and noise
+  under a tone is what makes it physical rather than electronic. `saturate()` is the punch — a hit folded back
+  from a peak of 3.0 is the same loudness and far denser.
+- **`Audio` (autoload) owns voices, loudness and distance.** Voices are POOLED (one player is a repeater
+  firing 13×/s and there are four of them); per-sound gain and PITCH SPREAD live in one `MIX` table, because
+  the same sample fired 13×/s is instantly recognisable as one sample. **Distance is VOLUME, never panning**
+  (`play_at`): on a four-way split a shot in player 3's viewport has no honest place in the stereo field, but
+  "far away is quieter" is true for everyone — and past `HEARING` it is not played at all, which is also what
+  stops two dozen bots saturating the pool.
+- **The bank is built ONCE on a worker thread, in two stages.** Effects are ~0.3 s of rendering and the music
+  another ~3.4 s, so they are delivered separately: a match started briskly would otherwise have no gunfire
+  for four seconds. Until a stage lands its calls are no-ops. **Never render PCM on the main thread** — it is
+  a per-sample GDScript loop over millions of samples.
+- **A BLASTER IS A STRUCK WIRE, NOT A SWEPT TONE** (`Sfx.pluck`). The real DL-44 is Ben Burtt hitting the guy
+  wire of a radio tower, and a guy wire is a STRING: what the ear recognises is not the pitch fall on its own
+  but that fall happening to a metallic, inharmonic RING. `_blaster` was a swept saw plus a transient — the
+  sweep was right and a swept saw has no ring, so it could only ever be a generic sci-fi zap however well it
+  was tuned. **Exactly the shape of mistake as tuning `metallic` when what was missing was the albedo split.**
+  The body is Karplus-Strong on a swept fractional delay line: fill a delay line with noise (the strike), feed
+  it back through a lowpass (the string losing its high partials first), and the delay LENGTH is the pitch.
+  **Read at a FRACTIONAL offset and interpolate**, or the glide steps between whole samples and buzzes.
+- **A gun announces itself in the first ten milliseconds or it does not read as a gun.** The plasma and gauss
+  voices were built as a swelling fizz and a rising whine — accurate to the fiction, and they vanished under
+  everything with a crack in it. Both are built like the others now (transient, body, character) with only
+  the CHARACTER alien. **Weapon voices are keyed by FAMILY, not per gun** (`Weapon.VOICES` + `_voice()`):
+  sixty samples nobody could tell apart, against four families that genuinely differ. Only exceptions are
+  listed; anything unlisted falls through a damage threshold to blaster or heavy blaster.
+- **THE LIGHTSABER IS FOUR SOUNDS, AND UNTIL RECENTLY IT WAS NONE.** Every blade in every universe shared
+  `melee_swing` and `melee_hit`, so a lightsaber, a chainsword, an ork choppa and an energy sword were one
+  whoosh and a clang, and a Jedi drew a metre of plasma in silence. It is `saber_on` / `saber_hum` /
+  `saber_off` / `saber_clash` plus its own `saber_swing`, and **which blades get them is not a new table**:
+  `blade_energy` 0 already separates steel from plasma for the GEOMETRY, so `Weapon.blade_is_energy()` asks
+  that same key and the thing that hums can never disagree with the thing that glows. Two details are most of
+  the effect — **a saber swing is pitched**, because what you hear is the hum being MOVED (two overlapping
+  sweeps in opposite directions, since one oscillator can only bend one way), and the hum's own pitch bends on
+  a swing (`HUM_SWING_BEND`, driven off the SHOT rather than off measured motion, so a bot with no viewmodel
+  sounds identical to a player). The clash is raised from `Weapon.parry()`.
+- **A LOOP HAS AN OWNER, AND THAT IS A DIFFERENT MECHANISM** (`Audio.claim_loop` / `move_loop` /
+  `release_loop`). The voice pool is round-robin ONE-SHOTS: nothing can stop a voice because nothing needs to.
+  A hum is the first sound that starts when something happens, runs while that stays true, and must be
+  SILENCED when it stops. Fixed slots claimed with a **token** (house rule 4). **Three slots and NEAREST
+  WINS** — four hums on one couch with no panning is mud, the cap makes that impossible rather than unlikely,
+  and taking the nearest is what makes the cap honest. A refused claim returns 0 and the caller carries on
+  (a saber with no hum still ignites, swings and blocks); it retries on a timer, never per tick, since a claim
+  walks the combatant list. **Past `HEARING` a loop is turned down to inaudible rather than STOPPED**, because
+  restarting a loop is an audible re-trigger. **The hum is claimed off what is in hand, POLLED every tick, not
+  pushed by the swap that put it there**: `set_class` runs before the weapon is in the tree, and a blade must
+  also fall silent when its owner DIES, which is not a swap at all. `Main._ready` calls `stop_all_loops()` as
+  the backstop for house rule 11.
+- **A LOOPING EFFECT JOINS EXACTLY, BY CONSTRUCTION, RATHER THAN BY CROSSFADE.** `MusicGen._seamless` has to
+  crossfade because its material is arbitrary; the hum does not. It is exactly one second long with INTEGER
+  partial frequencies, so every partial completes a whole number of cycles and the phase runs dead straight
+  through the join. **That also rules out a noise layer and a `fade_out`** — both are random or zero at the
+  ends, which is precisely the click. The buzz comes from `saturate` folding the partials instead, and two
+  close partials (104 and 109) BEAT at their difference, which is what makes it sound alive rather than like a
+  held organ note.
+- **A CLICK IS A DISCONTINUITY, NOT A NON-ZERO STEP**, and `audio_bank.gd` was measuring the wrong thing. It
+  compared the step across the loop point against ZERO, which silently assumes the waveform is flat there —
+  true of the music, whose join sits in a quiet bar, false of anything looping through its own steepest point.
+  The hum joins **at a zero crossing**, where a sine moves fastest, so consecutive samples differ by 0.08 with
+  nothing wrong: measured against zero that read as a click four times worse than the music's, **and the first
+  instinct is to "fix" a sound that is already perfect.** The join is measured against the buffer's OWN worst
+  sample-to-sample move, and the hum's comes back exactly equal to it.
+- **A generated loop that clicks is a loop nobody can listen to twice** (`MusicGen._seamless`). The tail of the
+  last bar does not line up with the head of the first, so the join is a step in the waveform, audible as a
+  tick every twenty seconds. It is crossfaded round.
+- Two tracks, one progression: `MusicGen.PROGRESSION` is eight bars of D minor with a Phrygian flat second,
+  played slow and pad-only for the MENU (**a menu track with a beat starts a clock in the head of four people
+  arguing about teams**) and at 104 BPM with drums and a lead for the BATTLE. The match cuts to it on GO, not
+  on map load. **Music defaults to 0.45 against effects at 0.85** — the sounds that carry information have to
+  win.
+
+## Networking: host and join
+
+- **`Net` (`scripts/net.gd`, autoload) IS THE SESSION, exactly as `GameState` is the MATCH.** Who is playing,
+  on what machine, on which side, and what is about to be played. Everything about being online is asked here
+  and nowhere else — `Net.online()`, `Net.is_host()`, `Net.authority()`. **Nothing else may test
+  `multiplayer.*` directly**, for the same reason nothing reads `PLANETS[planet]` any more: half the code
+  would then answer the question a different way and the halves would disagree.
+- **A PEER IS A MACHINE, NOT A PLAYER**, carrying one to four humans. That is the shape the game was already
+  built for, so "four at one couch" and "four machines with one each" differ only in how many local players a
+  peer has. It is why this took a session layer and not a rewrite.
+- **THE HOST OWNS THE MATCH; A MACHINE OWNS ITS OWN BODIES.** Bots, spawns, the zone, scores, tickets, the
+  countdown and victory run on the host alone and are broadcast — that is the half that must have exactly one
+  answer. Everything else stays local: each peer simulates its own humans at zero latency, and everyone else
+  draws them as `NetPlayer` proxies. **The trust is deliberate.** Every number in this project — the recoil
+  settle, the stance spread, the twist rate, the carry pose — was tuned against input that moves the body on
+  the frame it was read, and routing that through a server would change the feel of all of it. **A client can
+  lie; this is a friends-and-LAN mode.** To face strangers the line to move is that one — local players become
+  inputs sent to the host — and nothing else in `net.gd` changes.
+- **HITS ARE DETECTED BY THE SHOOTER AND APPLIED BY THE VICTIM.** `Weapon._trace_pellet` is unchanged: it
+  finds a `NetPlayer`, whose `take_damage` forwards to the owning machine instead of applying anything. That
+  also answers the lag-compensation question the old notes raised — the only machine that knows whether the
+  saber guard was up is the one holding the blade, so it decides, and the confirmation comes back through
+  `on_hit_confirmed` the same way it does locally.
+- **`Net.authority()` IS TRUE OFFLINE.** That is the whole reason there is no second version of the match
+  logic: `if Net.authority():` in Main is the single-player path and the host path at once.
+- **`human_players` MEANS VIEWPORTS ON THIS MACHINE, FOREVER** (it sizes the grid, prices the frame in
+  `Quality`, picks the minimap size). Anything about the MATCH asks `GameState.session_humans()` /
+  `humans_on_team()` instead. Getting this backwards makes every machine fill the same team with its own AI.
+- **THE SEED IS THE MAP, AND ONLINE IT BELONGS TO THE SESSION.** `reset_match` must not roll `planet_seed`
+  when `Net.online()` — on EITHER side. The first guard was `Net.authority()`, which is wrong in the direction
+  nobody looks: `start_match` rolls the seed and sends it, then the host changes scene into `reset_match` and
+  throws away the world it just told everybody to build. Two seeds are two worlds, and the symptoms (walking
+  into invisible structures, cover that is not there) all read as replication bugs.
+- **`NetSync` (`scripts/net_sync.gd`) is the pump, at a FIXED PATH** (`/root/Main/NetSync`) because Godot
+  routes an RPC by node path. **No RPC is ever sent to a proxy directly** — a body's path depends on when it
+  spawned — so every net_id travels inside a payload that lands on the one node both ends agree about.
+- **GUNFIRE IS A COUNTER IN THE MOTION PACKET, NOT AN EVENT.** A repeater fires 13×/s; a reliable RPC per
+  trigger pull is 13 acknowledged packets a second per shooter for a muzzle flash. Every body carries a
+  wrapping shot count and the receiver plays the difference, capped — so a dropped packet catches up on the
+  next one instead of losing the shot, with no reliable channel at all.
+- **A MACHINE MAY ONLY MOVE ITS OWN BODIES** (`NetSync._sender_owns`, checked per record). Not a cheating
+  question first: it is what stops a stale packet from a peer that just lost a player fighting the machine
+  that now owns it.
+- **ONLINE MODES ARE DEATHMATCH AND ZONES.** Conquest, Royale and Massive each need a system of their own
+  carried over the wire (post ownership, crates on the ground, a hundred bodies) and are gated out of the
+  lobby — a mode that half works fails in ways that look like a bug in the game. **Vehicles are off online**
+  for the same reason: placed on the host alone they are worse than absent.
+- Dev switch, same argument as `-- --debug`: `-- --host` / `-- --join <ip>` / `-- --seats N` walk straight
+  into the lobby already in a session, so this is testable with two windows on one desk.
+- **A GDScript error ABORTS the send** (house rule 6), so one body missing one field stops EVERY body on the
+  machine from moving. That is what `NetSync._health_fraction` guards — `Bot` carried `health` and derived its
+  ceiling inline, so it had no `max_health` to read (it has one now).
+
+## Gotchas
+
+- **GL Compatibility rules out most of the modern realism toolkit**: no SSAO, SSIL, SSR, SDFGI, volumetric
+  fog or depth of field. Everything in THE GRADE was picked to work without them. If realism ever has to go
+  further, the honest next step is Forward+ on the laptops with Compatibility kept for weaker machines — which
+  means the two targets would genuinely look different, a design decision rather than a toggle.
+- **Never capture the mouse in `_ready`** — an unfocused/occluded window stalls to ~1 fps and it grabs the
+  desktop pointer during automated runs.
+- **A new `class_name` isn't visible to a CLI run until the global class cache is rebuilt** — run
+  `godot --headless --path godot --import` (or restart the editor), or scripts fail with
+  "Identifier not declared".
+- **After editing `project.godot` (autoloads/input) restart the editor**; a game run picks up script and scene
+  changes from disk without a restart.
+- **`DisplayServer.keyboard_get_keycode_from_physical` errors on every call under `--headless`.** To print a
+  physical key, build an `InputEventKey` and use `as_text_physical_keycode()` — same layout translation, quiet
+  with no display server.
+- **A look test must apply `Grade`, must PLAY an animation, and must run WINDOWED.** A bare `CharacterModel`
+  sits in its rest pose with both arms hanging, which is not a pose the game ever shows — photographing it hid
+  the fact that the carry was being judged from geometry alone. Without `Grade` it photographs a lighting model
+  the game does not ship, which is the whole failure mode a look test exists to catch.
+- **The `universe_look` line-ups are the only thing that catches a shared head or a missing accessory**, and
+  until recently not one Star Wars human stood in them — which is exactly how twelve units came to share a
+  helmet. Its `_heads` shot must be framed on the HEADS (it was a mid-shot of the whole body, at which distance
+  every white helmet is the same white helmet).
+- Retired but kept in the repo, unused: the imported Battlefront GLB (`assets/models/rep/`, crude nearest-bone
+  skinning, junk bone tails), `trooper_parts.gd` and `tools/animate_trooper.py`. Dropped because subtle motion
+  on that rigid-chunk mesh looked uncanny.
+- **It took a `git worktree` at HEAD to prove the bolt-material defect was new rather than pre-existing.**
+  Worth doing before spending time on any "is this mine?" question.
+
+## Tests
+
+Run these after touching anything they cover. Headless unless marked **WINDOWED** — appearance cannot be judged
+without a renderer, and `--headless` draws nothing.
+
+| Test | What it protects |
+|---|---|
+| `kit_rules.gd` (`--script`) | Every class allow-list, every AI preset against its own kit, per-universe isolation, enum-table drift, copy fidelity, named sidearms. **Runs with NO autoloads**, which is why `Loadout` may never name `GameState`. |
+| `universe_match.tscn` | Every universe boots a real match in both class modes; TTK reaches the body. Catches a table that agrees with itself but cannot be played out of. |
+| `soak.tscn` | A long busy match ACCUMULATES nothing. The only test that catches per-shot leaks, orphaned nodes and material churn — everything else checks one frame. |
+| `massive.tscn` | The 50v50 mode: the line trooper's kit and the four performance rules that make a hundred bodies possible (every one is an ABSENCE, and an absence is what a later edit silently undoes). **Its LAST assertion (`n of m line troopers found a target`) is known flaky** — a sample of five to eight survivors on a map re-seeded every match — and fails roughly half of all runs. Re-run it. Every other assertion is exact. |
+| `roster_feel.tscn` | **The play-test bench.** Every class in every universe as one table — health, walk, jump, height, TTK out, TTK once the gun is HOT, TTK in, TRADE ratio, rounds-to-kill, reach, ability slots. Asserts outer guard rails only: absurdity checks, not taste. |
+| `conquest.tscn` | Capture, tickets, defeat, spawn transforms, faction rosters (eight per side, every index a real build, no orphans). |
+| `vehicles.tscn` | The speeders. Most of what it protects is an ABSENCE or a RESTORE — that Halo and Warhammer field NONE, that royale and massive field none, that a dismount restores the body but a DEATH at the controls does not, that an enemy cannot take yours. It sets `pickup_in_reach` directly on purpose, which is what caught the team gate living only on the advertisement. Also boots six REAL matches and counts what `_place_vehicles` actually put on the field, since a rule that only holds in a unit test does not ship. |
+| `guard_pose.tscn` | Hand-to-grip and ankle error on every clip. **0.00 mm is the pass mark**; any pose change shows here first. It is what proved adding the wrist and ankle joints moved nothing. |
+| `death_clip.tscn` | The ANIMATED death. Which way a shove drops you, and then the two things a canned fall gets silently wrong: geometry through the floor, and a body that ends up leaning rather than lying. **It names the lowest PART**, not just the depth — the first three fixes went into the wrong limb because a number alone does not say whose it is. |
+| `rig_cost.tscn` | What the rig costs to build and to tick, the tick as an A/B against the same frame with every clip paused. Two traps recorded in it: timing whole frames measures the engine, not the animation; and building 24 different styles prices the mesh cache missing, not a squad. |
+| `guard_block.tscn`, `force_lightning.tscn`, `gadgets.tscn`, `trandoshan.tscn`, `wookiee.tscn` | Individual mechanics. |
+| `buy_screen.tscn`, `character_select.tscn`, `settings_overlay.tscn` | The screens' state machines. `buy_screen` shoves the stick eight ways on the death frame and asserts the build is byte-identical. |
+| `controls_inherit.gd` (`--script`) | P1-pad inheritance. SNAPSHOTS `user://controls.cfg` first. |
+| `net_session.tscn` | The session's RULES, without a socket: seating and id allocation, auto sides (a SOFA IS NOT SPLIT UP), the session-vs-machine reads in GameState, the launch config round trip, the client not re-rolling the world, and the snapshot PACK/UNPACK agreeing on every byte. Instant. |
+| `net_live.tscn` | **TWO REAL PROCESSES, ONE REAL SOCKET** — it launches its own client. Proves the handshake, that a proxy is built and lands where the remote body actually is, and the ROUND TRIP: shooting a proxy hurts the real body on the other machine and the confirmation comes back. The only test that exercises a hit crossing a machine boundary. |
+| `net_match.tscn` | **TWO REAL PROCESSES PLAYING A REAL MATCH.** Both boot Main, the host fills the teams, and the assertion that matters is that **the two worlds AGREE**: same seed, same combatant count, every body owned by exactly one machine. A mismatch is the shape of nearly every networking bug worth having. ~45 s. |
+| `audio_bank.gd` (`--script`) | Every synthesised sound is audible, unclipped and mixed, and every LOOP joins without a click. The join is measured against the buffer's own worst sample step, not against zero. |
+| `bot_range.tscn`, `nav_grid.tscn` | AI engagement ranges (better aim never fights closer) and routing across every map. `nav_grid` re-tests each planned path against PHYSICS and only counts a BOX hit as a failure — the grid is deliberately flat and a trimesh hit is a hillside the bot is meant to walk up. |
+| `prop_shapes.tscn` | Generated props collide as their SHAPE while still showing the nav grid a box footprint. Re-enabling the box or dropping it breaks a different half of the game each way. |
+| `chamfer.gd` (`--script`) | Signed volume, outward normals, extents and triangle count of the generated chamfer box. |
+| `grenade_throw.tscn` | Grenades thrown for real over a TRIMESH heightfield: range, roll past the landing point, and whether any of them got through the floor. Its first version used box slabs and passed with both tunnelling defences removed, which is a test proving nothing. |
+| `terrain_math.tscn` | The generated surface's two guarantees as ARITHMETIC: that `steepness_at` really is the analytic gradient of `height_at` (checked against a central difference — they agree to 2e-5), that no octave table can break the walkable slope budget, and that ground never goes below y=0. The pair most able to disagree with nothing erroring: the symptom is rock painted on the flats, which sends you into the shader where the fault is not. |
+| `rig_cost.tscn` (see above) | `QS_RIG_BODIES=100` for the MASSIVE case. |
+| `night_palette.tscn` | Every world's night is still PLAYABLE — a floor under the terrain albedo, a live key light, enough ambient to hold the shadow side up — and a night match actually deploys with the night map and night muzzle flash. A screenshot is a bad detector for "the ground went black"; a number is a good one. |
+| `team_and_score.tscn`, `weapon_feel.tscn` | Team assignment, scoring, stance/ADS rules, and BOLT COLOUR reaching a fired round (the half `kit_rules` cannot see, having no autoloads). Also THE BLADE'S VOICE: a lit blade claims a sustained voice on its first tick and gives it back on a swap or a death, and the pool's nearest-wins steal leaves the loser's token STALE rather than live. |
+| `render_cost.tscn` | **WINDOWED.** Frame cost per MSAA level. `QS_TEAM`/`QS_TEAMS` set the roster; `QS_VEHICLE=1` prices a VIEWPOINT and then the real HULLS (`QS_HULLS=1` skips the viewpoint sweep and does only the hulls — **it PAUSES the match for the A/B**, because the first version measured across a live firefight and reported that hiding two speeders *increased* the triangle count; read DRAWS, ~94 per speeder at 4 viewports, and ignore tris, which is terrain LOD under a moving camera); `QS_NIGHT` 0/1/2 is day, night, and night with every light held on; `QS_ABLATE=1` prices every rendering dial in an A/B/A sandwich; **`QS_SMOOTH=1` is the acceptance test and the only mode keeping the SHIPPED settings.** The ONLY test that sees rendering. Every other mode disables vsync itself — leave vsync on and every configuration measures at exactly the refresh rate, which reads as "no cost". |
+| `perf.tscn` | Physics and A* budget, frame-spike percentiles (p50/p95/p99 and what the worst frames were building), and what one DEATH or RESPAWN costs. `QS_PERF_TEAMS=4` for the 4-team case; `QS_CPU=1` ablates the SCRIPT tick. Headless, so the renderer does nothing. |
+| `hud_look` | **WINDOWED.** The health gauge in five states, plus a contact sheet of every ability icon. |
+| `hud_frame` | **WINDOWED.** A REAL match photographed whole (`QS_VIEWS=1` for solo), with one side scan-lit. The only test that can see one HUD piece landing on another, because layout is a property of the screen and not of a widget. |
+| `minimap_look` | **WINDOWED.** Both widget sizes, shot BEFORE and AFTER a scan — the after shot alone cannot tell you whether anything changed enough to notice mid-fight. |
+| `deployable_look` | **WINDOWED.** Turret and mortar side by side with a trooper for scale, in two team colours, plus each alone from three angles. Side by side is the point. |
+| `physique_look` | **WINDOWED.** Every roster at the size it actually plays at, against a 1.80 m yardstick post. The only test that photographs `stature` — every other look test builds a bare `CharacterModel` at scale 1, which is what let the whole roster be one height for as long as it was. |
+| `map_look`, `universe_look`, `weapon_look`, `guard_look`, `death_look`, `select_look`, `buy_look`, `menu_look`, `sight_look`, `trandoshan_look`, `planet_look`, `night_look` | **WINDOWED.** Screenshots for judging APPEARANCE. |

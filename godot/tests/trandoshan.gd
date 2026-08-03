@@ -55,7 +55,7 @@ func _ready() -> void:
 
 	# --- the cloak times out ---------------------------------------------
 	print("\n== the cloak times out ==")
-	tran._force_cd = [0.0, 0.0]
+	tran._force_cd = [0.0, 0.0, 0.0]   # one per gadget slot, and there are three
 	tran._use_gadget(0)
 	var waited := 0.0
 	for _i in 600:

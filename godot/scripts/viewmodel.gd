@@ -11,12 +11,17 @@ extends Node3D
 ## aiming/scope straight off the parent.
 
 const HIP_POS := Vector3.ZERO
-# How far back the gun is pulled while aimed. The left/up part of the ADS slide
+# How far the gun is biased while aimed. The left/up part of the ADS slide
 # is NOT a constant: it's solved per gun in _aim_offset() so whichever sight is
 # fitted ends up on the camera axis. Hard-coding it lined the old shared body up
 # by hand, but every receiver here is a different height and the sight drifted
 # off centre as soon as the guns stopped being identical.
-const ADS_PULL_BACK := 0.05
+# Slightly forward, not back: rear furniture and stocks crossing the near plane
+# read as hollow/see-through exactly when the player raises the gun.
+const ADS_PULL_BACK := -0.025
+const SIGHT_CHANNEL_X := 0.018
+const IRON_REAR_Z := -0.02
+const HOLO_Z := -0.08
 
 ## THE SPRINT CARRY, from the inside. The third-person model already drops the
 ## weapon and swings it across the chest while running (CharacterModel's
@@ -448,8 +453,92 @@ const SHAPES := {
 		"receiver": Vector3(0.07, 0.07, 0.26), "barrel": Vector3(0.03, 0.03, 0.0),
 		"stock": false, "grip": false, "saber": true,
 	},
+	# --- THE FACTION GUNS -----------------------------------------------------
+	# A class is recognised by what it is HOLDING before anything else, so each of
+	# these is proportioned to its owner: the B1's rifle is thin and cheap, the
+	# Droideka's is a paired pod, the incinerator is a tank with a nozzle.
+	Weapon.Class.DC15S: {  # clone carbine: the DC-15A cut down
+		"receiver": Vector3(0.05, 0.07, 0.20), "barrel": Vector3(0.026, 0.026, 0.22),
+		"stock": true, "grip": true, "mag": Vector3(0.03, 0.10, 0.05), "muzzle": 0.045,
+	},
+	Weapon.Class.DC17: {  # ARC pistol, carried in pairs
+		"receiver": Vector3(0.036, 0.058, 0.13), "barrel": Vector3(0.022, 0.022, 0.13),
+		"stock": false, "grip": false, "mag": Vector3(0.026, 0.08, 0.034), "muzzle": 0.032,
+	},
+	Weapon.Class.DC17M: {  # commando rifle: boxy, optics, underslung block
+		"receiver": Vector3(0.058, 0.085, 0.28), "barrel": Vector3(0.026, 0.026, 0.26),
+		"stock": true, "grip": true, "mag": Vector3(0.034, 0.12, 0.05), "muzzle": 0.04,
+	},
+	Weapon.Class.DC15X: {  # sharpshooter: all barrel, bipod
+		"receiver": Vector3(0.045, 0.062, 0.30), "barrel": Vector3(0.022, 0.022, 0.66),
+		"stock": true, "grip": false, "mag": Vector3(0.026, 0.07, 0.04), "muzzle": 0.07,
+		"bipod": true,
+	},
+	Weapon.Class.E5: {  # B1: thin, cheap, unloved
+		"receiver": Vector3(0.042, 0.06, 0.24), "barrel": Vector3(0.022, 0.022, 0.30),
+		"stock": false, "grip": true, "mag": Vector3(0.026, 0.09, 0.04), "muzzle": 0.035,
+	},
+	Weapon.Class.E5S: {
+		"receiver": Vector3(0.042, 0.06, 0.30), "barrel": Vector3(0.02, 0.02, 0.60),
+		"stock": true, "grip": false, "mag": Vector3(0.024, 0.07, 0.038), "muzzle": 0.06,
+		"bipod": true,
+	},
+	Weapon.Class.DROIDEKA_TWIN: {  # a paired pod, not a rifle
+		"receiver": Vector3(0.10, 0.075, 0.22), "barrel": Vector3(0.026, 0.026, 0.30),
+		"barrels": 2, "stock": false, "grip": false, "muzzle": 0.04,
+	},
+	Weapon.Class.SONIC_BLASTER: {  # Geonosian: a drum on a short tube
+		"receiver": Vector3(0.075, 0.085, 0.20), "barrel": Vector3(0.05, 0.05, 0.18),
+		"stock": false, "grip": true, "drum": 0.06, "muzzle": 0.09,
+	},
+	Weapon.Class.VIBROSWORD: {"saber": true},
+	Weapon.Class.E11: {  # stormtrooper: the shape everybody knows
+		"receiver": Vector3(0.05, 0.075, 0.22), "barrel": Vector3(0.026, 0.026, 0.24),
+		"stock": true, "grip": true, "mag": Vector3(0.03, 0.10, 0.048), "muzzle": 0.042,
+	},
+	Weapon.Class.DLT19: {  # heavy: long, fat, drum-fed
+		"receiver": Vector3(0.07, 0.08, 0.30), "barrel": Vector3(0.042, 0.042, 0.42),
+		"stock": true, "grip": true, "drum": 0.05, "muzzle": 0.07, "bipod": true,
+	},
+	Weapon.Class.DLT20A: {  # scout: long barrel, scope, no bulk
+		"receiver": Vector3(0.046, 0.066, 0.28), "barrel": Vector3(0.022, 0.022, 0.52),
+		"stock": true, "grip": false, "mag": Vector3(0.026, 0.08, 0.04), "muzzle": 0.05,
+	},
+	Weapon.Class.SE14R: {  # death trooper machine pistol
+		"receiver": Vector3(0.04, 0.062, 0.15), "barrel": Vector3(0.022, 0.022, 0.14),
+		"stock": false, "grip": false, "mag": Vector3(0.028, 0.10, 0.036), "muzzle": 0.03,
+	},
+	Weapon.Class.E11D: {  # death trooper rifle: an E-11 under a fat suppressor
+		"receiver": Vector3(0.05, 0.075, 0.24), "barrel": Vector3(0.038, 0.038, 0.30),
+		"stock": true, "grip": true, "mag": Vector3(0.03, 0.11, 0.048), "muzzle": 0.05,
+	},
+	Weapon.Class.FLAMETHROWER: {  # a tank with a nozzle: no barrel to speak of
+		"receiver": Vector3(0.085, 0.10, 0.26), "barrel": Vector3(0.034, 0.034, 0.16),
+		"stock": false, "grip": true, "drum": 0.065, "muzzle": 0.10, "tube": true,
+	},
+	Weapon.Class.A280C: {
+		"receiver": Vector3(0.05, 0.072, 0.26), "barrel": Vector3(0.024, 0.024, 0.34),
+		"stock": true, "grip": true, "mag": Vector3(0.03, 0.11, 0.048), "muzzle": 0.045,
+	},
+	Weapon.Class.CR2: {  # SMG: stubby, high mag, no stock
+		"receiver": Vector3(0.048, 0.07, 0.17), "barrel": Vector3(0.022, 0.022, 0.12),
+		"stock": false, "grip": true, "mag": Vector3(0.032, 0.13, 0.042), "muzzle": 0.034,
+	},
+	Weapon.Class.DH447: {
+		"receiver": Vector3(0.044, 0.062, 0.30), "barrel": Vector3(0.02, 0.02, 0.62),
+		"stock": true, "grip": false, "mag": Vector3(0.026, 0.075, 0.04), "muzzle": 0.055,
+		"bipod": true,
+	},
+	Weapon.Class.EWOK_SPEAR: {"staff": true},
+	Weapon.Class.M319: {  # grenadier: a fat tube on a frame
+		"receiver": Vector3(0.075, 0.09, 0.28), "barrel": Vector3(0.062, 0.062, 0.24),
+		"stock": true, "grip": true, "muzzle": 0.085, "tube": true,
+	},
+	Weapon.Class.SPIKER: {  # Brute: spikes standing off the barrel
+		"receiver": Vector3(0.06, 0.08, 0.20), "barrel": Vector3(0.03, 0.03, 0.22),
+		"stock": false, "grip": true, "mag": Vector3(0.032, 0.11, 0.045), "muzzle": 0.05,
+	},
 }
-
 ## Blade dimensions and colour. The blade is drawn a good deal SHORTER than the
 ## weapon's 3.4 m reach on purpose: a true-length blade fills the whole screen
 ## from a first-person camera and you cannot see what you are swinging at.
@@ -505,6 +594,106 @@ const PARRY_PUSH := Vector3(0.05, -0.03, 0.07)  # driven back toward the camera
 const PARRY_FLARE := 9.0     # added to BLADE_ENERGY at the moment of the block
 
 
+## WHO MADE THIS GUN. Six manufacturers, and every one of them builds out of the
+## same boxes — what separates them is COLOUR, PROPORTION and one or two parts
+## nobody else has. That is the same argument the character styles make: a
+## faction reads by silhouette and palette, not by polygon count.
+##
+## Listed for the exceptions only; anything unlisted is Star Wars, which is what
+## the catalogue was before the other universes existed.
+enum Make { STARWARS, UNSC, COVENANT, ASTARTES, NECRON, ORK }
+const FAMILY := {
+	Weapon.Class.MA5B: Make.UNSC, Weapon.Class.BR55: Make.UNSC,
+	Weapon.Class.M7_SMG: Make.UNSC, Weapon.Class.M90_SHOTGUN: Make.UNSC,
+	Weapon.Class.SRS99: Make.UNSC, Weapon.Class.SPNKR: Make.UNSC,
+	Weapon.Class.M6D: Make.UNSC, Weapon.Class.M247_HMG: Make.UNSC,
+	Weapon.Class.M392_DMR: Make.UNSC, Weapon.Class.SPARTAN_LASER: Make.UNSC,
+	Weapon.Class.PLASMA_RIFLE: Make.COVENANT, Weapon.Class.PLASMA_PISTOL: Make.COVENANT,
+	Weapon.Class.NEEDLER: Make.COVENANT, Weapon.Class.COV_CARBINE: Make.COVENANT,
+	Weapon.Class.BEAM_RIFLE: Make.COVENANT, Weapon.Class.FUEL_ROD: Make.COVENANT,
+	Weapon.Class.BRUTE_SHOT: Make.COVENANT, Weapon.Class.MAULER: Make.COVENANT,
+	Weapon.Class.SPIKER: Make.COVENANT, Weapon.Class.M319: Make.UNSC,
+	Weapon.Class.BOLTER: Make.ASTARTES, Weapon.Class.HEAVY_BOLTER: Make.ASTARTES,
+	Weapon.Class.STALKER_BOLT: Make.ASTARTES, Weapon.Class.PLASMA_GUN: Make.ASTARTES,
+	Weapon.Class.MELTAGUN: Make.ASTARTES, Weapon.Class.FLAMER: Make.ASTARTES,
+	Weapon.Class.BOLT_PISTOL: Make.ASTARTES,
+	Weapon.Class.PLASMA_PISTOL_40K: Make.ASTARTES,
+	Weapon.Class.GRENADE_LAUNCHER: Make.ASTARTES,
+	Weapon.Class.GAUSS_FLAYER: Make.NECRON, Weapon.Class.GAUSS_BLASTER: Make.NECRON,
+	Weapon.Class.TESLA_CARBINE: Make.NECRON,
+	Weapon.Class.SYNAPTIC_DISINTEGRATOR: Make.NECRON,
+	Weapon.Class.HEAT_RAY: Make.NECRON,
+	Weapon.Class.TRANSDIMENSIONAL_BEAMER: Make.NECRON,
+	Weapon.Class.GAUSS_PISTOL: Make.NECRON,
+	Weapon.Class.SHOOTA: Make.ORK, Weapon.Class.BIG_SHOOTA: Make.ORK,
+	Weapon.Class.SLUGGA: Make.ORK, Weapon.Class.ROKKIT_LAUNCHA: Make.ORK,
+	Weapon.Class.MEGA_BLASTA: Make.ORK, Weapon.Class.BURNA: Make.ORK,
+}
+
+
+func _family(class_id: int) -> int:
+	return FAMILY.get(class_id, Make.STARWARS)
+
+
+## FOUR MATERIALS PER MAKE, and `metallic` is 0.0 in every one of them — see the
+## note in `_build`. What tells a steel receiver from a polymer grip here is
+## ALBEDO and ROUGHNESS: the frame is lighter and smooth so it catches a hard
+## specular off the direct lights, the furniture is dark and rough so it does
+## not, and the small parts are brighter and smoother still so detail reads at
+## arm's length. The accent is the only emissive one — a power cell, which is
+## light rather than metal and so is allowed to glow.
+##
+## Rebuilt per gun rather than shared, because a weapon swap rebuilds the whole
+## viewmodel anyway and four materials is nothing next to the thirty meshes it
+## is about to make.
+const PALETTES := {
+	# Imperial/Republic: gunmetal and black polymer, a red heat cell.
+	Make.STARWARS: {"gun": Color(0.28, 0.285, 0.31), "dark": Color(0.075, 0.075, 0.085),
+		"bright": Color(0.46, 0.465, 0.49), "cell": Color(1.0, 0.25, 0.15)},
+	# UNSC: olive drab over black, with a white-blue readout. Utility kit.
+	Make.UNSC: {"gun": Color(0.20, 0.22, 0.17), "dark": Color(0.06, 0.065, 0.06),
+		"bright": Color(0.42, 0.44, 0.40), "cell": Color(0.45, 0.85, 1.0)},
+	# Covenant: violet shell, darker violet grip, hot cyan plasma.
+	Make.COVENANT: {"gun": Color(0.36, 0.28, 0.50), "dark": Color(0.16, 0.12, 0.24),
+		"bright": Color(0.62, 0.54, 0.78), "cell": Color(0.25, 0.85, 1.0)},
+	# Astartes: bone and dark red over black, brass-toned furniture.
+	Make.ASTARTES: {"gun": Color(0.34, 0.10, 0.09), "dark": Color(0.07, 0.06, 0.06),
+		"bright": Color(0.62, 0.55, 0.32), "cell": Color(1.0, 0.55, 0.15)},
+	# Necron: near-black with a green core. The only palette with no warm tone.
+	Make.NECRON: {"gun": Color(0.13, 0.14, 0.15), "dark": Color(0.05, 0.06, 0.06),
+		"bright": Color(0.38, 0.42, 0.40), "cell": Color(0.35, 1.0, 0.45)},
+	# Ork: scrap. Rust-brown frame, black rubber, and a red bit because red ones
+	# go faster.
+	Make.ORK: {"gun": Color(0.30, 0.20, 0.13), "dark": Color(0.09, 0.08, 0.07),
+		"bright": Color(0.44, 0.34, 0.22), "cell": Color(1.0, 0.30, 0.10)},
+}
+
+
+func _palette(make: int) -> Dictionary:
+	var c: Dictionary = PALETTES.get(make, PALETTES[Make.STARWARS])
+	var gun := StandardMaterial3D.new()
+	gun.albedo_color = c["gun"]
+	gun.metallic = 0.0
+	gun.roughness = 0.46
+	gun.metallic_specular = 0.42
+	var dark := StandardMaterial3D.new()
+	dark.albedo_color = c["dark"]
+	dark.metallic = 0.0
+	dark.roughness = 0.80
+	dark.metallic_specular = 0.22
+	var bright := StandardMaterial3D.new()
+	bright.albedo_color = c["bright"]
+	bright.metallic = 0.0
+	bright.roughness = 0.34
+	bright.metallic_specular = 0.50
+	var accent := StandardMaterial3D.new()
+	accent.albedo_color = Color(c["cell"], 1.0).darkened(0.85)
+	accent.emission_enabled = true
+	accent.emission = c["cell"]
+	accent.emission_energy_multiplier = 2.0
+	return {"gun": gun, "dark": dark, "bright": bright, "accent": accent}
+
+
 func _build(class_id: int, scoped: bool, holo: bool) -> void:
 	# remove_child before queue_free: freeing is deferred to the end of the
 	# frame, so a rebuild in the same frame (deploy then weapon swap) would
@@ -515,6 +704,7 @@ func _build(class_id: int, scoped: bool, holo: bool) -> void:
 	_scope = null
 	_holo = null
 	_flash = null
+	_flash_mat = null   # freed with the mesh above; _flash_col survives the rebuild
 	_saber = null
 	_shield = null
 	_shield_mats.clear()
@@ -551,34 +741,26 @@ func _build(class_id: int, scoped: bool, holo: bool) -> void:
 	# `Grade`'s sky-sourced ambient softens it but does not repeal it, and the
 	# renderer is currently Compatibility (see project.godot).
 	#
-	# So the separation is carried by ALBEDO and ROUGHNESS instead, with metallic
-	# kept moderate. That works on both renderers: a low-roughness, lighter-albedo
-	# part catches a hot specular from the DIRECT lights — which every map has —
-	# rather than depending on an environment probe that may be black. Polymer
-	# gets the opposite treatment, and the contrast between them is what reads.
-	var gun := StandardMaterial3D.new()          # receiver, barrel: machined steel
-	gun.albedo_color = Color(0.28, 0.285, 0.31)
-	gun.metallic = 0.30
-	gun.roughness = 0.30
-	gun.metallic_specular = 0.65
-	var dark := StandardMaterial3D.new()         # furniture: grip, stock, mag, rails
-	dark.albedo_color = Color(0.075, 0.075, 0.085)
-	dark.metallic = 0.0                          # polymer is a DIELECTRIC
-	dark.roughness = 0.80
-	dark.metallic_specular = 0.30
-	var accent := StandardMaterial3D.new()       # the heat cell
-	accent.albedo_color = Color(0.05, 0.05, 0.06)
-	accent.emission_enabled = true
-	accent.emission = Color(1.0, 0.25, 0.15)
-	accent.emission_energy_multiplier = 2.0
-	# A fourth, for the small hard parts that catch the eye at arm's length:
-	# charging handle, trigger, sling loops, port surround. Brighter and smoother
-	# than the receiver, so detail READS instead of disappearing into it.
-	var bright := StandardMaterial3D.new()
-	bright.albedo_color = Color(0.46, 0.465, 0.49)
-	bright.metallic = 0.35
-	bright.roughness = 0.18
-	bright.metallic_specular = 0.8
+	# So the separation is carried by ALBEDO and ROUGHNESS, and by NOTHING ELSE.
+	# `metallic` is 0 on every part of every gun, deliberately.
+	#
+	# The reason is what metallic actually does: it takes the albedo out of the
+	# diffuse and puts that energy into the reflection. Under GL Compatibility the
+	# only thing there is to reflect is the sky — no SSR, no probes — so a
+	# metallic receiver stops being its own colour and becomes a picture of the
+	# sky gradient hanging in front of the camera, which reads as smoked glass.
+	# Even at 0.30 the gun was see-through-looking rather than solid, and that is
+	# not a value that wants tuning down: any amount of it trades the gun's own
+	# colour for the sky's.
+	#
+	# A dielectric still SHINES — `metallic_specular` and a low roughness give a
+	# hot highlight off the DIRECT lights every map has, which is the shine you
+	# actually want on a receiver — and it stays opaque while doing it.
+	var pal := _palette(_family(class_id))
+	var gun: StandardMaterial3D = pal["gun"]        # receiver, barrel: the frame
+	var dark: StandardMaterial3D = pal["dark"]      # furniture: grip, stock, mag
+	var bright: StandardMaterial3D = pal["bright"]  # the small hard parts
+	var accent: StandardMaterial3D = pal["accent"]  # the power cell
 
 	var receiver: Vector3 = shape["receiver"]
 	var barrel: Vector3 = shape["barrel"]
@@ -616,9 +798,12 @@ func _build(class_id: int, scoped: bool, holo: bool) -> void:
 			for side: float in [-1.0, 1.0]:
 				_box(Vector3(0.006, barrel.y * 0.85, 0.016),
 					Vector3(barrel.x * 0.5 * side, 0.012, vz), dark)
-		# Front sight block, where a real barrel has one.
-		_box(Vector3(0.014, 0.024, 0.016),
-			Vector3(0, barrel.y * 0.5 + 0.014, barrel_z - barrel.z * 0.34), bright)
+		# Front sight ears, with the middle left open. A single centred block was
+		# exactly on the ADS line and covered the notch it was meant to frame.
+		for side: float in [-1.0, 1.0]:
+			_box(Vector3(0.007, 0.024, 0.016),
+				Vector3(side * SIGHT_CHANNEL_X, barrel.y * 0.5 + 0.014,
+					barrel_z - barrel.z * 0.34), bright)
 
 	# Pistol grip, always: it's what you're holding. Polymer, not steel — it is
 	# the part closest to the camera and the one that most needs to not be metal.
@@ -643,13 +828,16 @@ func _build(class_id: int, scoped: bool, holo: bool) -> void:
 	_box(Vector3(0.008, 0.008, 0.070), Vector3(receiver.x * 0.5, 0.021, -0.03), bright)
 	# Charging handle, standing proud on the left where the eye catches it.
 	_box(Vector3(0.028, 0.012, 0.014), Vector3(-receiver.x * 0.5 - 0.010, 0.016, 0.01), bright)
-	# Top rail: a run of slots along the receiver. A repeated small feature is
+	# Top rail: a run of side slots along the receiver. A repeated small feature is
 	# what gives a surface SCALE — the same trick as the tower mullions on
-	# Coruscant, and the reason a plain box could be any size.
+	# Coruscant, and the reason a plain box could be any size. Keep the centre
+	# empty, because that is the sight channel.
 	var slots := clampi(int(rz / 0.028), 3, 9)
 	for i in slots:
 		var t := -rz * 0.5 + 0.02 + i * (rz - 0.04) / maxf(slots - 1, 1)
-		_box(Vector3(0.030, 0.006, 0.008), Vector3(0, ry * 0.5 + 0.003, t), dark)
+		for side: float in [-1.0, 1.0]:
+			_box(Vector3(0.010, 0.006, 0.008),
+				Vector3(side * SIGHT_CHANNEL_X, ry * 0.5 + 0.003, t), dark)
 	# Sling loop at the rear.
 	_box(Vector3(0.008, 0.018, 0.008), Vector3(-receiver.x * 0.4, -ry * 0.5 - 0.006,
 		rz * 0.42), bright)
@@ -704,6 +892,7 @@ func _build(class_id: int, scoped: bool, holo: bool) -> void:
 		_box(Vector3(span * 1.95, 0.008, 0.008),
 			Vector3(0.0, 0.0, limb_z + span * 0.16), dark)
 	_box(Vector3(0.02, 0.018, 0.04), Vector3(0, receiver.y * 0.5 - 0.005, -0.02), accent)
+	_dress(_family(class_id), receiver, barrel, barrel_z, pal)
 
 	# Sights. The scope is a tube on a mount; the holo is a hollow ring you can
 	# see the world through, which is the point of buying it.
@@ -718,7 +907,7 @@ func _build(class_id: int, scoped: bool, holo: bool) -> void:
 	add_child(_holo)
 	var ring_mat := StandardMaterial3D.new()
 	ring_mat.albedo_color = Color(0.1, 0.1, 0.11)
-	ring_mat.metallic = 0.1
+	ring_mat.metallic = 0.0   # solid: metallic here is a mirror of the sky
 	ring_mat.roughness = 0.5
 	var hoop := MeshInstance3D.new()
 	var torus := TorusMesh.new()
@@ -735,29 +924,145 @@ func _build(class_id: int, scoped: bool, holo: bool) -> void:
 	hoop.rotation.x = PI / 2.0
 	hoop.position = Vector3(0, receiver.y * 0.5 + 0.028, -0.08)
 	_holo.add_child(hoop)
-	var post := MeshInstance3D.new()
-	var pm := BoxMesh.new()
-	pm.size = Vector3(0.012, 0.03, 0.014)
-	post.mesh = pm
-	post.material_override = ring_mat
-	post.position = Vector3(0, receiver.y * 0.5 + 0.005, -0.08)
-	post.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	_holo.add_child(post)
+	for side: float in [-1.0, 1.0]:
+		var post := MeshInstance3D.new()
+		var pm := BoxMesh.new()
+		pm.size = Vector3(0.006, 0.028, 0.014)
+		post.mesh = pm
+		post.material_override = ring_mat
+		post.position = Vector3(side * 0.020, receiver.y * 0.5 + 0.003, HOLO_Z)
+		post.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		_holo.add_child(post)
 	_holo.visible = holo
 
 	# Whichever sight is fitted has to sit on the camera axis when aimed. The
 	# camera is at the Head origin and this gun hangs off the Weapon anchor, so
 	# the slide is simply "cancel the anchor offset, then cancel the sight's own
 	# offset". Iron sights line up on the receiver's top rib.
-	var sight_at := Vector3(0.0, receiver.y * 0.5 + 0.012, -0.02)
+	var sight_at := Vector3(0.0, receiver.y * 0.5 + 0.012, IRON_REAR_Z)
 	if holo:
-		sight_at = Vector3(0.0, receiver.y * 0.5 + 0.028, -0.08)
+		sight_at = Vector3(0.0, receiver.y * 0.5 + 0.028, HOLO_Z)
 	elif scoped:
 		sight_at = _scope.position
 	var anchor: Vector3 = get_parent().position  # Weapon's offset under Head
 	_ads_pos = Vector3(-(anchor.x + sight_at.x), -(anchor.y + sight_at.y), ADS_PULL_BACK)
 
 	_build_flash(barrel_z - barrel.z * 0.5 - 0.06)
+
+
+## WHAT MAKES A GUN LOOK LIKE ITS FACTION'S GUN. The frame, the barrel and the
+## universal furniture above are the same machine for everybody; this is the
+## handful of parts that are not, and it is deliberately a handful — at
+## viewmodel range a weapon is read in about a second, and one or two shapes
+## nobody else has do more than a dozen that everybody has.
+##
+## Every part here goes through the same `_box`/`_cyl` builders and the same
+## four dielectric materials as the rest of the gun. No new mechanism, no new
+## material model: a faction is a table row and a dozen lines, exactly like a
+## character style.
+func _dress(make: int, receiver: Vector3, barrel: Vector3, barrel_z: float,
+		pal: Dictionary) -> void:
+	var gun: StandardMaterial3D = pal["gun"]
+	var dark: StandardMaterial3D = pal["dark"]
+	var bright: StandardMaterial3D = pal["bright"]
+	var accent: StandardMaterial3D = pal["accent"]
+	var rx := receiver.x
+	var ry := receiver.y
+	var rz := receiver.z
+	match make:
+		Make.UNSC:
+			# THE CARRY HANDLE. It is the one silhouette everybody recognises: a
+			# raised bridge over the receiver with the sight tucked under it. Build
+			# it as side rails so the sight picture has a clear centre channel.
+			for xside: float in [-1.0, 1.0]:
+				for zside: float in [-1.0, 1.0]:
+					_box(Vector3(0.008, 0.030, 0.010),
+						Vector3(xside * SIGHT_CHANNEL_X, ry * 0.5 + 0.016,
+							zside * rz * 0.28), gun)
+				_box(Vector3(0.008, 0.010, rz * 0.62),
+					Vector3(xside * SIGHT_CHANNEL_X, ry * 0.5 + 0.031, 0), gun)
+			# ...and the AMMO COUNTER, a lit panel on the left of the receiver.
+			_box(Vector3(0.004, 0.020, 0.040),
+				Vector3(-rx * 0.5 - 0.003, ry * 0.18, rz * 0.16), accent)
+			# Ribbed polymer handguard over the chamber end of the barrel.
+			for i in 4:
+				_box(Vector3(barrel.x + 0.016, barrel.y + 0.014, 0.010),
+					Vector3(0, 0.012, barrel_z + barrel.z * 0.34 - i * 0.020), dark)
+		Make.COVENANT:
+			# NO STRAIGHT LINES AND NO CORNERS: a Covenant weapon is a shell with
+			# a glowing core down the middle. Two tapered halves clamped round a
+			# plasma channel, which is a cylinder rather than a box — the only
+			# family here built out of round parts, and that alone reads as alien
+			# from the corner of the eye.
+			for side: float in [-1.0, 1.0]:
+				var fin := _box(Vector3(0.012, ry * 1.15, rz * 0.7),
+					Vector3(side * (rx * 0.5 + 0.004), 0.004, -0.02), gun)
+				fin.rotation.z = 0.22 * side
+			var core := _cyl(0.012, rz * 0.9, Vector3(0, ry * 0.22, -0.02), accent)
+			core.rotation.x = PI / 2.0
+			# A pair of prongs at the muzzle, where a barrel would be.
+			for side: float in [-1.0, 1.0]:
+				var prong := _box(Vector3(0.014, 0.030, 0.075),
+					Vector3(side * 0.026, 0.012, barrel_z - barrel.z * 0.4), gun)
+				prong.rotation.y = -0.18 * side
+		Make.ASTARTES:
+			# HEAVY, AND DECORATED. A bolter is a ritual object as much as a gun:
+			# a fat shell casing box under the receiver, a purity seal hanging off
+			# the side, and a wide muzzle collar.
+			_box(Vector3(rx * 1.25, 0.045, rz * 0.5),
+				Vector3(0, -ry * 0.5 - 0.020, -0.04), gun)
+			_box(Vector3(0.006, 0.052, 0.030),
+				Vector3(rx * 0.5 + 0.004, -0.012, rz * 0.22), bright)   # seal
+			var collar := _cyl(barrel.x * 1.5, 0.030,
+				Vector3(0, 0.012, barrel_z - barrel.z * 0.34), bright)
+			collar.rotation.x = PI / 2.0
+			# Chunky top rail cheeks, because an Astartes optic is a slab — but
+			# not a slab across the player's notch.
+			for side: float in [-1.0, 1.0]:
+				_box(Vector3(rx * 0.22, 0.018, rz * 0.34),
+					Vector3(side * SIGHT_CHANNEL_X, ry * 0.5 + 0.012, -rz * 0.1), gun)
+		Make.NECRON:
+			# A BLADE, NOT A GUN. Necron weapons are flat, angular and lit from
+			# inside: a spine down the top with a green channel in it, and two
+			# swept vanes at the muzzle instead of a barrel shroud.
+			for side: float in [-1.0, 1.0]:
+				_box(Vector3(0.006, 0.026, rz * 1.1),
+					Vector3(side * SIGHT_CHANNEL_X, ry * 0.5 + 0.012, -0.02), gun)
+				_box(Vector3(0.004, 0.010, rz * 0.95),
+					Vector3(side * SIGHT_CHANNEL_X, ry * 0.5 + 0.024, -0.02), accent)
+			for side: float in [-1.0, 1.0]:
+				var vane := _box(Vector3(0.010, 0.055, 0.14),
+					Vector3(side * 0.020, 0.012, barrel_z - barrel.z * 0.2), gun)
+				vane.rotation.z = 0.30 * side
+				vane.rotation.y = -0.10 * side
+			var tube := _cyl(0.008, barrel.z * 0.8,
+				Vector3(0, 0.012, barrel_z), accent)
+			tube.rotation.x = PI / 2.0
+		Make.ORK:
+			# BOLTED-ON SCRAP, and deliberately ASYMMETRIC — a matched pair reads
+			# as issued kit, which orks do not have. Plates at angles, rivets, and
+			# an oversized ammo drum hanging off one side.
+			_box(Vector3(rx * 0.5, ry * 0.9, rz * 0.4),
+				Vector3(-rx * 0.45, 0.010, -rz * 0.1), gun).rotation.z = 0.12
+			_box(Vector3(rx * 0.8, ry * 0.5, rz * 0.3),
+				Vector3(rx * 0.30, -ry * 0.3, rz * 0.2), bright).rotation.x = -0.10
+			for i in 5:
+				_box(Vector3(0.010, 0.010, 0.010),
+					Vector3(rx * 0.5, ry * 0.1 - i * 0.012, -rz * 0.3 + i * 0.016),
+					bright)   # rivets, crookedly spaced
+			var drum := _cyl(0.055, 0.038,
+				Vector3(-rx * 0.7, -ry * 0.35, 0.02), dark)
+			drum.rotation.z = PI / 2.0
+			# A crude flame-cut muzzle: three teeth of different lengths.
+			for i in 3:
+				_box(Vector3(0.012, 0.012, 0.030 + i * 0.012),
+					Vector3(-0.014 + i * 0.014, 0.012,
+						barrel_z - barrel.z * 0.5 - 0.02), gun)
+		_:
+			# STAR WARS: a cooling shroud with a lit seam, which is the look the
+			# whole catalogue started from.
+			_box(Vector3(0.006, 0.010, rz * 0.55),
+				Vector3(-rx * 0.5 - 0.002, ry * 0.28, -0.02), accent)
 
 
 ## The lightsaber: a machined hilt with a blade standing out of it. Built on its
@@ -787,11 +1092,33 @@ func _read_blade_look(class_id: int, staff := false) -> void:
 	_hilt_len = p.get("hilt_len", 0.24)
 
 
-## An unshaded blade material. `energy` 0 builds a DULL edge — unshaded so it
-## still reads on the night maps, but with no emission at all, which is the
-## whole visual difference between a chainsword and a power sword.
+## A blade material. `energy` 0 means the weapon's body is STEEL rather than
+## plasma — a chainsword, a thunder hammer, a choppa, a klaw — and steel is a LIT
+## surface, not an emitting one.
+##
+## That distinction was missed the first time and the result was the loudest
+## wrong thing in the game: everything came back UNSHADED, which bypasses
+## lighting but NOT the tonemap, so a mid-grey albedo went through AgX at
+## exposure 1.6 and came out a flat near-white slab with no shading on it
+## anywhere. A hammer head lit from no direction, at one value across every face,
+## reads as frosted glass — and the additive aura wrapped round it (below) let
+## the horizon show straight through. "Shiny, transparent and glowing" was three
+## symptoms of one cause.
+##
+## Unshaded is still right for PLASMA: a lit blade goes black on its shadow side,
+## and a glowing sword is most of the point on the night maps.
 func _blade_mat(color: Color, energy: float, aura: bool) -> StandardMaterial3D:
 	var m := StandardMaterial3D.new()
+	if energy <= 0.0 and not aura:
+		# STEEL. Lit like the rest of the weapon, by the same albedo/roughness
+		# split the receiver uses (see the palette in `_build`): metallic kept
+		# moderate because these skies are near-black and a mirror reflects
+		# nothing, with the shine coming off the DIRECT lights instead.
+		m.albedo_color = color
+		m.metallic = 0.0            # solid: see the palette note in `_build`
+		m.metallic_specular = 0.6
+		m.roughness = 0.32
+		return m
 	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	m.albedo_color = Color(color.r, color.g, color.b, 0.5) if aura else color
 	if aura:
@@ -805,9 +1132,9 @@ func _blade_mat(color: Color, energy: float, aura: bool) -> StandardMaterial3D:
 
 
 ## A slim blade is a cylinder; a HEAD (a thunder hammer, a power klaw) is a box.
-## The threshold is what separates "a sword" from "a lump on a stick" — a fat
-## cylinder reads as a rolling pin, and a boxed sword reads as a plank.
-const BLADE_HEAD_WIDTH := 0.045   # blade radius above which it becomes a head
+## The threshold lives on Weapon, next to the profiles it classifies, because the
+## third-person blade splits on it too and the two viewpoints must not disagree.
+const BLADE_HEAD_WIDTH := Weapon.BLADE_HEAD_WIDTH
 
 
 func _build_saber() -> void:
@@ -822,11 +1149,11 @@ func _build_saber() -> void:
 
 	var hilt_mat := StandardMaterial3D.new()
 	hilt_mat.albedo_color = Color(0.16, 0.17, 0.19)
-	hilt_mat.metallic = 0.15  # keep low: a near-black sky reflects into metal
+	hilt_mat.metallic = 0.0   # solid: metallic is a mirror of the sky, not a shine
 	hilt_mat.roughness = 0.35
 	var ring_mat := StandardMaterial3D.new()
 	ring_mat.albedo_color = Color(0.42, 0.36, 0.20)
-	ring_mat.metallic = 0.15
+	ring_mat.metallic = 0.0
 	ring_mat.roughness = 0.4
 
 	# The hilt sits in the hand, angled like the pistol grip every gun carries.
@@ -839,27 +1166,40 @@ func _build_saber() -> void:
 	_box(Vector3(0.012, 0.014, 0.03), Vector3(0.02, -0.015, 0.02), ring_mat, _saber)
 
 	var core_mat := _blade_mat(_blade_col, _blade_energy, false)
-	# The AURA stays lit even when the core does not. `blade_energy` 0 means the
-	# weapon's body is metal rather than plasma — a chainsword, a thunder hammer
-	# — but all three still carry a power field at the edge, and a head built as
-	# a lit block reads as a glowing brick instead of a lump of metal.
-	var glow_mat := _blade_mat(_glow_col, 3.0 if _blade_energy > 0.0 else 1.6, true)
+	# THE AURA IS ADDITIVE, AND ADDITIVE MEANS SEE-THROUGH. That is the right
+	# trade for plasma — a blade IS light, and what shows through it is part of
+	# the effect — and the wrong one everywhere else: an additive shell drawn over
+	# a solid object makes the object translucent, because the shell is in front
+	# and the shell is transparent. So it is only ever built where the thing
+	# underneath is meant to be light.
+	var glow_mat := _blade_mat(_glow_col, 3.0, true)
 
 	# Blade runs down -Z out of the emitter, the same axis every barrel uses.
 	var blade_z := mouth - 0.01 - _blade_len * 0.5
 	if _blade_rad > BLADE_HEAD_WIDTH:
-		# A HEAD, not a blade — and the field goes on the STRIKING FACE, not
-		# around the whole thing. An additive shell wrapping a hammer head covers
-		# every pixel of it: the head stops reading as metal and becomes a
-		# glowing brick with a stick attached.
+		# A HEAD, not a blade — and the split doubles as the rule for who carries
+		# a field, which is why no new key is needed: every boxed head in the
+		# game (grav hammer, thunder hammer, power klaw) is a power weapon, and
+		# every steel cylinder (chainsword, choppa) is a plain length of metal.
+		#
+		# Steel, and it stays steel: the power field is a
+		# CAP on the striking face, sitting proud of it and INSIDE the head's own
+		# width, not a shell wrapped round the head. A shell drawn wider than what
+		# it covers is transparent over the sky on the outside and transparent
+		# over the metal on the inside, which is what turned a hammer into a
+		# frosted brick.
 		_box(Vector3(_blade_rad * 2.0, _blade_rad * 1.5, _blade_len),
 			Vector3(0, -0.015, blade_z), core_mat, _saber)
-		_box(Vector3(_blade_rad * 2.2, _blade_rad * 1.66, _blade_len * 0.26),
-			Vector3(0, -0.015, blade_z - _blade_len * 0.42), glow_mat, _saber)
+		_box(Vector3(_blade_rad * 1.7, _blade_rad * 1.2, _blade_len * 0.10),
+			Vector3(0, -0.015, blade_z - _blade_len * 0.52), glow_mat, _saber)
 	else:
 		_cyl(_blade_rad, _blade_len, Vector3(0, -0.015, blade_z), core_mat, _saber)
-		_cyl(_blade_rad * 1.9, _blade_len * 0.99, Vector3(0, -0.015, blade_z),
-			glow_mat, _saber)
+		# Plasma only. A chainsword and a choppa are lengths of steel with no
+		# field on them at all, and a sleeve at 1.9x the radius over one is a
+		# translucent paddle with a sword somewhere inside it.
+		if _blade_energy > 0.0:
+			_cyl(_blade_rad * 1.9, _blade_len * 0.99, Vector3(0, -0.015, blade_z),
+				glow_mat, _saber)
 	hilt.name = "SaberHilt"
 	# Held so a parry can flare them. They belong to this blade alone (built here,
 	# not shared out of a table), so writing to them cannot leak onto anyone else.
@@ -911,11 +1251,11 @@ func _build_staff() -> void:
 
 	var pole_mat := StandardMaterial3D.new()
 	pole_mat.albedo_color = Color(0.11, 0.12, 0.14)
-	pole_mat.metallic = 0.2    # keep low: a near-black sky reflects into metal
+	pole_mat.metallic = 0.0    # solid, like every other weapon part
 	pole_mat.roughness = 0.3
 	var band_mat := StandardMaterial3D.new()   # brushed-metal segment rings
 	band_mat.albedo_color = Color(0.34, 0.35, 0.38)
-	band_mat.metallic = 0.2
+	band_mat.metallic = 0.0
 	band_mat.roughness = 0.35
 
 	# A long dark pole down -Z through the grip, more of it forward than back so it
@@ -1080,6 +1420,25 @@ func _shield_rib(a: Vector2, b: Vector2, thick: float, mat: StandardMaterial3D) 
 	mi.rotation.z = atan2(d.y, d.x) - PI / 2.0
 
 
+## The colour of the glow at the barrel tip. Owned rather than hardcoded because
+## it is the SHOOTER's own view of their gun's fire, and it has to be the colour
+## their rounds actually are — Weapon pushes it (see Weapon.bolt_color), so an
+## Imperial rifle flashes green in the hands holding it as well as on the wall.
+var _flash_col := Color(1.0, 0.72, 0.35)
+var _flash_mat: StandardMaterial3D
+
+
+## Compare then write, and never build a second material: this is reached from
+## the firing path, so it runs as often as the trigger does.
+func set_flash_color(col: Color) -> void:
+	if col == _flash_col:
+		return
+	_flash_col = col
+	if _flash_mat != null:
+		_flash_mat.albedo_color = col
+		_flash_mat.emission = col
+
+
 func _build_flash(tip_z: float) -> void:
 	# Muzzle flash: a small additive glow at the barrel tip, flicked on for a
 	# couple of frames per shot (additive so it reads as light, not a solid
@@ -1087,10 +1446,11 @@ func _build_flash(tip_z: float) -> void:
 	var fmat := StandardMaterial3D.new()
 	fmat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	fmat.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
-	fmat.albedo_color = Color(1.0, 0.72, 0.35)
+	fmat.albedo_color = _flash_col
 	fmat.emission_enabled = true
-	fmat.emission = Color(1.0, 0.55, 0.2)
+	fmat.emission = _flash_col
 	fmat.emission_energy_multiplier = 4.0
+	_flash_mat = fmat
 	_flash = MeshInstance3D.new()
 	var sph := SphereMesh.new()
 	sph.radius = 0.045
@@ -1365,6 +1725,7 @@ func _process(delta: float) -> void:
 		_flash_t = maxf(_flash_t - delta, 0.0)
 		_flash.visible = _flash_t > 0.0
 
-	# A scoped weapon replaces the gun with the scope overlay when aimed, so
-	# hide the model once the sights are most of the way up (real-game feel).
-	visible = not (aiming and scoped and _aim_t > 0.6)
+	# A scoped weapon replaces the gun with the scope overlay when aimed. Hide it
+	# as the overlay takes over so receiver furniture never flashes through the
+	# black scope view during the raise.
+	visible = not (aiming and scoped and _aim_t > 0.35)

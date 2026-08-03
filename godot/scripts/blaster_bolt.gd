@@ -16,18 +16,56 @@ const SPEED := 400.0  # bolts read as fast energy blasts, not lobbed pellets
 const IMPACT_TIME := 0.07
 const IMPACT_SWELL := 5.0     # how much the flash grows over its life
 
+## Black albedo and all the colour in the emission, so the bolt reads as light
+## rather than as a painted capsule — and so Grade's HDR glow threshold picks it
+## up and blooms it in its own hue.
+const EMISSION_ENERGY := 5.0
+
+## ONE MATERIAL PER COLOUR, shared by every bolt that will ever fly in it.
+##
+## This is the middle ground between two things that both fail. A single material
+## in the scene file is one colour for every gun in three universes, which is
+## what this was. A material DUPLICATED per bolt is an allocation and a free
+## hundreds of times a second, which the rendering server was measurably unhappy
+## about — see the note on _burn below, that defect is why it animates scale.
+##
+## What makes a cache the right answer here is that the colour set is a TABLE:
+## four sides in each of three universes, plus the handful of weapons that state
+## a colour of their own. So this dictionary stops growing after the first shot
+## of each kind and its size never depends on the rate of fire. Same idiom, and
+## the same reason, as Meshes.chamfer_box caching per size.
+static var _mats := {}
+
 var _dir := Vector3.ZERO
 var _remaining := 0.0
 var _impact := 0.0            # seconds of flash left, once it has landed
 var _mesh: MeshInstance3D
 
 
-func launch(from: Vector3, to: Vector3) -> void:
+static func _material(col: Color) -> StandardMaterial3D:
+	var mat: StandardMaterial3D = _mats.get(col)
+	if mat == null:
+		mat = StandardMaterial3D.new()
+		mat.albedo_color = Color.BLACK
+		mat.emission_enabled = true
+		mat.emission = col
+		mat.emission_energy_multiplier = EMISSION_ENERGY
+		_mats[col] = mat
+	return mat
+
+
+## `col` is the firing weapon's own colour (Weapon.bolt_color) — the same one its
+## muzzle light and its impact scorch use, so a round matches the flash that threw
+## it and the mark it leaves.
+func launch(from: Vector3, to: Vector3, col: Color) -> void:
 	global_position = from
 	_remaining = from.distance_to(to)
 	if _remaining < 0.01:
 		queue_free()
 		return
+	_mesh = get_node_or_null("Mesh") as MeshInstance3D
+	if _mesh != null:
+		_mesh.set_surface_override_material(0, _material(col))
 	_dir = (to - from) / _remaining
 	if absf(_dir.dot(Vector3.UP)) < 0.99:
 		look_at(to)  # bolt mesh lies along -Z
@@ -46,10 +84,10 @@ func _process(delta: float) -> void:
 
 ## Arrived. Stop, and start the flash.
 func _land() -> void:
-	_impact = IMPACT_TIME
-	_mesh = get_node_or_null("Mesh") as MeshInstance3D
 	if _mesh == null:
 		queue_free()
+		return
+	_impact = IMPACT_TIME
 
 
 ## Swell. SCALE ONLY, and deliberately nothing to do with the material.
