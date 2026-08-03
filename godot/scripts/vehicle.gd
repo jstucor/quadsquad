@@ -134,9 +134,17 @@ const STREAK_VEHICLES := {
 		"top_speed": 9.0,
 		"accel": 6.0,
 		"turn": 1.05,
-		"hover": 3.4,
+		# THE HOVER HEIGHT IS THE LEG LENGTH and must match `ATST_GROUND`, or the
+		# feet do not touch the ground the body is standing on. They finished
+		# three metres up the first time, which a screenshot does not reliably
+		# show — the shadow lands under it either way — so `tests/vehicles.gd`
+		# measures the gap.
+		"hover": 4.6,
 		"gun": Weapon.Class.HMG,
-		"hull": Vector3(2.40, 2.60, 2.60),
+		# The COLLISION hull is the pod and the hip yoke, not the legs. A box
+		# around the whole silhouette would stop rounds passing between two thin
+		# legs, which is most of what makes shooting at a walker interesting.
+		"hull": Vector3(2.10, 2.20, 2.00),
 	},
 }
 
@@ -147,7 +155,15 @@ const STREAK_VEHICLES := {
 const HOVER_STIFFNESS := 26.0
 const HOVER_DAMPING := 9.0
 ## Past this, there is no ground under us and we are falling, not hovering.
+##
+## IT MUST OUTREACH THE CLEARANCE IT IS TRYING TO HOLD, which was free while every
+## vehicle hovered under 2.5 m and stopped being free the moment a GUNSHIP wanted
+## 7.5. A probe shorter than the hover can never see the ground from the height it
+## is aiming for, so the craft sinks to `HOVER_PROBE` and sits there — holding a
+## clearance nothing asked for, with no error anywhere. Hence a floor of the row's
+## own hover with headroom, rather than one constant for everything.
 const HOVER_PROBE := 6.0
+const HOVER_PROBE_MARGIN := 1.7   # x the row's clearance
 const GRAVITY := 22.0
 
 ## A speeder BANKS into its turn. Purely cosmetic and worth every line: without
@@ -482,7 +498,8 @@ func _drive(delta: float) -> void:
 func _apply_hover(delta: float) -> void:
 	var space := get_world_3d().direct_space_state
 	var from := global_position + Vector3.UP * 0.4
-	var query := PhysicsRayQueryParameters3D.create(from, from + Vector3.DOWN * HOVER_PROBE)
+	var reach: float = maxf(HOVER_PROBE, float(_row["hover"]) * HOVER_PROBE_MARGIN)
+	var query := PhysicsRayQueryParameters3D.create(from, from + Vector3.DOWN * reach)
 	query.exclude = [get_rid()]
 	query.collision_mask = 1
 	var hit := space.intersect_ray(query)
@@ -745,39 +762,119 @@ func _build_laat(steel: Material, poly: Material, trim: Material, lit: Material)
 ##
 ## The legs are static. See STREAK_VEHICLES for why that is a stated
 ## approximation rather than an oversight.
+## THE WHOLE THING IS LAID OUT FROM THE GROUND UP, in local Y where the vehicle's
+## origin sits `hover` metres up — so the sole of the foot is at `-hover` and the
+## legs are solved to reach it. The first version was laid out from the pod down
+## and its feet finished **three metres above the ground**, which is not
+## something a screenshot reliably shows (the shadow is under it either way) and
+## is why `tests/vehicles.gd` now measures the gap instead.
+##
+## TWO THIRDS OF AN AT-ST IS LEG. That is the proportion everything else is read
+## against: a big pod on short legs is a bunker, and what makes this thing
+## unmistakable is a small hunched head carried very high on thin reverse-jointed
+## legs. Pod 2.0 m on 4.4 m of leg.
+const ATST_GROUND := -4.6      # local Y of the sole; matches the row's `hover`
+const ATST_KNEE_Y := -2.35
+const ATST_HIP_Y := -0.55
+const ATST_TRACK := 0.78       # half the distance between the two legs
+
+
 func _build_atst(steel: Material, poly: Material, trim: Material, lit: Material) -> void:
-	# The pod. Wider than deep and canted forward, which is the hunch.
+	_atst_pod(steel, poly, trim, lit)
+	# The hip yoke the legs hang off, and the "chin" block under the pod that
+	# stops it floating free of them.
+	_box(Vector3(2.00, 0.50, 1.15), Vector3(0, ATST_HIP_Y, 0.05), poly)
+	_box(Vector3(1.20, 0.55, 0.95), Vector3(0, ATST_HIP_Y + 0.55, 0.05), steel)
+	for sx: float in [-1.0, 1.0]:
+		_atst_leg(sx, steel, poly, trim)
+
+
+## The command pod: a small hunched box with an OVERHANGING BROW, two separate
+## viewports under it, and asymmetric side gear. The brow is the detail that does
+## the most work — a flat-faced box is a crate, and a roof jutting out over the
+## windows is a face.
+func _atst_pod(steel: Material, poly: Material, trim: Material, lit: Material) -> void:
 	var pod := Node3D.new()
 	_body.add_child(pod)
-	pod.position = Vector3(0, 3.05, 0)
-	pod.rotation = Vector3(deg_to_rad(-7.0), 0, 0)
-	_box(Vector3(2.05, 1.55, 1.85), Vector3.ZERO, steel, true, pod)
-	# The face: a recessed visor band with a lit slit in it. The lit slit is the
-	# same trick and the same 1.3 energy as the turret's sensor — at forty metres
-	# it is the only part that says whose walker that is.
-	_box(Vector3(1.75, 0.52, 0.30), Vector3(0, 0.18, -1.00), poly, true, pod)
-	_box(Vector3(1.35, 0.20, 0.16), Vector3(0, 0.18, -1.12), lit, false, pod)
-	# Chin guns, and the twin blaster pods on the cheeks.
+	pod.position = Vector3(0, 0.95, 0.18)
+	pod.rotation = Vector3(deg_to_rad(-6.0), 0, 0)
+	_box(Vector3(1.95, 1.45, 1.70), Vector3.ZERO, steel, true, pod)
+	# The face is INSET and the brow hangs proud of it, so the viewports sit in
+	# shadow — which is what makes them read as windows rather than as decals.
+	_box(Vector3(1.70, 0.62, 0.22), Vector3(0, -0.05, -0.86), poly, true, pod)
+	_box(Vector3(2.00, 0.26, 0.52), Vector3(0, 0.42, -0.92), steel, true, pod)  # brow
+	# TWO viewports, not one band. The gap between them is the single most
+	# recognisable thing about the head.
 	for sx: float in [-1.0, 1.0]:
-		_box(Vector3(0.20, 0.20, 1.10), Vector3(sx * 0.42, -0.55, -1.20), poly, true, pod)
-		_box(Vector3(0.34, 0.34, 0.50), Vector3(sx * 1.05, -0.10, -0.75), trim, true, pod)
-	# The "ears" — the two side blocks that stop the pod being a plain box.
+		_box(Vector3(0.62, 0.30, 0.14), Vector3(sx * 0.40, -0.02, -0.98), lit, false, pod)
+	# The roof: a raised hatch and vent slats, which give the pod a top edge and
+	# some sense of scale from below.
+	_box(Vector3(1.10, 0.16, 0.80), Vector3(0, 0.78, 0.20), poly, true, pod)
+	for i in 3:
+		_box(Vector3(1.40, 0.06, 0.10), Vector3(0, 0.86, -0.30 + i * 0.22),
+			trim, false, pod)
+	# The chin gun cluster, under the face and central.
+	_box(Vector3(0.50, 0.34, 0.44), Vector3(0, -0.62, -0.74), poly, true, pod)
 	for sx: float in [-1.0, 1.0]:
-		_box(Vector3(0.30, 0.70, 0.70), Vector3(sx * 1.12, 0.35, 0.10), steel, true, pod)
-	# The hips, then the legs. Each leg is thigh, shin and a splayed foot, and the
-	# knee is BACK — a walker whose knees bend forward is a chicken and reads as
-	# one instantly.
-	_box(Vector3(1.60, 0.55, 1.20), Vector3(0, 2.25, 0.10), poly)
-	for sx: float in [-1.0, 1.0]:
-		var leg := Node3D.new()
-		_body.add_child(leg)
-		leg.position = Vector3(sx * 0.62, 2.10, 0.0)
-		_box(Vector3(0.46, 1.30, 0.52), Vector3(0, -0.60, 0.22), steel, true, leg)
-		_box(Vector3(0.40, 1.20, 0.44), Vector3(0, -1.75, -0.10), poly, true, leg)
-		# The foot: wide, flat and proud of the leg on every side, because what a
-		# walker stands on has to look like it could carry the pod above it.
-		_box(Vector3(0.85, 0.26, 1.35), Vector3(0, -2.45, 0.05), steel, true, leg)
-		_box(Vector3(0.55, 0.14, 0.40), Vector3(0, -2.62, -0.45), trim, false, leg)
+		_box(Vector3(0.13, 0.13, 1.00), Vector3(sx * 0.16, -0.62, -1.28), trim, true, pod)
+	# ASYMMETRIC SIDE GEAR, and deliberately so — the reference has a blaster
+	# cannon on one cheek and a rangefinder on the other, and a matched pair
+	# reads as issued kit rather than as a machine somebody equipped. Same
+	# argument as the ork shoulder plate.
+	_cyl(0.30, 0.34, Vector3(-1.05, 0.10, -0.10), steel, pod)          # cannon hub
+	_box(Vector3(0.11, 0.11, 1.20), Vector3(-1.05, 0.10, -0.80), trim, true, pod)
+	_cyl(0.26, 0.30, Vector3(1.02, 0.10, -0.10), steel, pod)           # sensor hub
+	_box(Vector3(0.34, 0.34, 0.30), Vector3(1.14, 0.34, -0.35), poly, true, pod)
+	_box(Vector3(0.10, 0.44, 0.10), Vector3(1.14, 0.66, -0.35), trim, false, pod)
+
+
+## One leg: hip hub, thigh, KNEE HUB, shin, ankle and a splayed foot.
+##
+## THE KNEE GOES BACKWARD. A walker whose knees bend forward is a chicken and
+## reads as one instantly — so the knee hub sits well AFT of both the hip and the
+## foot, and the thigh and shin lean opposite ways to meet it. That zigzag is the
+## silhouette; without it two straight legs are stilts.
+func _atst_leg(sx: float, steel: Material, poly: Material, trim: Material) -> void:
+	var x := sx * ATST_TRACK
+	var hip := Vector3(x, ATST_HIP_Y, 0.0)
+	var knee := Vector3(x, ATST_KNEE_Y, 0.62)        # +Z is BACKWARD
+	var ankle := Vector3(x, ATST_GROUND + 0.42, -0.10)
+
+	_cyl(0.34, 0.52, hip, steel)                      # the big exposed hip hub
+	_strut(hip, knee, 0.36, 0.42, steel)              # thigh
+	_cyl(0.30, 0.46, knee, steel)                     # the knee hub
+	_strut(knee, ankle, 0.28, 0.32, steel)            # shin
+	_cyl(0.22, 0.38, ankle, poly)                     # ankle hub
+
+	# THE FOOT IS A WIDE FLAT PAD WITH TOES, and it is deliberately much bigger
+	# than the leg above it: what a walker stands on has to look like it could
+	# carry the pod, and it is also the only part a player on the ground sees at
+	# eye level.
+	var foot := Vector3(x, ATST_GROUND + 0.13, -0.10)
+	_box(Vector3(1.12, 0.32, 1.55), foot, steel)
+	for tz: float in [-1.0, 1.0]:
+		_box(Vector3(0.38, 0.20, 0.50), foot + Vector3(sx * 0.30, -0.07, tz * 0.92),
+			trim, false)
+	_box(Vector3(0.40, 0.20, 0.48), foot + Vector3(-sx * 0.32, -0.07, -0.94),
+		trim, false)
+	# A dark recess up the outside of the thigh, which is where the leg's contrast
+	# belongs — in a PANEL LINE rather than in the limb being a different colour.
+	_box(Vector3(0.10, 1.30, 0.22), Vector3(x + sx * 0.20, -1.45, 0.30), poly, false)
+
+
+## A strut spanning two points, sized and ORIENTED between them — the same trick
+## `CharacterModel._limb` uses, and for the same reason: state where a limb runs
+## between and its length and angle fall out, so moving a joint cannot leave the
+## piece hanging off it.
+func _strut(from: Vector3, to: Vector3, width: float, depth: float,
+		mat: Material) -> void:
+	var span := to - from
+	var length := span.length()
+	if length < 0.01:
+		return
+	var mi := _box(Vector3(width, length, depth), (from + to) * 0.5, mat)
+	# Only the fore-and-aft lean matters — a walker's legs do not splay sideways.
+	mi.rotation = Vector3(atan2(span.z, -span.y), 0.0, 0.0)
 
 
 ## saddle — the point of a shared builder is that the two hulls differ where they
@@ -819,6 +916,32 @@ const DETAIL_TRIM := 45.0
 ## uses) and a visibility range. The hull, cowl, booms and pods are never culled —
 ## the silhouette is what says which faction's speeder that is, and it is the
 ## whole reason the four are shaped differently.
+## A ROUND HUB. The only thing in the vehicle builders that is not a chamfered
+## box, and it earns the exception: a walker's hips, knees and ankles are big
+## exposed CYLINDERS, and that is most of what says a leg is jointed rather than
+## bent. Boxed joints read as a folded plank.
+##
+## Laid along X by default, because every joint on a walker turns about the
+## side-to-side axis — the same axis every limb in `CharacterModel` rotates about.
+func _cyl(radius: float, length: float, pos: Vector3, mat: Material,
+		into: Node3D = null) -> MeshInstance3D:
+	var mi := MeshInstance3D.new()
+	var cyl := CylinderMesh.new()
+	cyl.top_radius = radius
+	cyl.bottom_radius = radius
+	cyl.height = length
+	# Deliberately coarse. At the distance a walker is read from, twelve sides is
+	# a circle, and this is drawn four times plus a shadow pass.
+	cyl.radial_segments = 12
+	cyl.rings = 0
+	mi.mesh = cyl
+	mi.position = pos
+	mi.rotation = Vector3(0, 0, PI * 0.5)   # stand it on its side, along X
+	mi.material_override = mat
+	(into if into != null else _body).add_child(mi)
+	return mi
+
+
 func _box(size: Vector3, pos: Vector3, mat: Material, shadow := true,
 		into: Node3D = null) -> MeshInstance3D:
 	var mi := MeshInstance3D.new()

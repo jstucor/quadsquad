@@ -32,6 +32,7 @@ func _ready() -> void:
 	await _test_mount_round_trip()
 	await _test_damage_and_wreck()
 	await _test_real_matches()
+	await _test_war_machines()
 
 	print("\n==== %s ====" % ("VEHICLES WORK" if _fails.is_empty()
 		else "%d FAILURE(S):\n  %s" % [_fails.size(), "\n  ".join(_fails)]))
@@ -301,6 +302,57 @@ func _test_real_matches() -> void:
 	# Leave the autoload as we found it for anything running after this.
 	GameState.universe = Loadout.Universe.STAR_WARS
 	GameState.mode = GameState.Mode.DEATHMATCH
+
+
+## THE EARNED WAR MACHINES (see `Streaks`), and mostly ONE question: does the
+## thing stand on the ground it is standing on?
+##
+## A WALKER'S LEGS ARE DRAWN, NOT SIMULATED — the hull hovers off a ray and the
+## legs are geometry hung off it — so the leg length and the row's `hover` are
+## two numbers that have to agree and NOTHING enforces it. The first AT-ST's feet
+## finished three metres in the air, and a screenshot does not reliably show that
+## (the shadow lands under it either way, and there is no other body in frame at
+## walker scale). A number does.
+func _test_war_machines() -> void:
+	print("\n== the war machines ==")
+	for id: String in Vehicle.STREAK_VEHICLES:
+		var row: Dictionary = Vehicle.STREAK_VEHICLES[id]
+		var v: Vehicle = VEHICLE_SCENE_new()
+		add_child(v)               # ...or it has no global transform to measure
+		v.setup_as(id, 0)
+		v.global_position = Vector3(0, float(row["hover"]) + 6.0, 0)
+		v.reset_physics_interpolation()
+		for i in 180:
+			await get_tree().physics_frame
+		var clearance := v.global_position.y
+		_expect(absf(clearance - float(row["hover"])) < 0.6,
+			"%s settles at its own clearance (%.2f m, wants %.2f)"
+				% [row["name"], clearance, float(row["hover"])])
+
+		# THE LOWEST DRAWN POINT against the ground it is standing on. Measured off
+		# the real meshes rather than off the table, because the table is exactly
+		# what would be wrong.
+		var lowest := INF
+		for mi in v.find_children("*", "MeshInstance3D", true, false):
+			var aabb: AABB = (mi as MeshInstance3D).get_aabb()
+			for c in 8:
+				var corner: Vector3 = (mi as MeshInstance3D).global_transform \
+					* aabb.get_endpoint(c)
+				lowest = minf(lowest, corner.y)
+		# A WALKER stands on its feet; a GUNSHIP is meant to be off the ground.
+		var walks: bool = float(row["hover"]) < 5.0
+		if walks:
+			_expect(absf(lowest) < 0.45,
+				"%s stands ON the ground (lowest drawn point %.2f m)"
+					% [row["name"], lowest])
+		else:
+			_expect(lowest > 1.5,
+				"%s hangs clear of the ground (lowest drawn point %.2f m)"
+					% [row["name"], lowest])
+		print("    %-14s clearance %.2f m, lowest geometry %.2f m"
+			% [row["name"], clearance, lowest])
+		v.queue_free()
+		await get_tree().physics_frame
 
 
 func _frames(n: int) -> void:

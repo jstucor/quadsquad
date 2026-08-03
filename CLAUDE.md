@@ -300,6 +300,25 @@ once. The per-system sections below assume them rather than repeating them.
   driver bleed, dying at the controls, being a combatant bots shoot at); a vehicle that materialised
   around you would need every one of those answered again. Set down BEHIND the player: on top is the
   documented capsule-ejection bug and in front is a wall between them and what they were shooting at.
+- **A WALKER'S LEGS ARE DRAWN, NOT SIMULATED, so the leg length and the row's `hover` are two numbers
+  that must agree and NOTHING enforces it.** The first AT-ST's feet finished THREE METRES in the air.
+  A screenshot does not reliably catch that — the shadow lands under it either way and there is no
+  other body in frame at walker scale — so `tests/vehicles.gd` measures the lowest drawn point against
+  the ground. The geometry is laid out from the SOLE UP (`ATST_GROUND`), not from the pod down.
+- **THE HOVER PROBE MUST OUTREACH THE CLEARANCE IT HOLDS** (`HOVER_PROBE_MARGIN`). Free while every
+  vehicle hovered under 2.5 m; the moment a gunship wanted 7.5 against a 6.0 probe, the ray could not
+  see the ground from the height it was aiming for, so it sank to the probe length and sat there
+  holding a clearance nobody asked for, with no error anywhere.
+- **TWO THIRDS OF AN AT-ST IS LEG, and the knees go BACKWARD.** A big pod on short legs is a bunker;
+  what makes the thing unmistakable is a small hunched head carried very high on thin reverse-jointed
+  legs, and a walker whose knees bend forward reads as a chicken instantly. The joints are the one
+  place a vehicle builder uses a CYLINDER rather than a chamfered box (`_cyl`): a walker's hips, knees
+  and ankles are big exposed hubs, and boxed joints read as a folded plank. Struts span two points and
+  take their length and angle from them (`_strut`), the same trick as `CharacterModel._limb`, so moving
+  a joint cannot leave the piece hanging off it. **One material down the whole leg** — a dark thigh
+  against a light shin reads as two objects bolted together, so the contrast goes in a PANEL LINE.
+  Side gear is deliberately ASYMMETRIC (cannon one cheek, rangefinder the other), same argument as the
+  ork shoulder plate.
 - **THE AT-ST'S LEGS DO NOT WALK, AND THAT IS A STATED APPROXIMATION.** `Vehicle` is a CharacterBody3D
   solving a hover height off one downward ray, so a walker is that ray held at leg height with the
   acceleration of something enormous. A walker that actually walks needs a gait, foot placement over the
