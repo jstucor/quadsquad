@@ -279,12 +279,24 @@ once. The per-system sections below assume them rather than repeating them.
   bought that life** — two players on the same side were fighting for different rewards, and switching
   class silently changed the ladder under you. A faction is picked once and is the same answer for all
   eight of that side's classes. Stated as a MAP rather than a `universe` + `teams` pair because a
-  reward can belong to different sides in different settings (the Juggernaut is the CIS's and the
-  Rebels' in Star Wars and everybody's in Halo), and the pair cannot express that without two rows
-  that then drift. **An absent universe is a refusal, not a fallthrough** — team 0 is the Republic in
-  Star Wars and somebody else in Halo. Every Star Wars side ends up with exactly FOUR rewards, which
-  `tests/streaks.gd` asserts: a faction with fewer than the one across the map is a balance bug
-  nothing else would report.
+  reward can belong to different sides in different settings, and the pair cannot express that
+  without two rows that then drift. **An absent universe is a refusal, not a fallthrough** — team 0
+  is the Republic in Star Wars and somebody else in Halo.
+- **ONE SIGNATURE PER FACTION AND NO TWO SIDES SHARE ONE**, across all TEN factions. The first pass
+  had SIX of them sharing a generic "Juggernaut", which is the same failure as the first roster
+  attempt (CLONE PILOT and REBEL HEAVY carrying recycled rifles): a reward generated from an
+  ADJECTIVE rather than designed from the fanbase's own vocabulary. A Necron Lord and an Ork Warboss
+  are not two skins on one Juggernaut, and if they were there would be no reason to care which side
+  you are on. Republic LAAT, Separatist Droideka, Imperial AT-ST, Rebel Wookiee Warrior, UNSC
+  Spartan-II, Covenant Sanghelli Zealot, Ultramarine Terminator, Blood Angel Sanguinary Guard,
+  Necron Lord, Ork Warboss. **`tests/streaks.gd` walks every faction in every universe and reports
+  the two sides that share one BY NAME** — a count would not say what broke.
+- **THE TWO UNIVERSAL RUNGS ARE WHAT KEEP THE LADDER LEVEL.** Recon and the ORBITAL STRIKE carry no
+  `factions` key at all, and the orbital especially is the one reward that asks nothing of what you
+  are — no body to become, no machine to climb into, no faction hardware — so it is the rung that is
+  the same height for a Grot and a Space Marine. Every side gets exactly three rewards, four in Star
+  Wars (which adds the Force master); a faction with fewer than the one across the map is a balance
+  bug nothing else in the project would report.
 - **ALL FOUR STAR WARS SIDES REACH A FORCE MASTER**, because which one you get is ALLEGIANCE and not
   class — Republic and Rebels draw a Jedi, Separatists and Empire a Sith.
 - **JEDI AND SITH ARE ONE ROW**, not two (`preset_by_team` overriding parts of the base `preset`). Same

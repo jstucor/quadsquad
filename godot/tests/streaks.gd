@@ -95,57 +95,71 @@ func _check_table() -> void:
 ## THE GATES. Checked from both directions: the owner gets it and nobody else
 ## does. Only the second direction catches a `kits` key that was never read.
 func _check_gates() -> void:
-	print("\n-- a reward belongs to a FACTION and to nothing else --")
-	GameState.universe = Loadout.Universe.STAR_WARS
-	var sides := ["REPUBLIC", "SEPARATIST", "EMPIRE", "REBEL"]
-	var got: Array = []
-	for t in 4:
-		got.append(_names(Streaks.available(t)))
-		print("  %-12s %s" % [sides[t], str(got[t])])
+	print("\n-- every faction, and what it alone can earn --")
+	var universes := {
+		Loadout.Universe.STAR_WARS: ["REPUBLIC", "SEPARATIST", "EMPIRE", "REBEL"],
+		Loadout.Universe.HALO: ["UNSC", "COVENANT"],
+		Loadout.Universe.WARHAMMER: ["ULTRAMARINES", "BLOOD ANGELS", "NECRONS", "ORKS"],
+	}
+	# Which faction each signature belongs to, so a reward reachable by two sides
+	# is reported by NAME rather than as a count that does not say what broke.
+	var owner := {}
+	var counts := {}
+	for u: int in universes:
+		GameState.universe = u
+		var sides: Array = universes[u]
+		for t in sides.size():
+			var got := _names(Streaks.available(t))
+			var who: String = "%s %s" % [Loadout.UNIVERSES[u]["name"], sides[t]]
+			print("  %-26s %s" % [who, str(got)])
+			counts[who] = got.size()
 
-	# THE FORCE IS ALLEGIANCE, NOT CLASS: all four sides reach a master, and which
-	# one they get is the side's answer.
-	for t in 4:
-		_ok(got[t].has("FORCE MASTER"), "%s cannot reach a Force master" % sides[t])
+			# THE UNIVERSAL RUNGS. The orbital strike especially: it is the one
+			# reward that asks nothing of what you are, so it is what keeps the
+			# ladder the same height for every side in every setting.
+			_ok(got.has("ORBITAL STRIKE"),
+				"%s cannot call an ORBITAL STRIKE — it is meant to be universal" % who)
+			_ok(got.has("RECON SWEEP"), "%s cannot call a recon sweep" % who)
+
+			# ...and exactly ONE signature, which is one nobody else has.
+			var sig := []
+			for name in got:
+				if name in ["RECON SWEEP", "ORBITAL STRIKE"]:
+					continue
+				if str(name) == "FORCE MASTER":
+					continue     # deliberately shared, and marked so in the table
+				sig.append(name)
+			_ok(sig.size() == 1,
+				"%s has %d signature rewards (%s); every faction gets exactly one"
+					% [who, sig.size(), str(sig)])
+			for name in sig:
+				_ok(not owner.has(name),
+					"%s and %s SHARE `%s` — a signature belongs to one faction"
+						% [str(owner.get(name, "?")), who, name])
+				owner[name] = who
+
+	# A SIDE WITH FEWER REWARDS THAN THE ONE ACROSS THE MAP is a balance bug that
+	# nothing else in the project would report.
+	GameState.universe = Loadout.Universe.STAR_WARS
+	for who: String in counts:
+		var want := 4 if who.begins_with("STAR") else 3
+		_ok(counts[who] == want,
+			"%s has %d rewards, expected %d" % [who, counts[who], want])
+
+	# The Force is ALLEGIANCE: all four Star Wars sides reach a master, and which
+	# one they draw is the side's answer.
 	for t in 4:
 		var preset := Streaks.become_preset(_row("FORCE MASTER"), t)
-		var want := "JEDI MASTER" if t in [0, 3] else "SITH MASTER"
-		_ok(str(preset["name"]) == want,
-			"%s should draw a %s, got %s" % [sides[t], want, preset["name"]])
+		var want_name := "JEDI MASTER" if t in [0, 3] else "SITH MASTER"
+		_ok(str(preset["name"]) == want_name,
+			"team %d should draw a %s, got %s" % [t, want_name, preset["name"]])
 
-	# The two machines are one side's each; the Juggernaut covers the other two,
-	# so every side ends up with four rewards.
-	_ok(got[0].has("LAAT GUNSHIP"), "the Republic cannot earn its gunship")
-	_ok(got[2].has("AT-ST WALKER"), "the Empire cannot earn its walker")
-	_ok(not got[2].has("LAAT GUNSHIP"), "the Empire was offered a LAAT")
-	_ok(not got[0].has("AT-ST WALKER"), "the Republic was offered an AT-ST")
-	_ok(got[1].has("JUGGERNAUT") and got[3].has("JUGGERNAUT"),
-		"the two sides with no machine should get the Juggernaut")
-	_ok(not got[0].has("JUGGERNAUT") and not got[2].has("JUGGERNAUT"),
-		"a side with a machine also got the Juggernaut")
-	# EVERY SIDE GETS THE SAME NUMBER. A faction with fewer rewards than the one
-	# across the map from it is a balance bug nothing else would report.
-	for t in 4:
-		_ok(got[t].size() == 4,
-			"%s has %d rewards; every side should have 4" % [sides[t], got[t].size()])
-
-	# NO KIT ANYWHERE. The whole point of the rework: what you bought this life
-	# must not change what you are playing for.
+	# NO KIT ANYWHERE. What you bought this life must not change what you are
+	# playing for.
 	for row in Streaks.REWARDS:
 		_ok(not row.has("kits"),
 			"%s still gates on KIT — rewards are faction-only" % row["name"])
-
-	# UNIVERSE, which a team index alone cannot express: team 0 is the Republic in
-	# Star Wars and somebody else entirely in Halo.
-	GameState.universe = Loadout.Universe.HALO
-	var halo := _names(Streaks.available(0))
-	print("  %-12s %s" % ["HALO t0", str(halo)])
-	_ok(not halo.has("LAAT GUNSHIP"), "a Halo side was offered a Republic gunship")
-	_ok(not halo.has("FORCE MASTER"), "a Halo side was offered the Force")
-	_ok(halo.has("RECON SWEEP") and halo.has("ORBITAL STRIKE"),
-		"a Halo side cannot reach the universal rewards")
-	_ok(halo.has("JUGGERNAUT"), "a Halo side cannot reach the Juggernaut")
-	GameState.universe = Loadout.Universe.STAR_WARS
+	print("  %d signatures, one per faction, none shared" % owner.size())
 	_done["gates"] = true
 
 
@@ -270,33 +284,34 @@ func _check_become() -> void:
 	await get_tree().process_frame
 
 	var before_health := p.max_health
-	for i in 6:
+	for i in Streaks.KILLS_SIGNATURE:
 		p.credit_kill()
 	await get_tree().process_frame
 
 	# A REWARD IS OFFERED, NOT APPLIED. Nothing may have happened yet.
-	_ok(not p.pending_reward().is_empty(), "6 kills offered nothing")
-	_ok(str(p.pending_reward().get("name", "")) == "JUGGERNAUT",
-		"6 kills offered `%s`" % str(p.pending_reward().get("name", "-")))
+	_ok(not p.pending_reward().is_empty(), "the signature threshold offered nothing")
+	_ok(str(p.pending_reward().get("name", "")) == "WOOKIEE WARRIOR",
+		"the signature offer was `%s`" % str(p.pending_reward().get("name", "-")))
 	_ok(p.max_health == before_health,
 		"the reward applied itself before it was accepted")
 	print("  offered `%s` and waited" % str(p.pending_reward().get("name", "-")))
 	p.accept_reward()
 	await get_tree().process_frame
 
-	_ok(p.kills_this_life == 6,
-		"the streak was reset by the transformation: %d, want 6" % p.kills_this_life)
-	_ok(p.loadout.build_name == "JUGGERNAUT",
-		"6 kills on a Rebel did not become a Juggernaut (got `%s`)"
+	_ok(p.kills_this_life == Streaks.KILLS_SIGNATURE,
+		"the streak was reset by the transformation: %d, want %d"
+			% [p.kills_this_life, Streaks.KILLS_SIGNATURE])
+	_ok(p.loadout.build_name == "WOOKIEE WARRIOR",
+		"the Rebel signature did not deploy (got `%s`)"
 			% p.loadout.build_name)
 	_ok(p.max_health > before_health,
-		"the Juggernaut is not tougher than what it replaced (%.0f vs %.0f)"
+		"the signature is not tougher than what it replaced (%.0f vs %.0f)"
 			% [p.max_health, before_health])
-	_ok(p.overshield_left() > 0.0, "the Juggernaut got no overshield")
+	_ok(p.overshield_left() > 0.0, "the signature got no overshield")
 	_ok(is_finite(p.overshield_left()),
 		"the overshield lifetime is not finite — the HUD gauge reads it directly")
-	print("  6 kills: %s, %.0f HP (was %.0f), overshield %.0f for %.0fs"
-		% [p.loadout.build_name, p.max_health, before_health,
+	print("  %d kills: %s, %.0f HP (was %.0f), overshield %.0f for %.0fs"
+		% [Streaks.KILLS_SIGNATURE, p.loadout.build_name, p.max_health, before_health,
 			p._over_pool, p.overshield_left()])
 
 	# AND IT MUST NOT RE-EARN ITSELF. Another kill past the threshold would
@@ -305,7 +320,7 @@ func _check_become() -> void:
 	p.credit_kill()
 	await get_tree().process_frame
 	_ok(p.health == 10.0,
-		"a Juggernaut re-earned itself and healed to %.0f" % p.health)
+		"the signature re-earned itself and healed to %.0f" % p.health)
 	print("  a 7th kill does not re-issue it (health stayed %.0f)" % p.health)
 	p.queue_free()
 
@@ -320,7 +335,7 @@ func _check_become() -> void:
 	q._apply_loadout()
 	await get_tree().process_frame
 	var kept := q.max_health
-	for i in 6:
+	for i in Streaks.KILLS_SIGNATURE:
 		q.credit_kill()
 	q.decline_reward()
 	_ok(q.pending_reward().is_empty(), "declining left the offer up")

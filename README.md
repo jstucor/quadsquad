@@ -101,14 +101,26 @@ A streak is kills on your **current life** — nothing is banked, and dying cost
 you everything you were working toward. Rewards fire the moment they are earned;
 there is no button, because there is no free one.
 
-| Reward | Kills | Who | What |
-|---|---|---|---|
-| **Recon Sweep** | 4 | everyone | Every enemy marked for your whole side, on the minimap and through walls |
-| **Juggernaut** | 6 | CIS, Rebels (and every Halo / 40k side) | Heavy plate, a belt-fed gun and a shield that soaks the first burst |
-| **Orbital Strike** | 8 | everyone | A battery walks fire across the enemy's densest ground |
-| **LAAT Gunship** | 10 | Republic | It flies its own circuit — you ride the ball turret |
-| **AT-ST Walker** | 10 | Empire | A walker is dropped in beside you |
-| **Jedi / Sith Master** | 12 | all four Star Wars sides | Saber, guard, lightning. Jedi for the Republic and Rebels, Sith for the CIS and Empire |
+| Reward | Kills | Who |
+|---|---|---|
+| **Recon Sweep** | 4 | everyone |
+| **Orbital Strike** | 7 | everyone |
+| **LAAT Gunship** | 10 | Republic — you ride the ball turret while it circles |
+| **Droideka** | 10 | Separatists |
+| **AT-ST Walker** | 10 | Empire |
+| **Wookiee Warrior** | 10 | Rebel Alliance |
+| **Spartan-II** | 10 | UNSC |
+| **Sanghelli Zealot** | 10 | Covenant |
+| **Terminator** | 10 | Ultramarines |
+| **Sanguinary Guard** | 10 | Blood Angels |
+| **Necron Lord** | 10 | Necrons |
+| **Ork Warboss** | 10 | Orks |
+| **Jedi / Sith Master** | 14 | all four Star Wars sides |
+
+**Every faction has a signature nobody else can earn** — ten factions, ten
+signatures. The two universal rungs are what keep the ladder the same height for
+everyone: the orbital strike in particular asks nothing of what you are, no body
+to become and no faction hardware.
 
 **Rewards belong to a FACTION, not to a class** — what you bought this life never
 changes what you are playing for, and every Star Wars side gets four.
