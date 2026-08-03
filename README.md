@@ -139,6 +139,18 @@ The gunship is the one reward you do not drive. A LAAT is remembered for the two
 glass balls on its flanks with a trooper sealed in each, so the airframe flies
 itself and you ride the turret.
 
+### Sides and colours
+
+**Each side picks its own faction, independently of the setting** — so UNSC can
+fight the Republic, or Orks the Empire. The UNIVERSE dropdown deals that
+setting's sides out in order as a one-press default; the per-side rows below it
+change any of them. Ten factions across the three settings.
+
+**And each side picks its colour** — purple clones, yellow droids. The choice
+rides the model's accent panels *and* the tracer together, because a purple side
+that still fires blue is half a setting. The bolt is derived from the chip rather
+than chosen separately, brightened so it stays legible as a tracer.
+
 ### Classes and rosters
 
 **Eight classes a side**: four line classes and four reinforcements, built from

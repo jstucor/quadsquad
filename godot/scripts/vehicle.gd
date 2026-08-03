@@ -596,6 +596,13 @@ func _build_model() -> void:
 
 
 ## Re-tint, never rebuild — the command posts' 1.7 ms lesson.
+## Re-tint from outside. Needed since a vehicle's HULL comes from its faction's
+## slot while its COLOURS come from the team flying it, and with a chosen tint
+## those two are different answers.
+func set_team_color(c: Color) -> void:
+	_paint(c)
+
+
 func _paint(team_color: Color) -> void:
 	if _mats.is_empty():
 		return

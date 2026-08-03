@@ -175,12 +175,71 @@ var universe := Loadout.Universe.STAR_WARS:
 	set(value):
 		universe = clampi(value, 0, Loadout.UNIVERSES.size() - 1)
 		Loadout.active_universe = universe
-		var u: Dictionary = Loadout.UNIVERSES[universe]
-		# assign(), not `=`: the table's rows are untyped arrays and these are
-		# typed, so every `team_colors[t]` call site keeps its Color.
-		team_names.assign(u["teams"])
-		team_colors.assign(u["colors"])
-		bolt_colors.assign(u["bolts"])
+		# PICKING A SETTING DEALS ITS SIDES OUT IN ORDER, which is what makes the
+		# universe dropdown still mean what it always meant: choose STAR WARS and
+		# you get Republic, Separatist, Empire, Rebels. Changing an individual
+		# side afterwards is what makes a cross-setting match.
+		for t in team_faction.size():
+			team_faction[t] = Loadout.first_faction_of(universe) + t
+		refresh_sides()
+
+## WHICH FACTION EACH SIDE IS, as an index into `Loadout.factions()` — the flat
+## list across every setting. This is what lets UNSC fight the Republic: a match
+## no longer HAS one universe, it has up to four sides that each name one.
+##
+## `universe` is still a real setting and still the thing the menu leads with; it
+## now means "deal me this setting's sides" rather than "this is the only
+## catalogue on the field".
+var team_faction: Array[int] = [0, 1, 2, 3]
+
+## AND WHAT COLOUR EACH SIDE WEARS — an index into `Loadout.TEAM_TINTS`, 0 being
+## the faction's own. It rides the model ACCENTS and the BOLT together (see
+## `Loadout.tint_bolt`), because "purple clones" that still fire blue is half a
+## setting.
+var team_tint: Array[int] = [0, 0, 0, 0]
+
+
+## Re-derive every side's name, chip and tracer from its faction and its tint.
+## ONE function, called by every setter that can move any of the three, so the
+## three can never disagree about who a side is.
+func refresh_sides() -> void:
+	var names: Array[String] = []
+	var chips: Array[Color] = []
+	var bolts: Array[Color] = []
+	for t in team_faction.size():
+		var f: Dictionary = Loadout.faction(team_faction[t])
+		names.append(str(f["name"]))
+		var tint: int = team_tint[t] if t < team_tint.size() else 0
+		if tint > 0 and tint < Loadout.TEAM_TINTS.size():
+			var chip: Color = Loadout.TEAM_TINTS[tint]["color"]
+			chips.append(chip)
+			bolts.append(Loadout.tint_bolt(chip))
+		else:
+			chips.append(f["color"])
+			bolts.append(f["bolt"])
+	# assign(), not `=`: these are typed arrays and the sources are not.
+	team_names.assign(names)
+	team_colors.assign(chips)
+	bolt_colors.assign(bolts)
+
+
+## Which universe a SIDE belongs to. Everything that used to ask the single
+## `universe` about a particular team asks this instead.
+func team_universe(team: int) -> int:
+	return int(Loadout.faction(team_faction[clampi(team, 0, team_faction.size() - 1)])["universe"])
+
+
+## True when the sides on the field are not all from one setting — which is a
+## legal match and a deliberate one, and the thing a few systems have to know
+## about (vehicles are Star Wars only, and a shop cannot offer two catalogues).
+func mixed_universes() -> bool:
+	var seen := -1
+	for t in active_teams():
+		var u := team_universe(t)
+		if seen >= 0 and u != seen:
+			return true
+		seen = u
+	return false
 
 ## --- TIME TO KILL -------------------------------------------------------------
 ##
@@ -534,6 +593,20 @@ func score_limit() -> int:
 ## what lets faction classes turn up in deathmatch and the buy screen turn up in
 ## Conquest. Royale is not a shop and not a roster — it is scavenging — so it
 ## answers false whatever the setting says.
+## THE CLASSES A SIDE FIELDS, resolved through that side's OWN faction — its
+## universe and its slot inside it. Everything that knows a team asks this; only
+## `Loadout` (which may never name an autoload) takes the two apart.
+func classes_for(team: int) -> Array:
+	var f: Dictionary = Loadout.faction(team_faction[clampi(team, 0, team_faction.size() - 1)])
+	return Loadout.faction_classes(int(f["side"]), int(f["universe"]))
+
+
+## A build from that side's roster, same resolution.
+func team_build_for(team: int, class_slot: int) -> Loadout:
+	var f: Dictionary = Loadout.faction(team_faction[clampi(team, 0, team_faction.size() - 1)])
+	return Loadout.team_build(int(f["side"]), class_slot, int(f["universe"]))
+
+
 func faction_classes() -> bool:
 	return mode != Mode.ROYALE and class_mode == ClassMode.FACTION
 

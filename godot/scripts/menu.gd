@@ -30,6 +30,8 @@ const PANEL_EDGE := Color(0.24, 0.30, 0.38)
 
 var _summary: Label
 var _refresh_all: Callable
+var _faction_dd: Array[OptionButton] = []
+var _tint_dd: Array[OptionButton] = []
 
 
 func _ready() -> void:
@@ -131,6 +133,26 @@ func _build() -> void:
 	# faction, everything else on custom) and you are free to change it after.
 	var classes_dd := _dropdown(settings, "CLASSES")
 
+	# --- WHO EACH SIDE IS, AND WHAT COLOUR THEY WEAR ------------------------
+	#
+	# A row per side, because a side is now picked INDEPENDENTLY of the setting:
+	# the UNIVERSE dropdown above deals its own factions out in order, and these
+	# let you change any of them, which is how UNSC ends up fighting the Republic.
+	#
+	# Four rows are always BUILT and the unused ones DISABLED rather than hidden,
+	# the same rule every other row on this screen follows — an option that
+	# vanishes is one nobody learns exists, and here it would also make the whole
+	# grid reflow every time TEAMS changed.
+	column.add_child(_label("SIDES", 13, FAINT))
+	var sides := GridContainer.new()
+	sides.columns = 4
+	sides.add_theme_constant_override("h_separation", 10)
+	sides.add_theme_constant_override("v_separation", 8)
+	column.add_child(sides)
+	for t in GameState.MAX_TEAMS:
+		_faction_dd.append(_dropdown(sides, "SIDE %d" % (t + 1)))
+		_tint_dd.append(_dropdown(sides, "SIDE %d COLOUR" % (t + 1)))
+
 	_summary = _label("", 17, Color(0.68, 0.72, 0.78))
 	column.add_child(_summary)
 
@@ -155,12 +177,19 @@ func _build() -> void:
 	var quit_btn := _chip(row, "QUIT")
 	quit_btn.pressed.connect(func() -> void: get_tree().quit())
 
+	# Each side's two dropdowns share a focus row, so left/right walks FACTION
+	# then COLOUR for that side and up/down walks the sides.
+	var side_rows: Array = []
+	for t in GameState.MAX_TEAMS:
+		side_rows.append([_faction_dd[t], _tint_dd[t]])
+
 	_wire_focus([
 		[map_dd, mode_dd],
 		[universe_dd, planet_dd, time_dd, ttk_dd],
 		[players_dd, teams_dd, size_dd],
 		[victory_dd, skill_dd, assist_dd],
 		[classes_dd],
+	] + side_rows + [
 		[start],
 		[rotate_btn, net_btn, controls_btn, quit_btn],
 	])
@@ -214,6 +243,16 @@ func _build() -> void:
 		var vics := _victory_values()
 		_fill(victory_dd, _victory_items(), maxi(vics.find(GameState.score_limit()), 0))
 		victory_dd.disabled = GameState.mode == GameState.Mode.ROYALE
+		for t in GameState.MAX_TEAMS:
+			var live: bool = t < GameState.active_teams()
+			_fill(_faction_dd[t], _faction_items(),
+				GameState.team_faction[t] if t < GameState.team_faction.size() else 0)
+			_fill(_tint_dd[t], _tint_items(),
+				GameState.team_tint[t] if t < GameState.team_tint.size() else 0)
+			# FREE FOR ALL is one side per player and they are not factions you
+			# choose between, so the rows go dead rather than lying about it.
+			_faction_dd[t].disabled = not live or GameState.free_for_all
+			_tint_dd[t].disabled = not live
 		_fill(skill_dd, _skill_items(), GameState.ai_skill)
 		_fill(assist_dd, _assist_items(), GameState.aim_assist)
 		# ROYALE is neither a shop nor a roster — everything you fight with is
@@ -275,6 +314,12 @@ func _build() -> void:
 		var values := _size_values()
 		GameState.team_size = int(values[clampi(i, 0, values.size() - 1)])
 		_refresh_all.call())
+	for t in GameState.MAX_TEAMS:
+		# `bind` the side, so four dropdowns share one handler rather than four
+		# closures that each capture a different loop variable — the classic way
+		# to end up with every row editing side 3.
+		_faction_dd[t].item_selected.connect(_pick_faction.bind(t))
+		_tint_dd[t].item_selected.connect(_pick_tint.bind(t))
 	skill_dd.item_selected.connect(func(i: int) -> void:
 		GameState.ai_skill = i
 		_refresh_all.call())
@@ -455,6 +500,37 @@ func _assist_items() -> PackedStringArray:
 	for i in GameState.AIM_ASSIST_NAMES.size():
 		out.append(str(GameState.AIM_ASSIST_NAMES[i]))
 	return out
+
+
+## Every faction in the game, labelled with its SETTING as well as its name —
+## "NECRONS" alone does not say which game you are looking at once two settings
+## can be on the field at once.
+func _faction_items() -> PackedStringArray:
+	var out := PackedStringArray()
+	for f in Loadout.factions():
+		out.append("%s  ·  %s" % [f["universe_name"], f["name"]])
+	return out
+
+
+func _tint_items() -> PackedStringArray:
+	var out := PackedStringArray()
+	for t in Loadout.TEAM_TINTS:
+		out.append(str(t["name"]))
+	return out
+
+
+func _pick_faction(index: int, team: int) -> void:
+	if team < GameState.team_faction.size():
+		GameState.team_faction[team] = index
+		GameState.refresh_sides()
+	_refresh_all.call()
+
+
+func _pick_tint(index: int, team: int) -> void:
+	if team < GameState.team_tint.size():
+		GameState.team_tint[team] = index
+		GameState.refresh_sides()
+	_refresh_all.call()
 
 
 func _universe_items() -> PackedStringArray:

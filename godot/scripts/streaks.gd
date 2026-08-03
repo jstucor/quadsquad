@@ -108,12 +108,12 @@ const REWARDS: Array[Dictionary] = [
 		"duration": 22.0,
 	},
 	{
-		"name": "DROIDEKA", "kills": KILLS_SIGNATURE, "kind": Kind.BECOME,
+		"name": "DROIDEKA PRIME", "kills": KILLS_SIGNATURE, "kind": Kind.BECOME,
 		"blurb": "Paired repeaters behind a shield, and no way to run",
 		"factions": {Loadout.Universe.STAR_WARS: [1]},
 		"overshield": 320.0,
 		"preset": {
-			"name": "DROIDEKA", "kit": Loadout.Kit.CLONE,
+			"name": "DROIDEKA PRIME", "kit": Loadout.Kit.CLONE,
 			"primary": Weapon.Class.DROIDEKA_TWIN, "sidearm": Weapon.Class.PISTOL,
 			"armor": 3, "style": CharacterModel.Style.DROIDEKA,
 			"unit_health": 2.0, "unit_speed": 0.72, "unit_stature": 0.95,
@@ -126,12 +126,12 @@ const REWARDS: Array[Dictionary] = [
 		"vehicle": "atst",
 	},
 	{
-		"name": "WOOKIEE WARRIOR", "kills": KILLS_SIGNATURE, "kind": Kind.BECOME,
+		"name": "WOOKIEE CHIEFTAIN", "kills": KILLS_SIGNATURE, "kind": Kind.BECOME,
 		"blurb": "Two metres of fur, plate and bowcaster",
 		"factions": {Loadout.Universe.STAR_WARS: [3]},
 		"overshield": 220.0,
 		"preset": {
-			"name": "WOOKIEE WARRIOR", "kit": Loadout.Kit.WOOKIEE,
+			"name": "WOOKIEE CHIEFTAIN", "kit": Loadout.Kit.WOOKIEE,
 			"primary": Weapon.Class.HMG, "sidearm": Weapon.Class.BOWCASTER,
 			"armor": 3, "style": CharacterModel.Style.WOOKIEE,
 			"unit_health": 2.2, "unit_speed": 0.88, "unit_stature": 1.14,
@@ -140,12 +140,12 @@ const REWARDS: Array[Dictionary] = [
 
 	# ---- HALO ----------------------------------------------------------------
 	{
-		"name": "SPARTAN-II", "kills": KILLS_SIGNATURE, "kind": Kind.BECOME,
+		"name": "SPARTAN HEADHUNTER", "kills": KILLS_SIGNATURE, "kind": Kind.BECOME,
 		"blurb": "Mjolnir plate and a shield that comes back",
 		"factions": {Loadout.Universe.HALO: [0]},
 		"overshield": 300.0,
 		"preset": {
-			"name": "SPARTAN-II", "kit": Loadout.Kit.SPARTAN,
+			"name": "SPARTAN HEADHUNTER", "kit": Loadout.Kit.SPARTAN,
 			"primary": Weapon.Class.M247_HMG, "sidearm": Weapon.Class.M6D,
 			"armor": 3, "style": CharacterModel.Style.SPARTAN,
 			"unit_health": 2.1, "unit_speed": 1.05, "unit_stature": 1.10,
@@ -180,12 +180,12 @@ const REWARDS: Array[Dictionary] = [
 		},
 	},
 	{
-		"name": "SANGUINARY GUARD", "kills": KILLS_SIGNATURE, "kind": Kind.BECOME,
+		"name": "SANGUINARY EXEMPLAR", "kills": KILLS_SIGNATURE, "kind": Kind.BECOME,
 		"blurb": "Gold plate, a power sword and wings to arrive on",
 		"factions": {Loadout.Universe.WARHAMMER: [1]},
 		"overshield": 240.0,
 		"preset": {
-			"name": "SANGUINARY GUARD", "kit": Loadout.Kit.BLOOD_ANGEL,
+			"name": "SANGUINARY EXEMPLAR", "kit": Loadout.Kit.BLOOD_ANGEL,
 			"primary": Weapon.Class.POWER_SWORD,
 			"sidearm": Weapon.Class.PLASMA_PISTOL_40K,
 			"armor": 2, "style": CharacterModel.Style.BLOOD_ANGEL,
@@ -194,12 +194,12 @@ const REWARDS: Array[Dictionary] = [
 		},
 	},
 	{
-		"name": "NECRON LORD", "kills": KILLS_SIGNATURE, "kind": Kind.BECOME,
+		"name": "NECRON OVERLORD", "kills": KILLS_SIGNATURE, "kind": Kind.BECOME,
 		"blurb": "A warscythe, and it gets back up",
 		"factions": {Loadout.Universe.WARHAMMER: [2]},
 		"overshield": 260.0,
 		"preset": {
-			"name": "NECRON LORD", "kit": Loadout.Kit.NECRON,
+			"name": "NECRON OVERLORD", "kit": Loadout.Kit.NECRON,
 			"primary": Weapon.Class.WARSCYTHE,
 			"sidearm": Weapon.Class.GAUSS_PISTOL,
 			"armor": 3, "style": CharacterModel.Style.NECRON_LORD,
@@ -255,10 +255,15 @@ const REWARDS: Array[Dictionary] = [
 ##
 ## `team` is the side. Nothing else is asked, which is the whole point — see the
 ## note on `factions`.
-static func available(team: int) -> Array[Dictionary]:
+## `universe` and `side` are the TEAM'S OWN, because a match may have UNSC on one
+## side and the Republic on the other and there is no single setting to ask.
+## Passed in for the same reason `faction_classes` takes one: this file may not
+## name an autoload either.
+static func available(side: int, universe := -1) -> Array[Dictionary]:
+	var u: int = universe if universe >= 0 else Loadout.active_universe
 	var out: Array[Dictionary] = []
 	for row in REWARDS:
-		if not _allows(row, team):
+		if not _allows(row, side, u):
 			continue
 		out.append(row)
 	out.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
@@ -266,16 +271,16 @@ static func available(team: int) -> Array[Dictionary]:
 	return out
 
 
-static func _allows(row: Dictionary, team: int) -> bool:
+static func _allows(row: Dictionary, side: int, universe: int) -> bool:
 	if not row.has("factions"):
 		return true      # everybody, everywhere
 	var by_universe: Dictionary = row["factions"]
 	# THE UNIVERSE IS LOOKED UP FIRST and an absent one is a refusal, not a
 	# fallthrough — a team index means a different side in every setting, so a
 	# Spartan on team 0 must never inherit the Republic's gunship.
-	if not by_universe.has(Loadout.active_universe):
+	if not by_universe.has(universe):
 		return false
-	return (by_universe[Loadout.active_universe] as Array).has(team)
+	return (by_universe[universe] as Array).has(side)
 
 
 ## The reward crossed by going from `before` kills to `after`, or an empty

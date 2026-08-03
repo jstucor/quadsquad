@@ -659,7 +659,9 @@ var _streak_taken := {}
 
 
 func _refresh_streaks() -> void:
-	_streak_rewards = Streaks.available(team)
+	var f: Dictionary = Loadout.faction(GameState.team_faction[
+		clampi(team, 0, GameState.team_faction.size() - 1)])
+	_streak_rewards = Streaks.available(int(f["side"]), int(f["universe"]))
 	_streak_taken.clear()
 
 
@@ -1042,7 +1044,7 @@ func _update_pick_open(move: Vector2i, back_edge: bool) -> void:
 	if buy_box == PICK_POST_BOX:
 		_step_spawn_post(move.y)
 	else:
-		var classes := Loadout.faction_classes(team)
+		var classes := GameState.classes_for(team)
 		spawn_class = wrapi(spawn_class + move.y, 0, classes.size())
 	buy_changed.emit(buy_row)
 
@@ -1082,7 +1084,7 @@ func faction_class_name() -> String:
 
 ## Which FACTION_BUILDS row this player is about to deploy as.
 func faction_class_index() -> int:
-	var classes := Loadout.faction_classes(team)
+	var classes := GameState.classes_for(team)
 	return classes[clampi(spawn_class, 0, classes.size() - 1)]
 
 

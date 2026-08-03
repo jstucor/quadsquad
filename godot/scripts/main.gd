@@ -264,16 +264,25 @@ func _place_vehicles() -> void:
 	# get shot at by a machine that does not know why.
 	if Net.online():
 		return
-	var teams: Array = Vehicle.spawns_for(Loadout.active_universe)
-	for t: int in teams:
-		if t >= GameState.active_teams():
-			continue   # a 2-team match fields two speeders, not four
+	# ASKED PER SIDE, not once for the match. With UNSC fighting the Republic
+	# there is no single universe to ask, and the Star-Wars-only rule has to hold
+	# for the sides it applies to WITHOUT taking the speeder off the Republic
+	# just because the enemy is Covenant. `spawns_for` is still the one place the
+	# rule lives; it is simply consulted per team now.
+	for t in GameState.active_teams():
+		var f: Dictionary = Loadout.faction(GameState.team_faction[t])
+		if not Vehicle.spawns_for(int(f["universe"])).has(int(f["side"])):
+			continue
 		var spawn := GameState.get_spawn_point(t)
 		if spawn == null:
 			continue
 		var v: Vehicle = VEHICLE_SCENE.instantiate()
 		level.add_child(v)
-		v.setup(t)
+		# The HULL comes from the faction's own slot; the TEAM is who owns it, and
+		# the two are no longer the same number.
+		v.setup(int(f["side"]))
+		v.team = t
+		v.set_team_color(GameState.team_colors[t])
 		# Off to the side of the marker and lifted clear: a speeder standing ON a
 		# spawn point is a body-blocked spawn every respawn, and one dropped at
 		# the exact analytic ground height starts inside the collision mesh (the

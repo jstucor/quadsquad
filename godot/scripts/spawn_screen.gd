@@ -82,7 +82,7 @@ func _build() -> void:
 	column.add_child(grid)
 
 	_boxes.resize(Player.PICK_BOXES)
-	var classes := Loadout.faction_classes(player.team)
+	var classes := GameState.classes_for(player.team)
 	var class_box := _box(grid, "CLASS", Player.PICK_CLASS_BOX)
 	for i in classes.size():
 		var row := BoxScreen.label("", _m["text"], Color(1, 1, 1, 0.85))
@@ -211,7 +211,7 @@ func _refresh() -> void:
 
 	# The class list. The caret only exists while the box is OPEN, the same rule
 	# the buy screen keeps: a caret on a line you cannot currently change is a lie.
-	var classes := Loadout.faction_classes(player.team)
+	var classes := GameState.classes_for(player.team)
 	var picked := clampi(player.spawn_class, 0, classes.size() - 1)
 	var on_class := open and player.buy_box == Player.PICK_CLASS_BOX
 	for i in _class_names.size():

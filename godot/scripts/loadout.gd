@@ -87,6 +87,100 @@ const UNIVERSES: Array[Dictionary] = [
 	},
 ]
 
+## --- FACTIONS, FLAT --------------------------------------------------------
+##
+## A SIDE IS NOW PICKED INDEPENDENTLY OF THE SETTING, so UNSC can fight the
+## Republic. `UNIVERSES` still groups the catalogue — which classes and guns a
+## faction can reach is its universe's answer, and that has not changed — but a
+## MATCH no longer has one universe. It has up to four sides, each of which
+## names a universe and a slot inside it.
+##
+## Stated as a DERIVED flat list rather than a second hand-written table, because
+## a faction's name, colour and bolt already live in `UNIVERSES` and a copy would
+## be one edit away from a side whose chip and whose tracer disagree with the
+## roster it fields.
+##
+## Halo lists four team names but authors only two rosters, so `faction_count`
+## asks FACTION_ROSTERS rather than the name list — a side with no classes is a
+## side you can select and cannot play.
+static var _factions: Array[Dictionary] = []
+
+
+static func factions() -> Array[Dictionary]:
+	if not _factions.is_empty():
+		return _factions
+	for u in UNIVERSES.size():
+		var rosters: Array = FACTION_ROSTERS.get(u, [])
+		var names: Array = UNIVERSES[u]["teams"]
+		for side in rosters.size():
+			_factions.append({
+				"universe": u,
+				"side": side,
+				"name": str(names[side]) if side < names.size() else "SIDE %d" % side,
+				"color": (UNIVERSES[u]["colors"] as Array)[side],
+				"bolt": (UNIVERSES[u]["bolts"] as Array)[side],
+				# What it is called when two settings are on the field at once and
+				# "NECRONS" alone does not say which game you are looking at.
+				"universe_name": str(UNIVERSES[u]["name"]),
+			})
+	return _factions
+
+
+static func faction(index: int) -> Dictionary:
+	var all := factions()
+	return all[clampi(index, 0, all.size() - 1)]
+
+
+## The first faction of a universe, so the menu can offer "all Star Wars" as a
+## one-press default without knowing how the flat list is ordered.
+static func first_faction_of(universe: int) -> int:
+	var all := factions()
+	for i in all.size():
+		if int(all[i]["universe"]) == universe:
+			return i
+	return 0
+
+
+## --- TEAM COLOURS YOU CAN CHOOSE ---------------------------------------------
+##
+## PURPLE CLONES AND YELLOW DROIDS. The faction's own colour is the default and
+## always the first entry, so "leave it alone" is what you get by not touching
+## the row.
+##
+## THE CHOICE DRIVES THE TRACER AS WELL AS THE ARMOUR, which is the whole reason
+## it is one setting and not two. The bolt is DERIVED from the chip rather than
+## picked separately: a saturated, brightened version of it, because the two
+## exist for different jobs — a chip is read against a HUD and a tracer against a
+## map, and the note on `bolts` is that the Empire's grey plate would make a grey
+## tracer no tracer at all. Deriving keeps them recognisably the same colour
+## while letting the tracer stay legible.
+const TEAM_TINTS: Array[Dictionary] = [
+	{"name": "FACTION", "color": Color(0, 0, 0, 0)},   # 0 = leave it alone
+	{"name": "BLUE", "color": Color(0.35, 0.55, 1.00)},
+	{"name": "RED", "color": Color(1.00, 0.34, 0.28)},
+	{"name": "GREEN", "color": Color(0.36, 0.86, 0.42)},
+	{"name": "PURPLE", "color": Color(0.66, 0.42, 1.00)},
+	{"name": "YELLOW", "color": Color(0.98, 0.82, 0.22)},
+	{"name": "ORANGE", "color": Color(1.00, 0.56, 0.18)},
+	{"name": "CYAN", "color": Color(0.32, 0.86, 0.95)},
+	{"name": "PINK", "color": Color(1.00, 0.45, 0.75)},
+	{"name": "WHITE", "color": Color(0.90, 0.92, 0.96)},
+	{"name": "BLACK", "color": Color(0.24, 0.25, 0.28)},
+]
+
+
+## The tracer a chosen chip fires. Pushed to full saturation and lifted in value,
+## because a tracer is a thin bright line against terrain and the chip value that
+## reads on a HUD is too dark to carry — BLACK especially, which as a bolt would
+## be nothing at all, and which is why this has a value FLOOR rather than a
+## multiplier.
+static func tint_bolt(chip: Color) -> Color:
+	var h := chip.h
+	var sat: float = maxf(chip.s, 0.55)
+	var val: float = maxf(chip.v, 0.85)
+	return Color.from_hsv(h, sat, val)
+
+
 ## The universe currently being played, MIRRORED here from GameState.universe so
 ## that nothing in this file has to reach for an autoload (see above). GameState
 ## writes it in its own setter, and in _init, so it is right before anything can
@@ -1930,9 +2024,17 @@ const FACTION_ROSTERS := {
 
 
 ## The four class indices a team chooses between, in the universe being played.
-static func faction_classes(team: int) -> Array:
-	var rosters: Array = FACTION_ROSTERS.get(active_universe,
-		FACTION_ROSTERS[Universe.STAR_WARS])
+## `universe` -1 means "the one currently being played". IT IS A PARAMETER
+## BECAUSE A MATCH NO LONGER HAS ONE: with UNSC against the Republic, the roster
+## a side fields is ITS OWN setting's, and `active_universe` cannot answer that
+## for both of them. Callers that know a team pass `GameState.team_universe(t)`;
+## `Loadout` may never ask GameState itself (kit_rules runs with no autoloads).
+static func faction_classes(team: int, universe := -1) -> Array:
+	var u: int = universe if universe >= 0 else active_universe
+	var rosters: Array = FACTION_ROSTERS.get(u, FACTION_ROSTERS[Universe.STAR_WARS])
+	# THE SIDE INDEX IS THE FACTION'S OWN SLOT, not the team number. In a mixed
+	# match team 1 might be UNSC, which is slot 0 of Halo — wrapping the team
+	# number into Halo's two rosters would field the Covenant instead.
 	return rosters[wrapi(maxi(team, 0), 0, rosters.size())]
 
 
@@ -1955,8 +2057,8 @@ static func faction_build(index: int) -> Loadout:
 
 
 ## A team's Nth class (0..3), built and ready to deploy.
-static func team_build(team: int, class_slot: int) -> Loadout:
-	var roster := faction_classes(team)
+static func team_build(team: int, class_slot: int, universe := -1) -> Loadout:
+	var roster := faction_classes(team, universe)
 	return faction_build(roster[wrapi(class_slot, 0, roster.size())])
 
 

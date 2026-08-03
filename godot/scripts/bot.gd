@@ -412,7 +412,7 @@ func setup(owner: Node3D, bot_team: int, skill_index: int, build := -1,
 		# decisions rather than rolling a hundred times.
 		loadout = Loadout.line_build()
 	elif GameState.faction_classes():
-		loadout = Loadout.team_build(bot_team, build if build >= 0 else randi())
+		loadout = GameState.team_build_for(bot_team, build if build >= 0 else randi())
 	else:
 		loadout = Loadout.bot_build(build if build >= 0 else randi())
 	# THE CEILING IS STORED, NOT RE-DERIVED. It was computed inline in two places

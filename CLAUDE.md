@@ -203,6 +203,40 @@ once. The per-system sections below assume them rather than repeating them.
 - `BUDGET` is 200 per life, not earned or banked. `step()` applies a change only if it
   stays in budget. **AI presets must fit it too** — they are legal player loadouts.
 
+### Sides: factions and colours
+
+- **A MATCH NO LONGER HAS A UNIVERSE — IT HAS SIDES THAT EACH NAME ONE**
+  (`GameState.team_faction`, an index into `Loadout.factions()`). That is what lets UNSC fight the
+  Republic. `UNIVERSES` still groups the CATALOGUE — which classes and guns a faction can reach is
+  its universe's answer and that is unchanged — but `universe` is now the dropdown that DEALS a
+  setting's sides out in order, not a claim that only one catalogue is on the field.
+- **THE FLAT LIST IS DERIVED, NEVER AUTHORED TWICE.** A faction's name, colour and bolt already live
+  in `UNIVERSES`, and a hand-written second table would be one edit from a side whose chip and whose
+  tracer disagree with the roster it fields. **It walks `FACTION_ROSTERS`, not the name list** —
+  Halo names four sides and authors two, and a side you can select but cannot field is worse than
+  absent.
+- **THE SIDE INDEX IS THE FACTION'S OWN SLOT, NOT THE TEAM NUMBER**, and this is the one that fails
+  silently. In a mixed match team 1 might be UNSC, which is slot 0 of Halo; wrapping the team number
+  into Halo's two rosters fields the Covenant instead, with the right name and the right colour on
+  it. Everything that knows a team goes through `GameState.classes_for` / `team_build_for`;
+  `Loadout` takes the pair apart because it may never name an autoload (`kit_rules` has no
+  autoloads, so `faction_classes` and `Streaks.available` TAKE a universe rather than reading one).
+- **A COLOUR CHOICE DRIVES THE ARMOUR AND THE TRACER TOGETHER** (`GameState.team_tint`,
+  `Loadout.TEAM_TINTS`, index 0 = the faction's own). Purple clones that still fire blue is half a
+  setting. **The bolt is DERIVED from the chip rather than picked separately**, because the two exist
+  for different jobs — a chip is read against a HUD, a tracer against terrain — and the existing note
+  on `bolts` is that the Empire's grey plate would make a grey tracer no tracer at all. `tint_bolt`
+  pushes saturation and value up with a FLOOR rather than a multiplier: BLACK is a fine chip and as a
+  bolt would be nothing at all.
+- **VEHICLES ARE ASKED PER SIDE.** `Vehicle.spawns_for` is still the one place the Star-Wars-only rule
+  lives; it is simply consulted per team, so the Republic keeps its speeder when the enemy is
+  Covenant. A vehicle's HULL comes from its faction's slot and its COLOURS from the team flying it,
+  and with a chosen tint those are different answers — hence `Vehicle.set_team_color`.
+- **A STREAK SIGNATURE MAY NOT SHARE A NAME WITH AN ORDINARY CLASS.** Five did (SPARTAN-II, DROIDEKA,
+  WOOKIEE WARRIOR, SANGUINARY GUARD, NECRON LORD are all line classes), which made the ten-kill prize
+  a unit that side already deploys at zero. `tests/factions.gd` checks every reward and every reward
+  PRESET against `FACTION_BUILDS`.
+
 ### Classes and rosters
 
 - **EIGHT CLASSES A SIDE.** Star Wars fields Republic, Separatist, Empire and Rebel
@@ -2040,6 +2074,7 @@ without a renderer, and `--headless` draws nothing.
 | `soak.tscn` | A long busy match ACCUMULATES nothing. The only test that catches per-shot leaks, orphaned nodes and material churn — everything else checks one frame. |
 | `locomotion.tscn` | Which clip a DIRECTION asks for, on Player and Bot separately — they are duck-typed against each other and must agree. All of it is sign conventions, which is the part that goes wrong silently: a backpedal playing `strafe_l` is an axis bug wearing an animation bug's clothes. Also that every clip the state machine can name actually EXISTS, since `_update_anim` guards on `has_animation` and a missing clip is invisible rather than loud. |
 | `locomotion_look.tscn` | **WINDOWED.** The four ground clips front-on and side by side at two phases of their cycle. |
+| `factions.tscn` | Picking a side independently of the setting, and choosing its colour. UNSC against the Republic, with the ROSTERS following and not just the names — the failure mode is a side whose roster, chip and tracer disagree about who it is, and all three are silent when wrong. Also that a chosen tint reaches the BOLT as well as the armour, that BLACK still fires something visible, and that no streak signature shares a name with an ordinary class. |
 | `streaks.tscn` | Kill streak rewards. Mostly GATES, checked from BOTH directions — a reward wrongly available still works perfectly, it is just somebody else's. Plus the transformation on a real Player: that it keeps the streak, that the preset is not silently disarmed, and that a Juggernaut cannot re-earn ITSELF and heal to full every kill. Every section signs off at its own end and the run fails if one did not finish, because an aborted check (house rule 6) otherwise reports success having verified nothing. |
 | `warmachine_look.tscn` | **WINDOWED.** The LAAT and the AT-ST with a trooper and a speeder for scale, the gunship shot from BELOW. Its first version had no floor COLLIDER, so nothing hovered and it photographed a gunship lying on its skids. |
 | `kill_record.tscn` | The killfeed's entries and the post-match table: the ring cap, a streak surviving the death that ended it, that a teamkill and a suicide pay nothing, and that a FREED body can still be named. It also asserts it can REACH GameState before checking anything — an earlier version printed success while the autoload was nil and verified nothing at all. |

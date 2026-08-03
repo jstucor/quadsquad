@@ -290,7 +290,7 @@ func _check_become() -> void:
 
 	# A REWARD IS OFFERED, NOT APPLIED. Nothing may have happened yet.
 	_ok(not p.pending_reward().is_empty(), "the signature threshold offered nothing")
-	_ok(str(p.pending_reward().get("name", "")) == "WOOKIEE WARRIOR",
+	_ok(str(p.pending_reward().get("name", "")) == "WOOKIEE CHIEFTAIN",
 		"the signature offer was `%s`" % str(p.pending_reward().get("name", "-")))
 	_ok(p.max_health == before_health,
 		"the reward applied itself before it was accepted")
@@ -301,7 +301,7 @@ func _check_become() -> void:
 	_ok(p.kills_this_life == Streaks.KILLS_SIGNATURE,
 		"the streak was reset by the transformation: %d, want %d"
 			% [p.kills_this_life, Streaks.KILLS_SIGNATURE])
-	_ok(p.loadout.build_name == "WOOKIEE WARRIOR",
+	_ok(p.loadout.build_name == "WOOKIEE CHIEFTAIN",
 		"the Rebel signature did not deploy (got `%s`)"
 			% p.loadout.build_name)
 	_ok(p.max_health > before_health,
