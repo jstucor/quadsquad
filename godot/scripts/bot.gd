@@ -351,9 +351,18 @@ func setup(owner: Node3D, bot_team: int, skill_index: int, build := -1,
 	owner_player = owner
 	team = bot_team
 	line = as_line
-	# A line trooper is thrifty by definition; anything else asks the ROSTER, not
-	# the mode — a crowd is expensive for the same reason wherever it turns up.
-	thrifty = line or GameState.crowded()
+	# A line trooper is thrifty by definition. Anything else asks the ROSTER, not
+	# the mode — a crowd is expensive for the same reason wherever it turns up —
+	# EXCEPT in MASSIVE, which already draws the distinction itself.
+	#
+	# MASSIVE's VETERANS ARE DELIBERATELY FULL FIDELITY. They are a handful per
+	# side (MASSIVE_VETERANS) whose entire job is to give a hundred-body battle
+	# some texture — to dig in, drop a turret, call for artillery — and there are
+	# too few of them for their collision to cost anything against the other
+	# ninety-odd. Letting `crowded()` demote them buys nothing measurable and
+	# takes away the one thing they were added for. `tests/massive.tscn` asserts
+	# this, and caught it the first time it was got wrong.
+	thrifty = line or (GameState.crowded() and not GameState.massive())
 	_skill = SKILLS[clampi(skill_index, 0, SKILLS.size() - 1)]
 	if thrifty:
 		# A LINE TROOPER DOES NOT COLLIDE WITH OTHER BODIES, and this one line is

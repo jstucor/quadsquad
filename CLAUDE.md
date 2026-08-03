@@ -923,6 +923,12 @@ players, or a class is only fast in human hands.**
   **Thrift is decided by BODIES, not by mode** (`GameState.crowded`, `CROWD_AT` 24) — a crowd is
   expensive for the same reason wherever it turns up. A line trooper is always thrifty; a 20v20
   bot is thrifty and keeps its class, gadgets, turret and full skill tier.
+  **MASSIVE IS THE ONE EXCEPTION, because it already draws the distinction itself**: its VETERANS
+  are deliberately full fidelity and `crowded()` must not demote them. They are a handful per side
+  whose whole job is to give a hundred-body battle some texture, they are too few to cost anything
+  against the other ninety, and softening them takes away the one thing they were added for. Hence
+  `line or (crowded() and not massive())`. `tests/massive.tscn` asserts it and caught it the first
+  time it was got wrong.
   **Deliberately NOT under `thrifty`**: the cheap three-candidate scan (measurably worse — 3 of 9
   acquiring against 9 of 9) and skipping A* (a rate-limited queue degrades gracefully at 40 and
   starves at 100). Those stay MASSIVE's alone.
