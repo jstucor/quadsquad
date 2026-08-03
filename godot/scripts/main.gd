@@ -412,6 +412,14 @@ func _fill_teams_with_ai() -> void:
 	if GameState.massive():
 		_fill_massive()
 		return
+	# A BIG ROSTER IS DEALT OVER FRAMES TOO, for exactly the reason MASSIVE is:
+	# a character model is ~0.6 ms to build, so a 20v20 filling in one go is a
+	# 24 ms freeze on the frame the map opens. The batching was written for a
+	# hundred bodies and costs nothing at twelve, so the only question is whether
+	# the queue is worth starting — below CROWD_AT it plainly is not.
+	if GameState.crowded():
+		_fill_massive()
+		return
 	for team in GameState.active_teams():
 		for n in GameState.ai_needed(team):
 			_spawn_team_bot(team)
@@ -456,8 +464,13 @@ func _deal_massive() -> void:
 		var team: int = _massive_queue.pop_front()
 		# The veterans come off the FRONT of each side's share, so a side always
 		# has its handful even if the match ends before the crowd is finished.
-		_spawn_team_bot(team, _massive_done >= GameState.active_teams()
-			* MASSIVE_VETERANS)
+		#
+		# ONLY MASSIVE DEALS LINE TROOPERS. The other modes use this same queue for
+		# its batching (see _fill_teams_with_ai) and every body they deal is an
+		# ordinary bot — a 20v20 deathmatch fought by stripped riflemen would have
+		# thrown away the roster to buy frames it does not need.
+		_spawn_team_bot(team, GameState.massive()
+			and _massive_done >= GameState.active_teams() * MASSIVE_VETERANS)
 		_massive_done += 1
 	if not _massive_queue.is_empty():
 		get_tree().process_frame.connect(_deal_massive, CONNECT_ONE_SHOT)

@@ -161,8 +161,25 @@ const LINE_HEALTH := 0.75      # they go down easily; that is the fantasy
 ## the whole of the saving and none of the visible cost; three was tried and the
 ## crowd visibly ratchets when it is close to you.
 const MOVE_EVERY := 2
-## True for a body fielded as one of the crowd. Set by `setup`, never changed.
+## WHAT A BODY IS, AND WHAT IT COSTS, ARE TWO DIFFERENT QUESTIONS. These used to
+## be one flag and that conflation is what kept 20v20 out of the ordinary modes.
+##
+##   `line`    — a MASSIVE line trooper: a rifle, a scope, no gadgets, no squad,
+##               no grenades, a weaker eye and a slower trigger. A DESIGN choice,
+##               and the whole point of the mode ("one rifle in a hundred").
+##   `thrifty` — the CHEAP SIMULATION: soft bodies, half-rate stepping, crowd
+##               drawing, fewer slides. A COST choice and nothing else. It changes
+##               no decision the AI makes and nothing it carries.
+##
+## A line trooper is always thrifty. A 20v20 deathmatch bot is thrifty and is NOT
+## a line trooper — it keeps its class, its gadgets, its turret and its full skill
+## tier, because that roster is the entire game and stripping it to save frames
+## would be answering a performance question with a design one.
+##
+## Both are set by `setup` and never changed: a body that switched tiers mid-match
+## would change collision layer and step rate under the physics engine.
 var line := false
+var thrifty := false
 var _move_phase := 0
 # With nothing to shoot, a bot pushes for the middle of the map rather than
 # standing on its spawn. Team AI have no owner to follow, so without this they
@@ -334,8 +351,11 @@ func setup(owner: Node3D, bot_team: int, skill_index: int, build := -1,
 	owner_player = owner
 	team = bot_team
 	line = as_line
+	# A line trooper is thrifty by definition; anything else asks the ROSTER, not
+	# the mode — a crowd is expensive for the same reason wherever it turns up.
+	thrifty = line or GameState.crowded()
 	_skill = SKILLS[clampi(skill_index, 0, SKILLS.size() - 1)]
-	if line:
+	if thrifty:
 		# A LINE TROOPER DOES NOT COLLIDE WITH OTHER BODIES, and this one line is
 		# most of what makes a hundred of them possible. Measured: `move_and_slide`
 		# was 13.9 ms of a 22 ms physics tick at a hundred bodies — not the AI,
@@ -357,10 +377,15 @@ func setup(owner: Node3D, bot_team: int, skill_index: int, build := -1,
 		# ...and a body that cannot hit another body needs far fewer slide
 		# iterations to resolve what is left, which is a wall or the ground.
 		max_slides = 2
+	if line:
 		# The tier is REPLACED rather than indexed, because a line trooper is not
 		# a rung on the same ladder: it is worse than the worst of them on
 		# purpose, and it also has to be a dictionary the rest of this file can
 		# read without knowing which it got.
+		#
+		# UNDER `line` AND NOT `thrifty`: this is the one part of the crowd
+		# treatment that changes how well a body fights, so a 20v20 bot — which is
+		# thrifty for cost reasons alone — keeps the skill tier it was dealt.
 		_skill = {
 			"aim_error": LINE_AIM_ERROR, "reaction": LINE_REACTION,
 			"sight": LINE_SIGHT, "hold": 16.0, "health": LINE_HEALTH,
@@ -547,7 +572,7 @@ func _physics_process(delta: float) -> void:
 	# crowd. At a walk that is thirteen centimetres a step. The phase is dealt at
 	# spawn so the halves stay balanced rather than every body landing on the same
 	# tick — which would just be a 30 Hz stutter with the same average.
-	if line:
+	if thrifty:
 		if Engine.get_physics_frames() % MOVE_EVERY == _move_phase:
 			velocity *= MOVE_EVERY
 			move_and_slide()
@@ -1362,7 +1387,7 @@ func _apply_unstick() -> void:
 	# separating on the ticks in between is arithmetic thrown away — and this is
 	# the O(bodies-per-body) loop, so it is the most expensive arithmetic in the
 	# match to throw away.
-	if line and Engine.get_physics_frames() % MOVE_EVERY != _move_phase:
+	if thrifty and Engine.get_physics_frames() % MOVE_EVERY != _move_phase:
 		return
 	GameState.sample_combatants()
 	var here := global_position

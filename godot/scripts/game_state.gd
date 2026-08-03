@@ -370,7 +370,39 @@ var free_for_all := false
 const MIN_HUMANS := 1
 const MAX_HUMANS := 4
 const MIN_TEAM_SIZE := 1
-const MAX_TEAM_SIZE := 6
+## TWENTY A SIDE IN THE ORDINARY MODES. It was six, which is not a Battlefront
+## match — a 6v6 on 260 m of Boneyard is four people who never find each other.
+## MASSIVE already proved a hundred bodies runs (see `crowded` for the four
+## measures that made it possible); what stopped deathmatch, zones and conquest
+## fielding forty was this constant and nothing else.
+##
+## Twenty rather than fifty because these modes have RULES that scale with the
+## roster — conquest posts to contest, a zone with a headcount in it — and fifty
+## a side turns every one of them into a scrum. Fifty is what MASSIVE is for.
+const MAX_TEAM_SIZE := 20
+
+## Past this many bodies on the field, AI switch to the CHEAP SIMULATION — the
+## four measures MASSIVE is built on (see `Bot.thrifty`). Below it they collide,
+## step and draw exactly as they always have.
+##
+## THE THRESHOLD IS BODIES, NOT MODE. Deathmatch at 20v20 has the same problem
+## MASSIVE has and it is the same fix; the mode was never what made a crowd
+## expensive. 24 is a little over the old ceiling of 4 teams x 6, so nothing that
+## used to run at full fidelity has quietly been demoted.
+const CROWD_AT := 24
+
+## The team sizes the menu OFFERS. A ladder rather than every integer to 20:
+## small sizes are where humans actually fill the slots, so those have to be
+## exact, and past eight nobody is choosing between 13 and 14 a side — they are
+## choosing "a squad", "a platoon" or "a battle". Twenty items on a dropdown a
+## stick has to walk is a menu nobody reaches the end of.
+const TEAM_SIZES := [1, 2, 3, 4, 5, 6, 7, 8, 10, 12, 16, 20]
+
+
+## Does this match field enough bodies to be worth simulating cheaply? Asked once
+## by each Bot as it deploys, so the answer cannot change under a body mid-match.
+func crowded() -> bool:
+	return massive() or active_teams() * team_size >= CROWD_AT
 
 
 ## How many sides are actually in this match. Free-for-all is one team per

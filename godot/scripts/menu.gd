@@ -268,8 +268,12 @@ func _build() -> void:
 		_fix_setup()
 		_refresh_all.call())
 	size_dd.item_selected.connect(func(i: int) -> void:
-		GameState.team_size = GameState.MASSIVE_SIZES[i] if GameState.massive() \
-			else _smallest_team_size() + i
+		# Indexed into the SAME list the dropdown was filled from. It used to add
+		# the index to the floor, which only works while the sizes are contiguous
+		# integers — the moment the ladder skips (8 to 10 to 12) that arithmetic
+		# picks a different number than the one that was clicked.
+		var values := _size_values()
+		GameState.team_size = int(values[clampi(i, 0, values.size() - 1)])
 		_refresh_all.call())
 	skill_dd.item_selected.connect(func(i: int) -> void:
 		GameState.ai_skill = i
@@ -412,8 +416,26 @@ func _size_items() -> PackedStringArray:
 		for n: int in GameState.MASSIVE_SIZES:
 			out.append(_size_label(n))
 		return out
-	for n in range(_smallest_team_size(), GameState.MAX_TEAM_SIZE + 1):
+	for n: int in _size_values():
 		out.append(_size_label(n))
+	return out
+
+
+## The sizes this match may legally pick, in order — the offered ladder, minus
+## anything below the humans already standing in a team. Everything that fills or
+## reads the dropdown indexes THIS, so the list and the value cannot disagree.
+func _size_values() -> Array:
+	if GameState.massive():
+		return GameState.MASSIVE_SIZES
+	var floor_size := _smallest_team_size()
+	var out: Array = []
+	for n: int in GameState.TEAM_SIZES:
+		if n >= floor_size:
+			out.append(n)
+	# Never offer nothing: if the humans outnumber every rung, the floor itself is
+	# the only legal size and has to be on the list.
+	if out.is_empty():
+		out.append(floor_size)
 	return out
 
 
@@ -491,6 +513,17 @@ func _fix_setup() -> void:
 		return   # its own ladder, and its own two-sided shape
 	if not GameState.free_for_all:
 		GameState.team_size = maxi(GameState.team_size, _smallest_team_size())
+	# COMING BACK OUT OF MASSIVE, the size is still 50 — its ladder is not this
+	# one. Without this the ordinary modes silently run at fifty a side, over
+	# their own MAX_TEAM_SIZE, and the dropdown shows no selection at all because
+	# nothing in its list matches.
+	if not GameState.TEAM_SIZES.has(GameState.team_size):
+		var values := _size_values()
+		var best: int = int(values[0])
+		for n: int in values:
+			if n <= GameState.team_size:
+				best = n
+		GameState.team_size = best
 
 
 ## Spell out what you'll actually get, since "3 humans across 2 teams at team
