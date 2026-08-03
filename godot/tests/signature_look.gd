@@ -66,6 +66,15 @@ func _ready() -> void:
 		var img := get_viewport().get_texture().get_image()
 		img.save_png("user://signatures_%s.png" % name)
 		print("  user://signatures_%s.png" % name)
+		# ...and a CLOSE-UP of each, because a line-up proves they are different
+		# and says nothing about whether any one of them is any good.
+		for i in built.size():
+			cam.position = built[i].position + Vector3(0.75, 1.35, 1.95)
+			cam.look_at(built[i].position + Vector3(0, 1.05, 0), Vector3.UP)
+			await _frames(3)
+			var shot := get_viewport().get_texture().get_image()
+			shot.save_png("user://sig_%s.png"
+				% str(rows[i]["name"]).to_lower().replace(" ", "_").replace("-", "_"))
 		for m in built:
 			m.queue_free()
 		await _frames(2)

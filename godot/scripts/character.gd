@@ -657,7 +657,7 @@ const STYLES := {
 	# WARHAMMER — Necrons. Bare metal skeletons: no undersuit, no soft parts, an
 	# exposed ribcage over a lit core, and the eyes are the only colour on them.
 	Style.NECRON:         {"armor": Color(0.50, 0.52, 0.54), "dark": Color(0.13, 0.15, 0.15), "accent": Color(0.35, 1.0, 0.40), "head": "necron", "bulk": 0.86, "acc": ["ribs"]},
-	Style.NECRON_LORD:    {"armor": Color(0.58, 0.55, 0.40), "dark": Color(0.12, 0.14, 0.14), "accent": Color(0.40, 1.0, 0.45), "head": "necron", "bulk": 1.12, "acc": ["ribs", "cape", "collar"]},
+	Style.NECRON_LORD:    {"armor": Color(0.40, 0.38, 0.30), "dark": Color(0.12, 0.14, 0.14), "accent": Color(0.40, 1.0, 0.45), "head": "necron", "bulk": 1.12, "acc": ["ribs", "cape", "collar", "crest"]},
 	# WARHAMMER — Orks. Green, wide, and wearing whatever they found, bolted on
 	# crooked: the ASYMMETRY is the read.
 	Style.ORK:            {"armor": Color(0.29, 0.47, 0.21), "dark": Color(0.22, 0.18, 0.12), "accent": Color(0.42, 0.36, 0.28), "head": "ork", "bulk": 1.34, "acc": ["spikes", "bandolier", "shoulderplate", "scrap"]},
@@ -822,16 +822,33 @@ func _build_body() -> void:
 		# A standing collar behind the skull: what a Necron lord has instead of
 		# pauldrons, which on a skeleton read as borrowed power armour.
 		_box(spine, Vector3(0.30 * bulk, 0.26, 0.04), Vector3(0, 0.50, 0.10 * bulk), armor)
-		for cx in [-0.14, 0.14]:
-			_box(spine, Vector3(0.04, 0.20, 0.10), Vector3(cx * bulk, 0.52, 0.06 * bulk), accent)
+		# ...and it WRAPS, so there is something either side of the head from the
+		# front. A collar that exists only at +z is a collar nobody looking at you
+		# can see, which is how the lord came to read as a bare body.
+		for cx in [-1.0, 1.0]:
+			var wing := _box(spine, Vector3(0.05, 0.24, 0.17),
+				Vector3(cx * 0.15 * bulk, 0.50, 0.04 * bulk), armor)
+			wing.rotation.y = cx * 0.55
+			_box(spine, Vector3(0.04, 0.20, 0.10),
+				Vector3(cx * 0.14 * bulk, 0.52, 0.06 * bulk), accent)
 	if acc.has("ribs"):
 		# A Necron has no flesh on it: the chest is an exposed cage over a lit
 		# core. Three ribs and a spine, with the body colour showing between.
 		for ry in [0.16, 0.26, 0.36]:
 			_box(spine, Vector3(0.26 * bulk, 0.035, 0.21 * bulk), Vector3(0, ry, 0), armor)
 		_box(spine, Vector3(0.05, 0.34, 0.05), Vector3(0, 0.26, 0.08 * bulk), armor)
+		# THE CORE IS THE ONLY LIT THING ON THE UNIT, so it is the only thing that
+		# carries at range, through smoke and on a night map — the same argument
+		# as the turret's sensor slit. It was 9 cm square and invisible past ten
+		# metres; a taller slot down the sternum reads as a power source rather
+		# than as a pilot light. Energy stays at the shared 1.3: AgX at this
+		# project's exposure takes emission much past unity to white, and a white
+		# core stops being green.
 		var core := _emit(Color(style.get("accent", Color(0.35, 1.0, 0.40))))
-		_box(spine, Vector3(0.09, 0.09, 0.04), Vector3(0, 0.27, -0.105 * bulk), core)
+		_box(spine, Vector3(0.075, 0.26, 0.04), Vector3(0, 0.27, -0.105 * bulk), core)
+		for gx in [-1.0, 1.0]:
+			_box(spine, Vector3(0.03, 0.10, 0.03),
+				Vector3(gx * 0.10 * bulk, 0.34, -0.10 * bulk), core)
 	if acc.has("scrap"):
 		# Ork armour is whatever was to hand, bolted on crooked. ASYMMETRY is the
 		# whole point — a matched pair reads as issued kit, which orks do not have.
@@ -865,6 +882,29 @@ func _build_body() -> void:
 				_box(sh, Vector3(0.24, 0.17, 0.26), Vector3(0.05, 0.08, 0), accent)
 				for gx in [-0.05, 0.05]:
 					_box(sh, Vector3(0.028, 0.10, 0.028), Vector3(0.05 + gx, 0.17, 0), dark)
+		if acc.has("crest"):
+			# THE NECRON LORD'S SHOULDER: a bladed crest raked up and back, well
+			# clear of the arm. It is NOT `bigpauldron` — an Astartes shoulder is
+			# a slab of ceramite and a lord's is a thin standing FIN, and a
+			# skeleton wearing a marine's pauldron reads as borrowed armour
+			# (which is the note already on `collar`).
+			#
+			# It exists because the lord read as a plain body FROM THE FRONT: the
+			# collar and the cape both sit at +z, so head-on there was nothing in
+			# the silhouette at all — the one thing that is supposed to separate
+			# a faction's signature from a trooper.
+			# NO ROTATION ON THESE. The shoulder joint carries the rig's baked
+			# quarter turn (see the T-pose note on `_build_body`), so its local
+			# axes are NOT the world's — a `rotation.z` here rakes the fin out
+			# SIDEWAYS instead of up, and the lord grew two extra limbs. Every
+			# other shoulder accessory is placed and never turned, for the same
+			# reason.
+			# Sized and placed against `bigpauldron`, which is the shoulder piece
+			# already known to sit right: its slab is at y 0.075 and its trim at
+			# 0.17. Anything much above that floats off the joint, which is what
+			# the first two attempts did.
+			_box(sh, Vector3(0.05, 0.20, 0.16), Vector3(0.05 * side, 0.09, 0.01), armor)
+			_box(sh, Vector3(0.03, 0.15, 0.05), Vector3(0.05 * side, 0.17, -0.04), accent)
 		if acc.has("spikes"):   # ork/brute shoulder spikes, angled out and back
 			for k in 2:
 				var spike := _box(sh, Vector3(0.035, 0.16, 0.035),
