@@ -92,6 +92,54 @@ const VEHICLES := {
 	},
 }
 
+## THE WAR MACHINES, earned rather than parked (see `Streaks`). Keyed by a STRING
+## rather than by team, because these are not one-per-faction: a side may have
+## none, and a later one may be shared.
+##
+## THEY GO THROUGH THE SAME MECHANISM AS THE SPEEDERS, deliberately, and that is
+## the whole reason a walker is affordable at all. `Vehicle` is a CharacterBody3D
+## that solves a hover height off one downward ray — so a WALKER is that ray held
+## at leg height with the acceleration and turn rate of something enormous, and a
+## GUNSHIP is the same ray held high. Neither animates its legs or its wings.
+##
+## **THAT IS AN HONEST APPROXIMATION AND NOT A HIDDEN ONE**: an AT-ST that
+## actually walks needs a gait, foot placement over the heightfield's own flat
+## triangles, and a body that lurches with each step, which is a system rather
+## than a row. What the row buys instead is everything that already works —
+## mounting on the interact edge, the team gate on the ACTION, the driver bleed,
+## dying at the controls, being a combatant bots shoot at. A first pass that
+## reuses all of that beats a walker that has to answer them again.
+const STREAK_VEHICLES := {
+	"laat": {
+		"name": "LAAT GUNSHIP",
+		"build": "laat",
+		# The toughest thing in the game and the one that ignores the map: it
+		# flies over the cover everybody else fights around, which is what a
+		# 10-kill reward should feel like. Slow to turn, so it cannot also duel.
+		"health": 900.0,
+		"top_speed": 21.0,
+		"accel": 8.0,
+		"turn": 1.2,
+		"hover": 7.5,          # well clear of anything on the ground
+		"gun": Weapon.Class.HMG,
+		"hull": Vector3(3.10, 1.30, 6.40),
+	},
+	"atst": {
+		"name": "AT-ST WALKER",
+		"build": "atst",
+		# The opposite trade: it cannot leave the ground, it is slow, and it is
+		# very hard to kill while it faces you. Its hover height IS its leg
+		# length, which is also what makes its gun sit above every wall.
+		"health": 1150.0,
+		"top_speed": 9.0,
+		"accel": 6.0,
+		"turn": 1.05,
+		"hover": 3.4,
+		"gun": Weapon.Class.HMG,
+		"hull": Vector3(2.40, 2.60, 2.60),
+	},
+}
+
 ## How far a speeder rides above the ground is a per-row number, but how HARD it
 ## holds that height is not: too soft and it wallows through a dip like a boat,
 ## too stiff and every terrain seam is a kick in the teeth. Critically damped is
@@ -190,8 +238,19 @@ func _exit_tree() -> void:
 
 
 func setup(vehicle_team: int) -> void:
+	_setup_row(vehicle_team, VEHICLES.get(vehicle_team, VEHICLES[REPUBLIC]))
+
+
+## Deploy as one of the EARNED machines instead of the faction's speeder. Same
+## function underneath — a war machine differs from a speeder only in its row.
+func setup_as(row_id: String, vehicle_team: int) -> void:
+	_setup_row(vehicle_team, STREAK_VEHICLES.get(row_id,
+		VEHICLES.get(vehicle_team, VEHICLES[REPUBLIC])))
+
+
+func _setup_row(vehicle_team: int, row: Dictionary) -> void:
 	team = vehicle_team
-	_row = VEHICLES.get(team, VEHICLES[REPUBLIC])
+	_row = row
 	max_health = float(_row["health"])
 	health = max_health
 	var size: Vector3 = _row["hull"]
@@ -529,6 +588,8 @@ func _build_model() -> void:
 		"stap": _build_stap(steel, poly, trim, lit)
 		"speeder_bike": _build_speeder_bike(steel, poly, trim, lit)
 		"airspeeder": _build_airspeeder(steel, poly, trim, lit)
+		"laat": _build_laat(steel, poly, trim, lit)
+		"atst": _build_atst(steel, poly, trim, lit)
 		_: _build_barc(steel, poly, trim, lit)
 
 
@@ -628,6 +689,97 @@ func _build_airspeeder(steel: Material, poly: Material, trim: Material, lit: Mat
 
 
 ## A rider's saddle and grips. Shared by the two bikes, because a saddle is a
+## REPUBLIC — LAAT GUNSHIP. The read is the WINGS: a slab fuselage with two stub
+## wings carrying engine pods well outboard, and the door gunner bubbles that are
+## the only thing about the shape anybody actually remembers. Everything sits
+## HIGH and WIDE, so from the ground it fills the sky rather than the lane — the
+## opposite silhouette to every speeder, which is the point of a reward.
+## Built for the THREE-QUARTER-FROM-BELOW view, because that is the only angle
+## anybody sees it from: it is the one vehicle in the game that is always
+## overhead. The first version was a flat slab 1.05 m deep on a 6.4 m body, which
+## from underneath is a rectangle with boxes on it — a gunship needs VERTICAL
+## structure or it has no silhouette at all from the ground.
+func _build_laat(steel: Material, poly: Material, trim: Material, lit: Material) -> void:
+	# The hull is a TALL slab, and the nose DROOPS off the front of it. That step
+	# down is most of the read: a level box has one profile from the side and a
+	# hull with a dropped snout is instantly a flying thing with a front.
+	_box(Vector3(1.90, 1.45, 4.40), Vector3(0, 1.15, 0.55), steel)          # hull
+	_box(Vector3(1.60, 1.05, 1.70), Vector3(0, 0.82, -2.10), steel)         # snout
+	_box(Vector3(1.30, 0.62, 0.80), Vector3(0, 0.72, -3.05), poly)          # cockpit
+	_box(Vector3(1.05, 0.22, 0.34), Vector3(0, 0.98, -3.36), trim)          # brow
+	_box(Vector3(0.78, 0.18, 0.18), Vector3(0, 0.62, -3.42), lit, false)    # chin lamp
+	# A dorsal spine standing PROUD of the hull, so the thing has a top edge from
+	# below rather than reading as a single extruded box.
+	_box(Vector3(0.90, 0.50, 2.60), Vector3(0, 2.00, 0.90), steel)
+	_box(Vector3(0.60, 0.26, 0.90), Vector3(0, 2.35, 1.70), poly)
+	for sx: float in [-1.0, 1.0]:
+		# THE WING IS MOUNTED HIGH AND HANGS ITS POD LOW, which is what puts a
+		# vertical member outboard on both sides — the single biggest thing
+		# separating this silhouette from a brick.
+		var wing := Node3D.new()
+		_body.add_child(wing)
+		wing.position = Vector3(sx * 1.05, 1.80, 0.30)
+		wing.rotation = Vector3(0.0, 0.0, sx * -0.16)     # swept slightly up
+		_box(Vector3(1.60, 0.24, 2.10), Vector3(sx * 0.75, 0, 0), steel, true, wing)
+		_box(Vector3(0.70, 0.18, 1.40), Vector3(sx * 1.75, -0.05, -0.10), steel, true, wing)
+		# The pylon DOWN to the engine pod. Vertical, and the reason the wing
+		# does not read as a shelf.
+		_box(Vector3(0.34, 0.85, 0.60), Vector3(sx * 1.55, -0.52, 0.10), poly, true, wing)
+		_box(Vector3(0.66, 0.66, 2.00), Vector3(sx * 1.55, -1.05, 0.35), poly, true, wing)
+		_box(Vector3(0.44, 0.44, 0.20), Vector3(sx * 1.55, -1.05, 1.42), lit, false, wing)
+		# The gunner bay, proud of the flank at the door — the one detail of a
+		# LAAT everybody can actually name.
+		_box(Vector3(0.62, 0.70, 0.90), Vector3(sx * 1.10, 0.95, -1.20), trim)
+		# ...and a missile rack under the wing root, for something small and
+		# repeated to give the whole hull a sense of size.
+		_box(Vector3(0.30, 0.28, 1.30), Vector3(sx * 0.92, 0.42, 0.20), poly)
+		# Landing skid, so it has somewhere to sit when it sets down beside you.
+		_box(Vector3(0.18, 0.60, 2.20), Vector3(sx * 0.80, 0.14, 0.70), poly)
+	_ribs(poly, 4, 0.34, 1.30, 0.62)
+
+
+## EMPIRE — AT-ST WALKER. A HEAD ON LEGS, and the whole silhouette is that it has
+## no body: a hunched command pod with a visor slit, two chin guns, and two legs
+## that hang below it with nothing in between. It is the only thing in the game
+## that is TALLER than it is long, which is what makes it read at distance.
+##
+## The legs are static. See STREAK_VEHICLES for why that is a stated
+## approximation rather than an oversight.
+func _build_atst(steel: Material, poly: Material, trim: Material, lit: Material) -> void:
+	# The pod. Wider than deep and canted forward, which is the hunch.
+	var pod := Node3D.new()
+	_body.add_child(pod)
+	pod.position = Vector3(0, 3.05, 0)
+	pod.rotation = Vector3(deg_to_rad(-7.0), 0, 0)
+	_box(Vector3(2.05, 1.55, 1.85), Vector3.ZERO, steel, true, pod)
+	# The face: a recessed visor band with a lit slit in it. The lit slit is the
+	# same trick and the same 1.3 energy as the turret's sensor — at forty metres
+	# it is the only part that says whose walker that is.
+	_box(Vector3(1.75, 0.52, 0.30), Vector3(0, 0.18, -1.00), poly, true, pod)
+	_box(Vector3(1.35, 0.20, 0.16), Vector3(0, 0.18, -1.12), lit, false, pod)
+	# Chin guns, and the twin blaster pods on the cheeks.
+	for sx: float in [-1.0, 1.0]:
+		_box(Vector3(0.20, 0.20, 1.10), Vector3(sx * 0.42, -0.55, -1.20), poly, true, pod)
+		_box(Vector3(0.34, 0.34, 0.50), Vector3(sx * 1.05, -0.10, -0.75), trim, true, pod)
+	# The "ears" — the two side blocks that stop the pod being a plain box.
+	for sx: float in [-1.0, 1.0]:
+		_box(Vector3(0.30, 0.70, 0.70), Vector3(sx * 1.12, 0.35, 0.10), steel, true, pod)
+	# The hips, then the legs. Each leg is thigh, shin and a splayed foot, and the
+	# knee is BACK — a walker whose knees bend forward is a chicken and reads as
+	# one instantly.
+	_box(Vector3(1.60, 0.55, 1.20), Vector3(0, 2.25, 0.10), poly)
+	for sx: float in [-1.0, 1.0]:
+		var leg := Node3D.new()
+		_body.add_child(leg)
+		leg.position = Vector3(sx * 0.62, 2.10, 0.0)
+		_box(Vector3(0.46, 1.30, 0.52), Vector3(0, -0.60, 0.22), steel, true, leg)
+		_box(Vector3(0.40, 1.20, 0.44), Vector3(0, -1.75, -0.10), poly, true, leg)
+		# The foot: wide, flat and proud of the leg on every side, because what a
+		# walker stands on has to look like it could carry the pod above it.
+		_box(Vector3(0.85, 0.26, 1.35), Vector3(0, -2.45, 0.05), steel, true, leg)
+		_box(Vector3(0.55, 0.14, 0.40), Vector3(0, -2.62, -0.45), trim, false, leg)
+
+
 ## saddle — the point of a shared builder is that the two hulls differ where they
 ## should and not where they need not.
 func _saddle(poly: Material, trim: Material) -> void:

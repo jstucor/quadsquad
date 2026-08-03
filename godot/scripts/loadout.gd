@@ -1936,6 +1936,19 @@ static func faction_classes(team: int) -> Array:
 	return rosters[wrapi(maxi(team, 0), 0, rosters.size())]
 
 
+## Build a loadout from a preset dictionary that is not in any of the tables.
+##
+## The public door onto `_build_from`, and it exists so a KILL STREAK REWARD can
+## be an ordinary preset row (see `Streaks.REWARDS`) rather than a second way of
+## describing a build. It goes through exactly the same translation every AI
+## preset and authored class does — `primary`/`sidearm` looked up by CLASS, the
+## name kept — so a reward that names a gun the catalogue does not sell in that
+## slot is silently disarmed in exactly the same way, and `kit_rules` can ask the
+## same strict question about it.
+static func preset_build(preset: Dictionary) -> Loadout:
+	return _build_from(preset)
+
+
 ## Build a faction class by its GLOBAL index into FACTION_BUILDS.
 static func faction_build(index: int) -> Loadout:
 	return _build_from(FACTION_BUILDS[wrapi(index, 0, FACTION_BUILDS.size())])

@@ -62,6 +62,7 @@ const MIX := {
 	"ui_accept":     {"db": -12.0, "spread": 0.0},
 	"ui_back":       {"db": -13.0, "spread": 0.0},
 	"ui_deny":       {"db": -12.0, "spread": 0.0},
+	"streak":        {"db": -5.0, "spread": 0.0},
 	"victory":       {"db": -4.0, "spread": 0.0},
 	"defeat":        {"db": -4.0, "spread": 0.0},
 	"countdown":     {"db": -10.0, "spread": 0.0},

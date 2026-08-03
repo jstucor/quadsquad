@@ -220,6 +220,7 @@ static func bank() -> Dictionary:
 		"ui_accept": _ui_accept,
 		"ui_back": _ui_back,
 		"ui_deny": _ui_deny,
+		"streak": _streak,
 		"victory": _victory,
 		"defeat": _defeat,
 		"countdown": _countdown,
@@ -592,6 +593,27 @@ static func _ui_deny() -> AudioStreamWAV:
 
 ## A rising minor triad with the fifth held: the shortest thing that reads as
 ## "you won" without being a jingle.
+## A KILL STREAK REWARD LANDING. It has to be told apart from `victory` at a
+## glance — one means the round is over and the other means it is going very well
+## — so it is deliberately the opposite shape: victory is a rising major arpeggio
+## that settles, this is a short RISING FIFTH under a low swell, the sound of
+## something arriving rather than something concluding. Kept under a second: it
+## fires mid-firefight and must not bury the gunfire that earned it.
+static func _streak() -> AudioStreamWAV:
+	var b := buffer(0.95)
+	# The swell underneath: a low tone bending up, which is what makes it read as
+	# an arrival rather than a notification.
+	osc(b, 0.0, 0.75, 82.41, 164.81, 0.30, 1.4, 1)
+	# The call over it, a fifth apart and struck rather than swept.
+	osc(b, 0.06, 0.55, 293.66, 293.66, 0.22, 2.6)
+	osc(b, 0.20, 0.60, 440.00, 440.00, 0.24, 2.4)
+	osc(b, 0.20, 0.45, 880.00, 880.00, 0.10, 3.2, 1)
+	saturate(b, 1.8)
+	echo(b, 0.16, 0.28)
+	fade_out(b, 0.20)
+	return to_stream(b)
+
+
 static func _victory() -> AudioStreamWAV:
 	var b := buffer(1.60)
 	var notes := [261.63, 392.00, 523.25, 783.99]

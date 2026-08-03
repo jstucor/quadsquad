@@ -35,6 +35,9 @@ const TURRET_SCENE := preload("res://scenes/actors/turret.tscn")
 const MORTAR_SCENE := preload("res://scenes/actors/mortar.tscn")
 const CABLE_WIRE_SCENE := preload("res://scenes/fx/cable_wire.tscn")
 const LIGHTNING_SCENE := preload("res://scenes/fx/lightning_arc.tscn")
+const VEHICLE_SCENE := preload("res://scenes/actors/vehicle.tscn")
+const RECON_SWEEP := preload("res://scripts/recon_sweep.gd")
+const ORBITAL_STRIKE := preload("res://scripts/orbital_strike.gd")
 const ROCKET_SCENE := preload("res://scenes/fx/rocket.tscn")
 const SCAN_DART_SCENE := preload("res://scripts/scan_dart.gd")
 
@@ -629,8 +632,122 @@ func collect(item: Pickup) -> void:
 ## Credited by whatever we just killed. Duck-typed like the rest of the combat
 ## contract: Player, Bot and Turret all call it on their killer if it exists.
 func credit_kill() -> void:
+	var before := kills_this_life
 	kills_this_life += 1
 	killed_someone.emit(kills_this_life)
+	_check_streak(before, kills_this_life)
+
+
+## --- kill streak rewards ------------------------------------------------------
+##
+## The table and the design are in `scripts/streaks.gd`. What lives here is the
+## three lines that notice one was earned and the switch that grants it.
+
+signal streak_earned(name: String, blurb: String)
+
+## What this life can earn, resolved ONCE at deploy. Class and side cannot change
+## under a life, so asking the table on every one of thirteen rounds a second
+## would be the question house rule 5 exists about.
+var _streak_rewards: Array[Dictionary] = []
+## What has already been handed over this life, so a reward fires once even if
+## the streak is re-crossed (a BECOME reward re-applies the loadout, and a body
+## that could re-earn its own transformation would heal itself on every kill).
+var _streak_taken := {}
+
+
+func _refresh_streaks() -> void:
+	_streak_rewards = Streaks.available(loadout.kit, team)
+	_streak_taken.clear()
+
+
+func _check_streak(before: int, after: int) -> void:
+	if not GameState.match_live or _streak_rewards.is_empty():
+		return
+	var row := Streaks.earned(_streak_rewards, before, after)
+	if row.is_empty() or _streak_taken.has(row["name"]):
+		return
+	_streak_taken[row["name"]] = true
+	_grant_streak(row)
+	streak_earned.emit(str(row["name"]), str(row.get("blurb", "")))
+	Audio.play("streak")
+
+
+func _grant_streak(row: Dictionary) -> void:
+	match int(row["kind"]):
+		Streaks.Kind.RECON:
+			var sweep: Node3D = RECON_SWEEP.new()
+			get_tree().current_scene.add_child(sweep)
+			sweep.begin(team, float(row.get("duration", 12.0)))
+		Streaks.Kind.BOMBARDMENT:
+			var strike: Node3D = ORBITAL_STRIKE.new()
+			get_tree().current_scene.add_child(strike)
+			# Placed at the caller, because the strike measures its search radius
+			# from itself — an orbital battery still only shells this battle.
+			strike.global_position = global_position
+			strike.begin(self, team, float(row.get("duration", 6.0)))
+		Streaks.Kind.VEHICLE:
+			_deliver_vehicle(str(row.get("vehicle", "")))
+		Streaks.Kind.BECOME:
+			_become(row)
+
+
+## Set the earned machine down beside its owner. BESIDE, and behind: dropping it
+## on top of the player puts two bodies inside one another, which is the
+## documented ejection bug, and dropping it in front puts a wall between them and
+## whatever they were shooting at.
+const STREAK_VEHICLE_OFFSET := 6.0
+
+
+func _deliver_vehicle(row_id: String) -> void:
+	if row_id == "":
+		return
+	var v: Vehicle = VEHICLE_SCENE.instantiate()
+	get_tree().current_scene.add_child(v)
+	v.setup(team)
+	v.setup_as(row_id, team)
+	var back := Vector3.FORWARD.rotated(Vector3.UP, rotation.y) * -STREAK_VEHICLE_OFFSET
+	var at := global_position + back
+	# The ground under that spot rather than the player's own feet — they may be
+	# stood on a crate or halfway up a slope.
+	v.global_position = Vector3(at.x, global_position.y + 1.0, at.z)
+	# A DELIVERY IS A TELEPORT (house rule 10): without this the hull is drawn
+	# smeared from the origin to where it landed for one frame.
+	v.reset_physics_interpolation()
+
+
+## Stop being a trooper. The preset goes through the SAME `_build_from` every AI
+## build and authored class uses, so a reward's body is described exactly the way
+## every other body in the game is.
+func _become(row: Dictionary) -> void:
+	var preset := Streaks.become_preset(row, team)
+	if preset.is_empty():
+		return
+	# THE STREAK MUST SURVIVE THE TRANSFORMATION, and so must the record of what
+	# has already been handed over. `_apply_loadout` resets both, because it is
+	# also what a fresh DEPLOY calls — and here it is not one. Without the first,
+	# a Juggernaut's counter goes back to nothing and it can never reach the
+	# reward above it; without the second it re-earns ITSELF on its next kill,
+	# healing to full and re-issuing its own shield every time.
+	var keep_kills := kills_this_life
+	var keep_taken := _streak_taken.duplicate()
+	pending = Loadout.preset_build(preset)
+	_apply_loadout()
+	kills_this_life = keep_kills
+	_streak_taken = keep_taken
+	# The reward LIST is deliberately left as `_apply_loadout` just rebuilt it: a
+	# body that changed kit has changed which rewards are its own, which is what
+	# stops a Juggernaut being offered a Force master's.
+	if row.has("overshield"):
+		_over_pool = float(row["overshield"])
+		# A LONG FINITE LIFETIME, NOT `INF`. The intent is "it lasts until it is
+		# spent", and `_over_left` is a countdown the HUD gauge reads straight out
+		# as its fill fraction — INF makes that fraction meaningless and the gauge
+		# draws nothing sensible. A minute and a half outlives any firefight the
+		# shield could survive, so it expires by being SHOT OFF, which is what the
+		# pool is for.
+		_over_left = float(row.get("overshield_time", 90.0))
+		gear_changed.emit()
+	health_changed.emit(health)
 
 
 ## The combatant contract's two answers about IDENTITY (house rule 15): what to
@@ -720,6 +837,9 @@ func _apply_loadout() -> void:
 	health = max_health
 	_since_damage = 0.0
 	kills_this_life = 0
+	# WHAT THIS LIFE CAN EARN, resolved here because this is the one function that
+	# knows the build is settled — it runs on every deploy and on every BECOME.
+	_refresh_streaks()
 	_on_secondary = not loadout.has_primary()
 	_rotary_out = false
 	weapon.set_class(loadout.deploy_class(), loadout.mods_for(_on_secondary))

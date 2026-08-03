@@ -95,6 +95,29 @@ screens are a grid of boxes with a free cursor rather than anything you click.
 **The cursor opens on the SPAWN box, closed, every time** — a stick still held on
 the frame you died moves a highlight and nothing else.
 
+### Kill streak rewards
+
+A streak is kills on your **current life** — nothing is banked, and dying costs
+you everything you were working toward. Rewards fire the moment they are earned;
+there is no button, because there is no free one.
+
+| Reward | Kills | Who | What |
+|---|---|---|---|
+| **Recon Sweep** | 4 | anyone | Every enemy marked for your whole side, on the minimap and through walls |
+| **Juggernaut** | 6 | Wookiee, Brute, Ork, Grunt | Heavy plate, a belt-fed gun and a shield that soaks the first burst |
+| **Orbital Strike** | 8 | anyone | A battery walks fire across the enemy's densest ground, re-aimed every salvo |
+| **LAAT Gunship** | 10 | Republic | A gunship sets down beside you |
+| **AT-ST Walker** | 10 | Empire | A walker is dropped in beside you |
+| **Jedi / Sith Master** | 12 | Force adepts | Saber, guard, lightning and the physique to use them |
+
+Two kinds, and the split is the design. A **call-in** happens somewhere else and
+you carry on being what you were. A **become** happens to *you*, and the rest of
+that life is played as something else — which is why its table row is an ordinary
+class preset in the same format as every other body in the game.
+
+The CIS and the Rebel Alliance have no war machine yet; they fall through to the
+universal rewards. That is a gap, not a design — one table row each.
+
 ### Classes and rosters
 
 **Eight classes a side**: four line classes and four reinforcements, built from

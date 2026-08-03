@@ -552,6 +552,7 @@ func _build_hud(player: Player) -> Control:
 	_add_weapon_readout(hud, player, color)
 	_add_gear_readout(hud, player, color)
 	_add_kill_streak(hud, player)
+	_add_streak_reward(hud, player)
 	_add_killed_by(hud, player)
 	_add_damage_flash(hud, player)
 	_add_kill_feed(hud)
@@ -871,6 +872,60 @@ func _announce_zone_move(_point: Vector3) -> void:
 	for label in _zone_labels:
 		label.text = "NEW ZONE"
 		label.add_theme_color_override("font_color", Color(1.0, 0.85, 0.4))
+
+
+## A KILL STREAK REWARD LANDING. Two lines in the upper middle of that player's
+## own quadrant: the NAME big, because that is what they repeat to the room, and
+## the blurb under it small, because "what did I just get" has to be answerable
+## without leaving the fight.
+##
+## It goes in the UPPER MIDDLE and not with the streak counter under the player
+## tag. The counter is a running number you glance at; this is an event, and an
+## event announced in the corner of a quarter screen is an event nobody notices.
+## Well clear of the crosshair for the reason the saber blade is: a banner across
+## the middle blinds you exactly when you are in the fight that earned it.
+const STREAK_BANNER_TIME := 3.2
+
+
+func _add_streak_reward(hud: Control, player: Player) -> void:
+	var box := VBoxContainer.new()
+	box.set_anchors_preset(Control.PRESET_CENTER_TOP)
+	box.anchor_left = 0.0
+	box.anchor_right = 1.0
+	box.offset_top = 16.0
+	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	box.alignment = BoxContainer.ALIGNMENT_CENTER
+	box.modulate.a = 0.0
+	hud.add_child(box)
+
+	var title := Label.new()
+	title.add_theme_font_size_override("font_size",
+		30 if GameState.human_players == 1 else 19)
+	title.add_theme_color_override("font_color", KILL_STREAK_COLOR)
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	box.add_child(title)
+
+	var blurb := Label.new()
+	blurb.add_theme_font_size_override("font_size",
+		16 if GameState.human_players == 1 else 12)
+	blurb.add_theme_color_override("font_color", Color(0.92, 0.92, 0.92))
+	blurb.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	box.add_child(blurb)
+
+	# A METHOD-BOUND handler would need per-player state to find its own labels,
+	# so this is a lambda — legal here because the signal belongs to the PLAYER,
+	# which is freed with the scene, not to an autoload (house rule 11).
+	player.streak_earned.connect(func(name: String, text: String) -> void:
+		title.text = name
+		blurb.text = text
+		box.modulate.a = 1.0
+		box.scale = Vector2(1.18, 1.18)
+		box.pivot_offset = box.size * 0.5
+		var pop := hud.create_tween()
+		pop.tween_property(box, "scale", Vector2.ONE, 0.24) \
+			.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+		pop.tween_interval(STREAK_BANNER_TIME)
+		pop.tween_property(box, "modulate:a", 0.0, 0.5))
 
 
 ## THE DEATH CAM'S CAPTION. The camera swings onto your killer on its own

@@ -251,6 +251,69 @@ once. The per-system sections below assume them rather than repeating them.
   in; double jump intrinsic, dash both intrinsic and selectable as `Gadget.DASH`).
   `kit_rules` allows DASH on the adept and Trandoshan and nobody else.
 
+### Kill streak rewards
+
+- **A STREAK IS `Player.kills_this_life`, WHICH ALREADY EXISTED** — the HUD has counted it since long
+  before there was anything to spend it on. Nothing is banked, nothing is bought, and dying costs you
+  everything you were working toward. **Per LIFE and not per match on purpose**: a reward kept across
+  deaths is one the best player accumulates and the worst player watches.
+- **TWO KINDS OF REWARD, AND THE SPLIT IS THE DESIGN** — the same distinction the third gadget slot
+  makes. **CALL-IN** (recon, orbital strike, a walker delivered to you) happens somewhere else and you
+  carry on being what you were; **BECOME** (Juggernaut, Force master) happens to YOU and the rest of
+  that life is played as something else.
+- **EVERY REWARD FIRES THE MOMENT IT IS EARNED AND TAKES NO BUTTON.** Not for want of a design — CoD
+  hands you a key — but because there is no free one: A jump, B swap, X gadget, Y sustain, LB gadget 2,
+  R3 crouch. A triggered reward needs a seventh face button, a chord or a screen, and all three cost
+  more than the timing choice is worth at a couch where three other people are still playing.
+- **A BECOME REWARD'S ROW IS AN ORDINARY PRESET** in the same format as every AI build and authored
+  class (`Loadout.preset_build`, the public door onto `_build_from`). So a reward that names a gun the
+  catalogue does not sell in that slot is **silently disarmed** exactly like any other preset, and
+  `tests/streaks.gd` asks the same strict question `kit_rules` asks — *did you get the gun you asked for?*
+- **GATING USES THE CATALOGUE'S OWN KEYS** (`kits`, `teams`, `universe`) and **checks the universe
+  FIRST**, exactly as `Loadout._allows_entry` does: team 0 is the Republic in Star Wars and somebody
+  else entirely in Halo, so a team index alone cannot express "the Republic's gunship". A gated reward
+  is not a bonus for that class, it is **that class's own** — everybody reaches RECON and ORBITAL and
+  the rest belong to somebody.
+- **JEDI AND SITH ARE ONE ROW**, not two (`preset_by_team` overriding parts of the base `preset`). Same
+  mechanism, two names and two bodies; stating them twice is how the two would drift.
+- **A TRANSFORMATION MUST PRESERVE THE STREAK *AND* THE TAKEN-SET.** `_apply_loadout` resets both
+  because it is also what a fresh DEPLOY calls, and here it is not one. Without the first, a Juggernaut's
+  counter goes to zero and it can never reach the reward above it — the whole ladder. Without the second
+  it **re-earns ITSELF on the next kill**, healing to full and re-issuing its own shield every time.
+- **The Juggernaut's overshield takes a long FINITE lifetime, never `INF`.** `_over_left` is a countdown
+  the HUD gauge reads straight out as its fill fraction, and INF makes that fraction meaningless. The
+  intent is "until it is spent", and 90 s outlives any firefight the pool could survive.
+- **RECON IS THE SCAN DART WITH THE RADIUS TAKEN OFF** (`GameState.mark_scanned`), which is why it needs
+  no mesh, no collider and nothing to shoot down — it is a timer with a team on it. It **re-marks on a
+  pulse** rather than marking once, because the roster changes underneath it and a body that spawned
+  after a one-shot mark would be the only invisible thing on the field; marks overlap the pulse so a
+  contact never blinks. **A cloak still beats it** — same check every AI vision test makes, or a
+  four-kill streak would make the Trandoshan's signature ability worthless.
+- **THE ORBITAL STRIKE PICKS ITS OWN TARGET, and that is what makes it orbital rather than a mortar.**
+  A mortar is aimed by the player who placed it; this is called down by somebody who can see the whole
+  field, so it takes the centroid of the biggest enemy cluster — the same question
+  `Bot._call_mortar_strike` asks. **Re-aimed every salvo**, since a group moves off a fixed point inside
+  seven seconds and a barrage landing where the enemy WAS is the most frustrating possible version.
+  Nothing re-implements ballistics: the rounds are `mortar_shell.gd`, which already solves its own arc.
+- **THE WAR MACHINES ARE DELIVERED, NOT BECOME** — parked beside you, and you climb in. That keeps the
+  whole vehicle story exactly as it is (mounting on the interact edge, the team gate on the ACTION, the
+  driver bleed, dying at the controls, being a combatant bots shoot at); a vehicle that materialised
+  around you would need every one of those answered again. Set down BEHIND the player: on top is the
+  documented capsule-ejection bug and in front is a wall between them and what they were shooting at.
+- **THE AT-ST'S LEGS DO NOT WALK, AND THAT IS A STATED APPROXIMATION.** `Vehicle` is a CharacterBody3D
+  solving a hover height off one downward ray, so a walker is that ray held at leg height with the
+  acceleration of something enormous. A walker that actually walks needs a gait, foot placement over the
+  heightfield's own flat triangles and a body that lurches — a system, not a row. What the row buys
+  instead is everything that already works.
+- **A GUNSHIP IS ONLY EVER SEEN FROM BELOW, so it is built for that angle.** The first LAAT was a 1.05 m
+  slab on a 6.4 m body, which from underneath is a rectangle with boxes on it. It needs VERTICAL members
+  outboard — high wings with the engine pods hung under them on pylons — or it has no silhouette at all
+  from the ground. **`warmachine_look` photographs it from below for that reason**, and with a trooper in
+  frame: a reward has to read as bigger than what you were, and every shape looks imposing alone.
+- **ONLY TWO SIDES HAVE A WAR MACHINE.** The Republic's LAAT and the Empire's AT-ST; the CIS and the
+  Rebel Alliance fall through to the universal rewards. That is a real gap, not a design — one row in
+  `Streaks.REWARDS` plus one in `Vehicle.STREAK_VEHICLES` each.
+
 ### Game modes
 
 - `GameState.mode` picks the rules. **DEATHMATCH** scores on `add_frag`, **ZONES** on
@@ -1916,6 +1979,8 @@ without a renderer, and `--headless` draws nothing.
 | `soak.tscn` | A long busy match ACCUMULATES nothing. The only test that catches per-shot leaks, orphaned nodes and material churn — everything else checks one frame. |
 | `locomotion.tscn` | Which clip a DIRECTION asks for, on Player and Bot separately — they are duck-typed against each other and must agree. All of it is sign conventions, which is the part that goes wrong silently: a backpedal playing `strafe_l` is an axis bug wearing an animation bug's clothes. Also that every clip the state machine can name actually EXISTS, since `_update_anim` guards on `has_animation` and a missing clip is invisible rather than loud. |
 | `locomotion_look.tscn` | **WINDOWED.** The four ground clips front-on and side by side at two phases of their cycle. |
+| `streaks.tscn` | Kill streak rewards. Mostly GATES, checked from BOTH directions — a reward wrongly available still works perfectly, it is just somebody else's. Plus the transformation on a real Player: that it keeps the streak, that the preset is not silently disarmed, and that a Juggernaut cannot re-earn ITSELF and heal to full every kill. Every section signs off at its own end and the run fails if one did not finish, because an aborted check (house rule 6) otherwise reports success having verified nothing. |
+| `warmachine_look.tscn` | **WINDOWED.** The LAAT and the AT-ST with a trooper and a speeder for scale, the gunship shot from BELOW. Its first version had no floor COLLIDER, so nothing hovered and it photographed a gunship lying on its skids. |
 | `kill_record.tscn` | The killfeed's entries and the post-match table: the ring cap, a streak surviving the death that ended it, that a teamkill and a suicide pay nothing, and that a FREED body can still be named. It also asserts it can REACH GameState before checking anything — an earlier version printed success while the autoload was nil and verified nothing at all. |
 | `big_teams.tscn` | 20v20 in the ordinary modes, and specifically the `line`/`thrifty` SPLIT. Half its assertions are that the big match got the savings and half are that it kept the GAME (no line troopers, gadgets carried, a mix of builds) — the second half is the one that silently regresses, because re-merging the flags leaves the mode working and no longer the game. |
 | `terrain_chunks.tscn` | **WINDOWED.** What chunking the heightfield bought, A/B/A in ONE process by welding the chunks back into one mesh — two runs of two binaries would differ by thermal state as much as by the change. It reports both A's so the noise band is visible next to the result. |
