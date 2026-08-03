@@ -573,6 +573,21 @@ func height_at(x: float, z: float) -> float:
 ## ground shader as vertex colour so it can put rock on the steep faces without
 ## reconstructing anything from an interpolated normal.
 func steepness_at(x: float, z: float) -> float:
+	return clampf(gradient_at(x, z).length() / MAX_GRADIENT, 0.0, 1.0)
+
+
+## dh/dx and dh/dz at a point. Split out of `steepness_at` because the terrain
+## MESH needs the gradient itself and not its magnitude: a vertex normal is
+## `(-dh/dx, 1, -dh/dz)` normalised, and taking normals from the analytic surface
+## rather than from `SurfaceTool.generate_normals()` is what lets the heightfield
+## be built in CHUNKS at all.
+##
+## Averaged normals are averaged WITHIN one mesh, so a chunked heightfield gets a
+## visible lighting seam along every chunk edge — the geometry is continuous and
+## the shading is not. Solving them from the function has no seams by
+## construction, is independent of how the mesh happens to be cut up, and is
+## exact rather than an average of two triangles.
+func gradient_at(x: float, z: float) -> Vector2:
 	# THIS AND `height_at` ARE THE PAIR THAT MUST AGREE. It is the exact analytic
 	# gradient of the function above, so turning the octaves means turning this
 	# too — chain rule through the rotation, not a re-derivation. Get it wrong and
@@ -591,7 +606,7 @@ func steepness_at(x: float, z: float) -> float:
 		var k: float = o[1] * o[0]
 		dx += k * (a * c - b * s)
 		dz += -k * (a * s + b * c)
-	return clampf(Vector2(dx, dz).length() / MAX_GRADIENT, 0.0, 1.0)
+	return Vector2(dx, dz)
 
 
 # --- build order --------------------------------------------------------------
@@ -630,25 +645,33 @@ func _decorate() -> void:
 ## One heightfield mesh plus its trimesh collider. Vertex colour carries the
 ## exact slope; UV carries world XZ so the shader's noise is world-locked and
 ## does not swim when the map size changes.
+## THE HEIGHTFIELD IS EMITTED IN CHUNKS, AND THE REASON IS FRUSTUM CULLING.
+##
+## It used to be ONE SurfaceTool for the entire map. An object is culled as a
+## whole, so a single map-spanning mesh has an AABB covering the level, can never
+## be frustum-culled by anybody, and every viewport draws the whole heightfield
+## every frame however little of it is on screen. That is also why the measured
+## triangle count barely moved with camera pose (within 3%): there was nothing to
+## cull. At four viewports each looking a different way, most of what each one
+## submitted was behind it.
+##
+## Cut into chunks, each has its own AABB and the engine drops the ones outside
+## the frustum, PER CAMERA and for free — which is worth more in split screen
+## than anywhere else, since the four views rarely overlap.
+##
+## SIZE IT BY METRES, NOT BY A FIXED COUNT: these maps run from ~120 m to 260 m,
+## so a fixed 4x4 grid gives one map 30 m chunks and another 65 m ones. Too small
+## and the draw calls and per-chunk AABB tests cost more than the culling saves;
+## too big and nothing is ever outside the frustum.
+const CHUNK_METRES := 48.0
+
+
 func _build_terrain() -> void:
 	var half := size * 0.5
 	var cols := int(size / CELL)
-	var st := SurfaceTool.new()
-	st.begin(Mesh.PRIMITIVE_TRIANGLES)
-	for i in cols:
-		for j in cols:
-			var x0 := -half + i * CELL
-			var z0 := -half + j * CELL
-			var x1 := x0 + CELL
-			var z1 := z0 + CELL
-			_quad(st,
-				Vector3(x0, height_at(x0, z0), z0),
-				Vector3(x1, height_at(x1, z0), z0),
-				Vector3(x1, height_at(x1, z1), z1),
-				Vector3(x0, height_at(x0, z1), z1))
-	st.generate_normals()
-	st.generate_tangents()
-	var mesh := st.commit()
+	# Cells per chunk edge, at least one, and never more than the whole map.
+	var span: int = clampi(int(round(CHUNK_METRES / CELL)), 1, cols)
+	var chunks := int(ceil(float(cols) / float(span)))
 
 	var body := StaticBody3D.new()
 	body.name = "Terrain"
@@ -657,14 +680,54 @@ func _build_terrain() -> void:
 	# the screen should draw the structures, not a contour map.
 	body.collision_layer = 1
 	add_child(body)
-	var mi := MeshInstance3D.new()
-	mi.mesh = mesh
-	mi.material_override = _ground_material()
-	body.add_child(mi)
+
+	# ONE MATERIAL FOR EVERY CHUNK. They are separate meshes for culling and for
+	# nothing else — a material per chunk would be the allocation rule (house rule
+	# 1) broken in the one place it is drawn most.
+	var ground := _ground_material()
+	# THE COLLIDER STAYS WHOLE. Physics does not frustum-cull, so splitting it
+	# buys nothing, and one ConcavePolygonShape3D is one broadphase entry instead
+	# of thirty. The faces are accumulated as the chunks are built rather than
+	# re-derived, so the shape and what you see are the same triangles by
+	# construction.
+	var faces := PackedVector3Array()
+
+	for ci in chunks:
+		for cj in chunks:
+			var st := SurfaceTool.new()
+			st.begin(Mesh.PRIMITIVE_TRIANGLES)
+			var i_end: int = mini((ci + 1) * span, cols)
+			var j_end: int = mini((cj + 1) * span, cols)
+			var wrote := false
+			for i in range(ci * span, i_end):
+				for j in range(cj * span, j_end):
+					var x0 := -half + i * CELL
+					var z0 := -half + j * CELL
+					var x1 := x0 + CELL
+					var z1 := z0 + CELL
+					_quad(st,
+						Vector3(x0, height_at(x0, z0), z0),
+						Vector3(x1, height_at(x1, z0), z0),
+						Vector3(x1, height_at(x1, z1), z1),
+						Vector3(x0, height_at(x0, z1), z1))
+					wrote = true
+			if not wrote:
+				continue
+			# NO generate_normals(): `_quad` sets the analytic normal per vertex,
+			# which is what keeps the shading continuous ACROSS chunk edges. See
+			# `gradient_at`. Tangents still have to be generated — they are derived
+			# from the UVs, which are world-space and therefore already seamless.
+			st.generate_tangents()
+			var mesh := st.commit()
+			var mi := MeshInstance3D.new()
+			mi.mesh = mesh
+			mi.material_override = ground
+			body.add_child(mi)
+			faces.append_array(mesh.get_faces())
 
 	var shape := CollisionShape3D.new()
 	var tri := ConcavePolygonShape3D.new()
-	tri.set_faces(mesh.get_faces())
+	tri.set_faces(faces)
 	# A ConcavePolygonShape3D only collides on ONE side by default, and it is
 	# not the side the normals face — terrain silently lets everything through.
 	# It also stops anything launched under the map drifting up through it.
@@ -681,7 +744,13 @@ func _quad(st: SurfaceTool, a: Vector3, b: Vector3, c: Vector3, d: Vector3) -> v
 	# finally isolated it: no albedo change can fix a surface facing away from
 	# the light. Flipping the order took the same ground from 0.27 to 0.76.
 	for v: Vector3 in [a, b, c, a, c, d]:
-		st.set_color(Color(steepness_at(v.x, v.z), 0.0, 0.0))
+		var g := gradient_at(v.x, v.z)
+		st.set_color(Color(clampf(g.length() / MAX_GRADIENT, 0.0, 1.0), 0.0, 0.0))
+		# THE NORMAL IS SOLVED, NOT AVERAGED. For a height field h(x, z) the
+		# surface normal is (-dh/dx, 1, -dh/dz) normalised — exact at every
+		# vertex, identical either side of a chunk edge, and the reason the
+		# heightfield can be cut into separately-culled pieces at all.
+		st.set_normal(Vector3(-g.x, 1.0, -g.y).normalized())
 		st.set_uv(Vector2(v.x, v.z))
 		st.add_vertex(v)
 
