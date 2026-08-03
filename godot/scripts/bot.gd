@@ -1423,6 +1423,39 @@ func _animate() -> void:
 		# on the bots' own walking pace.
 		clip = "run"
 	elif ground_speed > 0.15:
-		clip = "walk"
+		# DIRECTIONAL, and it matters more for a bot than for a player: circling
+		# is half of what `_update_post` does, so a bot in contact spends most of
+		# its time moving sideways and was taking a full forward stride the whole
+		# while. The velocity is world-space, so it has to come back into the
+		# body's own frame before the direction means anything.
+		var local := Vector3(velocity.x, 0.0, velocity.z).rotated(
+			Vector3.UP, -rotation.y)
+		clip = _ground_clip(Vector2(local.x, local.z))
 	if anim.assigned_animation != clip and anim.has_animation(clip):
 		anim.play(clip, 0.12)
+	# Paced off each clip's own stride, exactly as the player's are — a bot whose
+	# feet skate is the same artefact whoever is driving the body.
+	match clip:
+		"walk":
+			anim.speed_scale = clampf(ground_speed / 2.6, 0.6, 2.2)
+		"walk_back", "strafe_l", "strafe_r":
+			anim.speed_scale = clampf(ground_speed / 1.9, 0.6, 2.2)
+		"run":
+			anim.speed_scale = clampf(ground_speed / 5.0, 0.6, 2.2)
+		_:
+			anim.speed_scale = 1.0
+
+
+## Which locomotion clip a body-relative velocity calls for. Same rule and the
+## same wide forward band as `Player._ground_clip`; stated once here rather than
+## reaching across to Player, since Bot is duck-typed against it and shares no
+## base class (house rule 15).
+const STRAFE_RATIO := 2.0
+
+
+func _ground_clip(local: Vector2) -> String:
+	if absf(local.x) > absf(local.y) * STRAFE_RATIO:
+		return "strafe_r" if local.x > 0.0 else "strafe_l"
+	if local.y > 0.0 and absf(local.y) > absf(local.x):
+		return "walk_back"
+	return "walk"

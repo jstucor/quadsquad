@@ -706,6 +706,27 @@ extends it for decorative NPCs.
   receiver, so it drops the weapon out of the sight line rather than swinging it 62°. It rides
   ON TOP of the bob, ADS slide and recoil. **The trigger cancels it, easing back twice as fast
   as it eases in** — the weapon must be up by the time you can shoot. A blade ignores it.
+- **THE CLIP IS CHOSEN BY DIRECTION, NOT BY SPEED** (`Player._ground_clip`, mirrored in `Bot`).
+  The state machine read the MAGNITUDE of the move input and ignored its direction, so every body
+  in the game side-stepped and backpedalled under a full forward stride — feet going one way and
+  the body another, permanently, on everything on the field. It matters more for a BOT than for a
+  player: circling is half of what `_update_post` does, so a bot in contact is sideways most of
+  the time. Bot works in WORLD velocity and has to bring it into the body's frame first.
+- **THE BACKPEDAL IS NOT THE WALK PLAYED BACKWARDS.** Reversing a clip reverses the KNEE, and a
+  knee that leads the shin forward is the one thing a leg cannot do — it reads instantly as broken
+  rather than as reversed. What actually changes is the stride SHORTENS, the knee lifts MORE, and
+  the toe-off disappears (there is nothing behind you to push off). **A SIDESTEP IS A ROLL IN THE
+  FRONTAL PLANE** (about Z, not X) with both hips sharing a phase rather than half a cycle apart,
+  the trailing leg tucking to clear as it closes. `_strafe_pose` takes a `dir` and serves both
+  sides, because a sidestep is genuinely symmetric.
+- **FORWARD WINS TIES, WIDE** (`STRAFE_RATIO` 2.0, not a 45-degree split). Walking forward at a
+  slight angle is the commonest input in the game, and a body that flips into a sidestep whenever
+  the stick drifts off centre is WORSE than one that never sidesteps: the flicker reads as a bug
+  where the wrong clip merely reads as stiff.
+- **A directional clip has to be photographed FRONT-ON and SIDE BY SIDE** (`locomotion_look`). A
+  sidestep is a frontal-plane roll, so a three-quarter view is precisely the angle that hides it,
+  and a body shot alone reads as fine in every clip — what is being judged is whether a sidestep
+  reads as DIFFERENT from a stride, which is a comparison and not a picture.
 - **Standing still, a body stands with its feet APART** (`_stance`, idle clip only — walk and
   run put the legs back under the body where they have to be to carry it). A splay is a roll at
   the hip, and **it must drop the hips by what the splay costs in height**
@@ -1887,6 +1908,8 @@ without a renderer, and `--headless` draws nothing.
 | `kit_rules.gd` (`--script`) | Every class allow-list, every AI preset against its own kit, per-universe isolation, enum-table drift, copy fidelity, named sidearms. **Runs with NO autoloads**, which is why `Loadout` may never name `GameState`. |
 | `universe_match.tscn` | Every universe boots a real match in both class modes; TTK reaches the body. Catches a table that agrees with itself but cannot be played out of. |
 | `soak.tscn` | A long busy match ACCUMULATES nothing. The only test that catches per-shot leaks, orphaned nodes and material churn — everything else checks one frame. |
+| `locomotion.tscn` | Which clip a DIRECTION asks for, on Player and Bot separately — they are duck-typed against each other and must agree. All of it is sign conventions, which is the part that goes wrong silently: a backpedal playing `strafe_l` is an axis bug wearing an animation bug's clothes. Also that every clip the state machine can name actually EXISTS, since `_update_anim` guards on `has_animation` and a missing clip is invisible rather than loud. |
+| `locomotion_look.tscn` | **WINDOWED.** The four ground clips front-on and side by side at two phases of their cycle. |
 | `kill_record.tscn` | The killfeed's entries and the post-match table: the ring cap, a streak surviving the death that ended it, that a teamkill and a suicide pay nothing, and that a FREED body can still be named. It also asserts it can REACH GameState before checking anything — an earlier version printed success while the autoload was nil and verified nothing at all. |
 | `big_teams.tscn` | 20v20 in the ordinary modes, and specifically the `line`/`thrifty` SPLIT. Half its assertions are that the big match got the savings and half are that it kept the GAME (no line troopers, gadgets carried, a mix of builds) — the second half is the one that silently regresses, because re-merging the flags leaves the mode working and no longer the game. |
 | `terrain_chunks.tscn` | **WINDOWED.** What chunking the heightfield bought, A/B/A in ONE process by welding the chunks back into one mesh — two runs of two binaries would differ by thermal state as much as by the change. It reports both A's so the noise band is visible next to the result. |
@@ -1894,7 +1917,7 @@ without a renderer, and `--headless` draws nothing.
 | `roster_feel.tscn` | **The play-test bench.** Every class in every universe as one table — health, walk, jump, height, TTK out, TTK once the gun is HOT, TTK in, TRADE ratio, rounds-to-kill, reach, ability slots. Asserts outer guard rails only: absurdity checks, not taste. |
 | `conquest.tscn` | Capture, tickets, defeat, spawn transforms, faction rosters (eight per side, every index a real build, no orphans). |
 | `vehicles.tscn` | The speeders. Most of what it protects is an ABSENCE or a RESTORE — that Halo and Warhammer field NONE, that royale and massive field none, that a dismount restores the body but a DEATH at the controls does not, that an enemy cannot take yours. It sets `pickup_in_reach` directly on purpose, which is what caught the team gate living only on the advertisement. Also boots six REAL matches and counts what `_place_vehicles` actually put on the field, since a rule that only holds in a unit test does not ship. |
-| `guard_pose.tscn` | Hand-to-grip and ankle error on every clip. **0.00 mm is the pass mark**; any pose change shows here first. It is what proved adding the wrist and ankle joints moved nothing. |
+| `guard_pose.tscn` | Hand-to-grip and ankle error on all TEN clips (the directional ones included — add a clip, add it to CLIPS). **0.00 mm is the pass mark**; any pose change shows here first. It is what proved adding the wrist and ankle joints moved nothing. |
 | `death_clip.tscn` | The ANIMATED death. Which way a shove drops you, and then the two things a canned fall gets silently wrong: geometry through the floor, and a body that ends up leaning rather than lying. **It names the lowest PART**, not just the depth — the first three fixes went into the wrong limb because a number alone does not say whose it is. |
 | `rig_cost.tscn` | What the rig costs to build and to tick, the tick as an A/B against the same frame with every clip paused. Two traps recorded in it: timing whole frames measures the engine, not the animation; and building 24 different styles prices the mesh cache missing, not a squad. |
 | `guard_block.tscn`, `force_lightning.tscn`, `gadgets.tscn`, `trandoshan.tscn`, `wookiee.tscn` | Individual mechanics. |

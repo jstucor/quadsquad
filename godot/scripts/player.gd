@@ -2652,6 +2652,27 @@ func _deploy_held() -> bool:
 	return Controls.held(input_device, "jump")
 
 
+## Which locomotion clip a move input calls for. `move` is body-relative: x is
+## strafe (+ right), y is forward/back (- forward, matching the input convention
+## used throughout movement).
+##
+## FORWARD WINS TIES, and the band is deliberately wide (a 2:1 ratio rather than
+## a 45-degree split). Walking forward at a slight angle is by far the commonest
+## input in the game, and a body that flips into a sidestep every time the stick
+## drifts off centre is worse than one that never sidesteps at all — the flicker
+## reads as a bug where the wrong clip merely reads as stiff.
+const STRAFE_RATIO := 2.0
+
+
+func _ground_clip(move: Vector2) -> String:
+	if absf(move.x) > absf(move.y) * STRAFE_RATIO:
+		return "strafe_r" if move.x > 0.0 else "strafe_l"
+	# `move.y` is negative going forward, so a positive y is backing up.
+	if move.y > 0.0 and absf(move.y) > absf(move.x):
+		return "walk_back"
+	return "walk"
+
+
 func _update_anim(move: Vector2, sprinting: bool) -> void:
 	if _anim == null:
 		return
@@ -2672,7 +2693,15 @@ func _update_anim(move: Vector2, sprinting: bool) -> void:
 	elif guard_up():
 		target = "guard_walk" if move.length() > 0.1 else "guard_idle"
 	elif move.length() > 0.1:
-		target = "run" if sprinting else "walk"
+		# DIRECTION, not just magnitude. This used to be `run if sprinting else
+		# walk` for any input at all, so strafing and backing up both played a
+		# full forward stride — feet going one way, body the other, on every body
+		# in the game for as long as there have been animations.
+		#
+		# Sprinting is exempt on purpose: you cannot sprint sideways or backwards
+		# (`_is_running` already requires the stick pushed and sprint held), and a
+		# sprint that could would want its own clips rather than these.
+		target = "run" if sprinting else _ground_clip(move)
 	else:
 		target = "idle"
 	# assigned_animation (not current_animation) so the one-shot jump keeps
@@ -2684,6 +2713,11 @@ func _update_anim(move: Vector2, sprinting: bool) -> void:
 	match target:
 		"walk":
 			_anim.speed_scale = clampf(ground_speed / 2.6, 0.6, 2.2)
+		"walk_back", "strafe_l", "strafe_r":
+			# Paced off their OWN stride, not the walk's. A sidestep covers less
+			# ground per cycle than a stride does, so pacing all three off 2.6 m/s
+			# would skate the feet at exactly the speeds these clips are for.
+			_anim.speed_scale = clampf(ground_speed / 1.9, 0.6, 2.2)
 		"run":
 			_anim.speed_scale = clampf(ground_speed / 5.0, 0.6, 2.2)
 		"crouch_walk":

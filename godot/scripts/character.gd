@@ -1571,6 +1571,15 @@ func _build_animations() -> void:
 	lib.add_animation("idle", _clip(IDLE_LEN, true, 9, _idle_pose, _idle_bob))
 	lib.add_animation("walk", _clip(WALK_LEN, true, 9, _walk_pose, Callable()))
 	lib.add_animation("run", _clip(RUN_LEN, true, 9, _run_pose, Callable()))
+	# DIRECTIONAL LOCOMOTION. Separate clips rather than one walk played at an
+	# angle, for the reason the crouch is a clip pair: anything laid over the walk
+	# at runtime is fighting the AnimationPlayer, which rewrites every joint in
+	# PATHS every frame. They cost one table row each and nothing at runtime.
+	lib.add_animation("walk_back", _clip(BACK_LEN, true, 9, _back_pose, Callable()))
+	lib.add_animation("strafe_l",
+		_clip(STRAFE_LEN, true, 9, _strafe_l_pose, Callable()))
+	lib.add_animation("strafe_r",
+		_clip(STRAFE_LEN, true, 9, _strafe_r_pose, Callable()))
 	lib.add_animation("jump", _clip(JUMP_LEN, false, 2, _jump_pose, Callable()))
 	# Crouch gets its own clips rather than a runtime pose laid over the others:
 	# the AnimationPlayer rewrites every joint each frame, so anything applied
@@ -2070,6 +2079,94 @@ func _walk_pose(time: float) -> Dictionary:
 	# failure to the one the ankle was added for.
 	p["aL"] = _ankle(p["hL"].x, p["kL"].x, ANKLE_LEVEL_WALK, toe * maxf(0.0, -s))
 	p["aR"] = _ankle(p["hR"].x, p["kR"].x, ANKLE_LEVEL_WALK, toe * maxf(0.0, s))
+	return p
+
+
+## --- moving in a direction other than forwards -------------------------------
+##
+## A BODY THAT STRAFES MUST NOT TAKE A FORWARD STRIDE. The state machine picked
+## its clip off the MAGNITUDE of the move input and ignored its DIRECTION, so
+## every unit in the game side-stepped and backpedalled with a full forward walk
+## cycle underneath it — feet striding one way, body travelling another. It is
+## the most visible thing wrong with the animation and it is visible on every
+## body on the field, all the time, because sidestepping is what a firefight IS.
+##
+## THE BACKPEDAL IS NOT THE WALK PLAYED BACKWARDS. Running a clip in reverse
+## reverses the knee too, and a knee that leads the shin forwards is the one
+## thing a leg cannot do — it reads instantly as broken rather than as reversed.
+## What actually changes when you walk backwards is that the stride SHORTENS, the
+## knee lifts MORE (you pick the foot up rather than rolling it), and the toe-off
+## disappears entirely, because there is nothing to push off against behind you.
+const BACK_LEN := 1.05      # backing up is slower than walking forward
+const BACK_HIP_DEG := 19.0  # ...and a shorter stride
+const BACK_KNEE_DEG := 40.0 # ...with a higher foot lift
+
+## A SIDESTEP IS A ROLL AT THE HIP, NOT A SWING. The legs scissor apart and
+## together in the frontal plane (rotation about Z) rather than fore-and-aft, the
+## trailing leg closing after the leading one — which is why the two hips share a
+## phase here instead of being half a cycle apart like a stride.
+const STRAFE_LEN := 0.85
+const STRAFE_SPREAD_DEG := 15.0   # how far the legs scissor apart
+const STRAFE_KNEE_DEG := 22.0     # the trailing leg's tuck as it closes
+const STRAFE_LEAN_DEG := 5.0      # into the direction of travel
+
+
+## `dir` is +1 stepping to the body's RIGHT and -1 to its LEFT. One pose function
+## for both, because a sidestep is genuinely symmetric — the leading and trailing
+## legs swap and nothing else does.
+func _strafe_pose(time: float, dir: float) -> Dictionary:
+	var phase := time / STRAFE_LEN * TAU
+	var s := sin(phase)
+	var c := cos(phase)
+	var spread := deg_to_rad(STRAFE_SPREAD_DEG)
+	var knee := deg_to_rad(STRAFE_KNEE_DEG)
+	var p := _carry()
+	# Both hips roll the same way and the legs open and close together: the lead
+	# leg reaches out on the half-cycle the trail leg is closing up.
+	p["hL"] = Vector3(0, 0, spread * s * dir)
+	p["hR"] = Vector3(0, 0, spread * s * dir)
+	# Whichever leg is TRAILING tucks its knee to clear the ground as it closes.
+	# `dir` picks which of the two that is without a branch.
+	p["kL"] = Vector3(-knee * maxf(0.0, c * dir), 0, 0)
+	p["kR"] = Vector3(-knee * maxf(0.0, -c * dir), 0, 0)
+	# The ankles level against the knee only — there is no hip pitch to cancel
+	# here, and no toe-off, because a sidestep pushes sideways off the edge of the
+	# foot rather than rolling off the front of it.
+	p["aL"] = _ankle(0.0, p["kL"].x, ANKLE_LEVEL_WALK, 0.0)
+	p["aR"] = _ankle(0.0, p["kR"].x, ANKLE_LEVEL_WALK, 0.0)
+	# Lean into the step. Small: this is a shuffle under a levelled weapon, not a
+	# slalom, and the carry has to stay pointed where the player is aiming.
+	p["spine"] = Vector3(0, 0, deg_to_rad(STRAFE_LEAN_DEG) * dir)
+	return p
+
+
+func _strafe_l_pose(time: float) -> Dictionary:
+	return _strafe_pose(time, -1.0)
+
+
+func _strafe_r_pose(time: float) -> Dictionary:
+	return _strafe_pose(time, 1.0)
+
+
+func _back_pose(time: float) -> Dictionary:
+	var phase := time / BACK_LEN * TAU
+	var s := sin(phase)
+	var c := cos(phase)
+	var hip := deg_to_rad(BACK_HIP_DEG)
+	var knee := deg_to_rad(BACK_KNEE_DEG)
+	var p := _carry()
+	p["hL"] = Vector3(hip * s, 0, 0)
+	p["hR"] = Vector3(-hip * s, 0, 0)
+	# The knee lift peaks with the leg's REARWARD reach rather than mid-swing:
+	# backing up, the foot comes up and goes down behind you.
+	p["kL"] = Vector3(-knee * maxf(0.0, -s), 0, 0)
+	p["kR"] = Vector3(-knee * maxf(0.0, s), 0, 0)
+	# No toe-off at all — see the note above.
+	p["aL"] = _ankle(p["hL"].x, p["kL"].x, ANKLE_LEVEL_WALK, 0.0)
+	p["aR"] = _ankle(p["hR"].x, p["kR"].x, ANKLE_LEVEL_WALK, 0.0)
+	# Weight back over the heels. A body walking backwards leaning FORWARD is the
+	# tell that a forward clip is being reused, so this is worth the one line.
+	p["spine"] = Vector3(deg_to_rad(6), 0, 0)
 	return p
 
 
