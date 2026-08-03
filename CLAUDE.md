@@ -303,6 +303,15 @@ once. The per-system sections below assume them rather than repeating them.
   same decision as the rules Conquest plays by. Selecting a mode SEEDS the setting
   (`default_class_mode`) and the player overrides it. ROYALE always answers false: it is
   neither a shop nor a roster, it is scavenging. Bots follow the same switch.
+- **TWENTY A SIDE IN THE ORDINARY MODES** (`MAX_TEAM_SIZE`, offered as the `TEAM_SIZES` ladder rather than
+  twenty integers a stick has to walk). It was six, and a 6v6 on 260 m of Boneyard is four people who never
+  find each other. What had to change to allow it was NOT performance work — it was splitting `Bot.line`
+  from `Bot.thrifty` (see AI), because buying the cheap simulation used to also buy the stripped loadout.
+  **Twenty and not fifty because these modes have RULES that scale with the roster** — posts to contest, a
+  zone with a headcount in it — and fifty a side turns every one of them into a scrum. Fifty is MASSIVE's.
+  Two traps: the size dropdown must be INDEXED into the same ladder it was filled from (adding the index to
+  the floor only works while the rungs are contiguous), and **leaving MASSIVE leaves `team_size` at 50**,
+  over the ordinary ceiling, unless `_fix_setup` walks it back onto the ladder.
 - **A team is just an index**, 0..`active_teams()-1` — 2, 3 or 4 sides, or FREE FOR ALL
   (one team per player, no AI fill). `team_names`/`team_colors` are vars, not constants:
   who the sides ARE comes from the universe. `Team.REPUBLIC`/`CIS` are still 0 and 1 so
@@ -882,6 +891,20 @@ purely intelligence (its `health`/`speed` entries are MULTIPLIERS on the preset'
 deals presets out in order so a team fields a mix. **Bots apply the same kit multipliers as
 players, or a class is only fast in human hands.**
 
+- **WHAT A BODY IS AND WHAT IT COSTS ARE TWO DIFFERENT FLAGS** (`Bot.line` vs `Bot.thrifty`), and
+  they were one flag for as long as MASSIVE was the only big mode. **`line`** is a MASSIVE line
+  trooper: a rifle, a scope, no gadgets, no squad, a weaker eye and a slower trigger — a DESIGN
+  choice and the whole point of that mode. **`thrifty`** is the cheap simulation: soft bodies
+  (`collision_mask = 1`), half-rate stepping (`MOVE_EVERY`), crowd drawing, `max_slides = 2` — a
+  COST choice that changes no decision the AI makes and nothing it carries. Conflating them is
+  what kept 20v20 out of the ordinary modes: **buying the frames also bought the stripped
+  loadout**, so any big deathmatch would have thrown away the roster that IS the game.
+  **Thrift is decided by BODIES, not by mode** (`GameState.crowded`, `CROWD_AT` 24) — a crowd is
+  expensive for the same reason wherever it turns up. A line trooper is always thrifty; a 20v20
+  bot is thrifty and keeps its class, gadgets, turret and full skill tier.
+  **Deliberately NOT under `thrifty`**: the cheap three-candidate scan (measurably worse — 3 of 9
+  acquiring against 9 of 9) and skipping A* (a rate-limited queue degrades gracefully at 40 and
+  starves at 100). Those stay MASSIVE's alone.
 - **Bot behaviour must stay mode-agnostic.** Presets, gadget use and patrolling run the same in
   every mode, with `GameState.zone_active` only changing WHERE they push. Anything keyed to the
   zone needs a deathmatch answer — turret and mortar placement are keyed to the bot's own patrol
@@ -1304,6 +1327,31 @@ before Main spawns players).
   at once. It compares a handful of scalars first (`GameState.posts_revision` — an O(1) token bumped when
   a post changes hands — plus tickets, the player's picks and the countdown IN WHOLE SECONDS, which is
   all it prints).
+- **THE RECORD IS SEPARATE FROM THE SCORE, and that is why `GameState.record_kill` sits BESIDE `add_frag`
+  rather than inside it.** What a kill is WORTH is a mode rule and pays nothing in four modes out of five;
+  that a kill HAPPENED is true in all of them and is what the killfeed and the post-match table read.
+  Folding the record into `add_frag` loses every kill outside deathmatch. **Stats are per HUMAN, keyed on
+  `player_index`** — a Bot is freed on death and the next one is a different instance, so there is nothing
+  stable to accumulate into; team totals are already in `scores`. **A teamkill and a suicide cost a death
+  and pay no kill**, or the quickest route up the table is a grenade at your own feet.
+- **A KILLFEED DESCRIBES BODIES THAT ARE ON THEIR WAY OUT, so nothing in it may hold a node.** Entries are
+  plain dictionaries of STRINGS built at the moment of death, and `combatant_name` is **deliberately
+  untyped**: a `body: Node` parameter cannot even be CALLED with a freed object — GDScript refuses the bind
+  before the function runs, and a refused call aborts whatever was recording the kill (house rule 6). It is
+  ASKED, not required: a combatant with no `combatant_name` gets its class back rather than taking the whole
+  record out with it.
+- **ONLINE THE FEED IS THE HOST'S AND IS MIRRORED FROM ONE PLACE** (`GameState.log_kill`, guarded by a
+  `mirror` flag so a wire entry is not echoed back). A bot dies on the host and a player dies on whichever
+  machine owns them, so the alternative is every death path knowing how to replicate itself — which is how
+  two machines end up with feeds that disagree about what just happened. Names are resolved on the machine
+  that HAS the bodies and travel as strings; a client has no node for a bot that died on the host.
+- **THE DEATH CAM TURNS, IT DOES NOT CUT** (`Player._track_killer`, `DEATH_CAM_TURN`). A hard cut onto a
+  body somewhere behind you tells you nothing about WHERE it is; watching the view sweep round is what
+  places them on the map you just died on. It needs no second camera — the `RemoteTransform3D` on Head
+  already drives the camera, so turning the body and pitching the head is the same two dials a live player
+  steers with. It stops tracking when the killer dies and **holds the last heading rather than snapping
+  back**, and the killer's name is kept as a STRING alongside the reference because the reference is
+  usually freed before you finish reading it.
 - The HUD picks the reticle in `_add_reticle`'s refresh: reddot → dot, else holo → ring, else scope →
   blackout, else the bloom crosshair.
 
@@ -1314,6 +1362,16 @@ Coruscant / Mustafar / Hoth / RANDOM), re-seeded every match from `GameState.pla
 table row in `PLANETS`: palette, sky, sun, terrain octaves, weather density and which `_lay_*` function
 places its landmarks. **A sixth world is a row and one function.**
 
+- **THE TERRAIN MESH IS EMITTED IN ~48 m CHUNKS (`CHUNK_METRES`) SO IT CAN BE FRUSTUM-CULLED**, and what
+  makes that possible is taking vertex normals from the ANALYTIC surface rather than from
+  `SurfaceTool.generate_normals()`. Averaged normals are averaged WITHIN one mesh, so a chunked heightfield
+  gets a lighting seam along every chunk edge — geometry continuous, shading not. For a height field the
+  normal is `(-dh/dx, 1, -dh/dz)` normalised: exact, independent of how the mesh is cut, seamless by
+  construction. `steepness_at` already computed the gradient inline and now goes through **`gradient_at`**,
+  so one place computes it and `terrain_math.tscn` still asserts the pair agree. **Size chunks by METRES,
+  not by a fixed grid count** — these maps run 120 m to 290 m, so a fixed 4×4 gives one map 30 m chunks and
+  another 65 m ones. **The COLLIDER stays whole**: physics does not frustum-cull, so splitting it buys
+  nothing and costs thirty broadphase entries instead of one. See PERFORMANCE for what this measured.
 - **THE RULE EVERYTHING ELSE FOLLOWS FROM: terrain is always walkable, structures are always boxes.** The
   nav grid is stamped from BOX COLLIDERS only and cannot see a trimesh — so a heightfield allowed to make
   cliffs would have bots pathing into them forever. Terrain carries the LOOK; boxes carry the scale, cover
@@ -1589,16 +1647,21 @@ See HOUSE RULES 1–5 and 17 first — those are the rules; this section is the 
   visibility range — the culling vehicles were expected to defeat actually favours them. Note it measures
   the CAMERA, so it says nothing about a vehicle's own mesh or about vehicles bringing more bodies into one
   place.
-- **THE TRIANGLE COUNT IS ALMOST INVARIANT TO CAMERA POSE (within 3%), because the map is emitted as a
-  handful of MAP-SPANNING objects and an object is culled as a whole.** `PlanetMap._build_terrain` runs ONE
-  `SurfaceTool` for the entire heightfield, and set dressing is one MultiMesh per prop TYPE — so each has an
-  AABB covering the level, none can ever be frustum-culled, and every viewport draws the whole map every
-  frame. **The batching that made props affordable is the same thing that makes them un-cullable**; a trade
-  worth knowing about, not a defect.
-- **AND IT IS INDEPENDENT CONFIRMATION THAT THE FRAME IS FILL-BOUND.** Draw calls moved 1520 → 1110, a 27%
-  swing, and the millisecond figure did not move (20.4 → 20.9, inside the ±1.5 ms spread). **Chunking the
-  terrain or LODing the props would buy little** — the cost is per-pixel work at 4×960×540 with MSAA, not
-  what is in frustum. The levers that move it are resolution, MSAA and viewport count.
+- **AN OBJECT IS CULLED AS A WHOLE, so a map-spanning object is never culled at all.** Set dressing is one
+  MultiMesh per prop TYPE — an AABB covering the level, drawn by every viewport every frame however little
+  is on screen. **The batching that made props affordable is the same thing that makes them un-cullable**;
+  a trade worth knowing about, not a defect. The TERRAIN used to be the same (one `SurfaceTool` for the
+  whole heightfield) and is now emitted in ~48 m CHUNKS so it can be culled per camera — see PROCEDURAL
+  WORLDS for the analytic-normal trick that makes chunking possible without lighting seams.
+- **CULLING BUYS GEOMETRY AND NOT MILLISECONDS, and that is the clearest statement of fill-bound there is.**
+  Measured twice, from opposite directions. Camera pose: draw calls moved 1520 → 1110, a 27% swing, and the
+  frame did not move (20.4 → 20.9, inside the ±1.5 ms spread). Terrain chunking (`tests/terrain_chunks.tscn`,
+  A/B/A in one process, 4 viewports, 290 m world): **605k triangles chunked against 798k welded — a real 24%
+  cut — and 218 MORE draw calls, with the millisecond difference (2.78) INSIDE the A-to-A spread (2.86).**
+  The cost is per-pixel work at 4×960×540 with MSAA, not what is in frustum. **Do not expect a millisecond
+  from geometry here**; the levers that move it are resolution, MSAA, the shadow atlas and viewport count.
+  Chunking is kept for the triangle win and because per-chunk meshes are the prerequisite for terrain LOD,
+  NOT because it made the frame faster.
 - Every mesh renders 4× (one per viewport) plus a shadow pass — keep draw calls and material count low,
   prefer procedural shaders over textures. Target 60 fps at 1080p (4 × 960×540).
 
@@ -1824,6 +1887,9 @@ without a renderer, and `--headless` draws nothing.
 | `kit_rules.gd` (`--script`) | Every class allow-list, every AI preset against its own kit, per-universe isolation, enum-table drift, copy fidelity, named sidearms. **Runs with NO autoloads**, which is why `Loadout` may never name `GameState`. |
 | `universe_match.tscn` | Every universe boots a real match in both class modes; TTK reaches the body. Catches a table that agrees with itself but cannot be played out of. |
 | `soak.tscn` | A long busy match ACCUMULATES nothing. The only test that catches per-shot leaks, orphaned nodes and material churn — everything else checks one frame. |
+| `kill_record.tscn` | The killfeed's entries and the post-match table: the ring cap, a streak surviving the death that ended it, that a teamkill and a suicide pay nothing, and that a FREED body can still be named. It also asserts it can REACH GameState before checking anything — an earlier version printed success while the autoload was nil and verified nothing at all. |
+| `big_teams.tscn` | 20v20 in the ordinary modes, and specifically the `line`/`thrifty` SPLIT. Half its assertions are that the big match got the savings and half are that it kept the GAME (no line troopers, gadgets carried, a mix of builds) — the second half is the one that silently regresses, because re-merging the flags leaves the mode working and no longer the game. |
+| `terrain_chunks.tscn` | **WINDOWED.** What chunking the heightfield bought, A/B/A in ONE process by welding the chunks back into one mesh — two runs of two binaries would differ by thermal state as much as by the change. It reports both A's so the noise band is visible next to the result. |
 | `massive.tscn` | The 50v50 mode: the line trooper's kit and the four performance rules that make a hundred bodies possible (every one is an ABSENCE, and an absence is what a later edit silently undoes). **Its LAST assertion (`n of m line troopers found a target`) is known flaky** — a sample of five to eight survivors on a map re-seeded every match — and fails roughly half of all runs. Re-run it. Every other assertion is exact. |
 | `roster_feel.tscn` | **The play-test bench.** Every class in every universe as one table — health, walk, jump, height, TTK out, TTK once the gun is HOT, TTK in, TRADE ratio, rounds-to-kill, reach, ability slots. Asserts outer guard rails only: absurdity checks, not taste. |
 | `conquest.tscn` | Capture, tickets, defeat, spawn transforms, faction rosters (eight per side, every index a real build, no orphans). |

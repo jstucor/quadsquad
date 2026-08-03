@@ -1,231 +1,248 @@
 # QuadSquad: Star Wars Skirmish
 
-4-player local co-op arena FPS for Linux, built in **Godot 4**. Split-screen
-gameplay targeting Raspberry Pi 5 and Ubuntu x86 laptops.
+4-player local split-screen FPS for Linux, built in **Godot 4.7** with the **GL
+Compatibility** renderer. Target is Ubuntu laptops on integrated graphics.
 
-The original custom C++/SDL2/EnTT engine was retired in favor of Godot
-(history is in git if you need it); its feature set lives on as the roadmap
-below.
+Everything is **procedural and built in code** — characters, weapons, maps,
+props, UI and sound. No imported meshes, no textures, no audio files, no build
+step. A new unit, gun, map or sound is a table row plus a builder function.
+
+Three settings ship: **Star Wars**, **Halo** and **Warhammer 40,000**. Nothing
+about the rules, modes, maps or shooting knows a universe exists — every weapon
+lives in one enum and every body in one style table, so a bolter is a hitscan
+with a heavy round and a Spartan is a table row.
+
+The original custom C++/SDL2/EnTT engine was retired in favour of Godot in
+2026-07 (history is in git if you need it).
 
 ## Running
 
-Requires Godot 4.7+ (official binary). The project uses the **GL
-Compatibility** renderer for the Pi 5 target.
+Requires Godot 4.7+ (official binary).
 
 ```bash
-godot --path godot            # run the game
-godot --editor --path godot   # open the editor
+godot --path godot                       # run the game
+godot --editor --path godot              # open the editor
+godot --headless --path godot --import   # headless parse/import check
+godot --path godot -- --debug            # P1 on keyboard + mouse, solo
 ```
 
-Headless sanity check (catches script/scene parse errors):
-
-```bash
-godot --headless --path godot --import
-```
+**The game is pad-first, so `-- --debug` is how you play it at a desk.** It puts
+player 1 on keyboard and mouse and defaults to one viewport; nothing else
+changes. The flag is read from user args (after the bare `--`) because plain
+`--debug` is Godot's own engine switch and never reaches the project. `--kbm`
+works in either position.
 
 ## Controls
 
-| Input | Player |
-|---|---|
-| Keyboard + mouse (WASD, Space jump, Shift sprint, Ctrl crouch, LMB fire, RMB aim, Q swap weapon, F gadget, G grenade, H health kit) | Player 1 |
-| Joypads (left stick move, right stick look, RT/RB fire, LT/LB aim, B crouch, A jump, L3 sprint, Y swap weapon, X gadget, d-pad up grenade, d-pad down health kit) | Players 2–4 |
+The game is **pad-first**: Main puts every player on a joypad (P1–P4 = pads
+0–3), and keyboard + mouse is a fallback that still works for one player.
 
-On the buy screen: up / down picks a line, left / right changes it, and
-**Space / A** deploys once the button goes live.
+| | Pad | Keyboard |
+|---|---|---|
+| Move / look | Left stick / right stick | WASD / mouse |
+| Fire / aim | RT / LT | LMB / RMB |
+| Jump · sprint · crouch | A · L3 · **R3** | Space · Shift · Ctrl |
+| Swap weapon | **B** | Q |
+| Gadget 1 · 2 · 3 | X · LB · **Y** | F · G · R |
+| Interact (crates, vehicles) | | E |
+| Map · settings | Back · Start | Tab · Esc |
 
-Launching drops you on the map-select menu — arrows / left stick to move,
-Enter / A to select (any joypad can drive it). In a match, click the window to
-capture the mouse; ESC releases it.
+**Every binding is rebindable** and stored per device, with player 1's pad as
+the house layout that pads 2–4 inherit — four pads at a couch are four copies of
+one controller, and a pad given its own binding keeps it. Two buttons are
+deliberately **not** rebindable: START always cancels a rebind listen and BACK
+always clears a pad's override, so a keyboardless player can never trap
+themselves in a row they opened.
+
+**Nothing in the UI ever names a key or a button in text** — prompts go through
+`Controls.label(device, id)`, so they follow a rebind instead of going stale.
+
+Launching drops you on the menu. Every setting there is a labelled dropdown —
+map, mode, universe, planet, time of day, teams, team size, victory threshold,
+AI skill and where your gear comes from.
 
 ## Current State
 
-- **Two modes**, picked on the menu:
-  - **Deathmatch** — kills score, first team to 25.
-  - **Zones** — a marked area somewhere on the map pays the team with the most
-    bodies inside it **one point per second**. It relocates every 30 s, and the
-    first team to 60 seconds of control wins. A tie inside (including an empty
-    area) pays nobody, and squads, team AI and placed turrets all count toward
-    holding it — so a lone player with three squadmates really can take an area
-    off two opponents. The AI push for the active area instead of the map centre.
-- **Team deathmatch, 2v2** (Republic vs Separatist): kills credit the killer's
-  team, friendly fire off, first team to the score limit wins, then the game
-  rotates to the next map. Team-tinted characters + a per-viewport scoreboard
-- **Map-select menu** on launch: pick any map, or "Map Rotation" to play the
-  whole roster in order. Driven by keyboard, mouse, or any joypad; a single-map
-  match returns to the menu when it ends. It also sets up the match:
-  - **Players** (1–4) — how many humans are at the couch. One is full-screen,
-    two split left/right, three or four go 2x2.
-  - **Team size** (per team) — humans fill the slots first and **AI make up the
-    difference**, so 2 humans at team size 3 is a 3v3 with four bots in it.
-    Team AI respawn, so a side never bleeds out.
-  - **AI skill** — which tier those teammates fight at.
-- **Five maps**: Crossfire, Foundry, the jungle Overgrowth and the mountain
-  **Highridge** (all procedural, from `scripts/arena.gd`) plus the Imperial
-  hangar.
-  - **Highridge** is the one with real terrain: a generated heightfield
-    mountain you can walk up (steepest face 26.6 degrees, measured), with
-    spurs and gullies rather than a smooth cone, bare rock showing through on
-    the steep faces, a flat plateau at the peak with a flag on it, a **tunnel
-    bored straight through the mountain** (walls, slab ceiling and portal
-    frames of its own), and boulders, trees and stacked shipping containers
-    scattered across the basin. The tunnel is a hollow rather than a carve — a heightfield is only a
-    skin, so the space under it is already empty; the mouths are cut where the
-    ground would rise into the corridor.
-  - **Overgrowth** is 86 x 68 m of flat daylight jungle. Both jungle maps grow
-    their forests through `scripts/foliage.gd`: two MultiMeshes, i.e. two draw
-    calls for the whole canopy
-- 4-way split-screen with one first-person player per quadrant; you never see
-  your own model (render-layer cull masks) but squadmates do
-- Procedural blocky characters built in code (no imported model, no skinning)
-  with idle / walk / run / jump — clean box limbs on real joints
-- **The match waits for everyone.** Nobody moves or shoots until every human
-  has bought a loadout and deployed; the last one in starts a GET READY
-  countdown, and only then does the match go live. Players, AI and turrets are
-  all held by the same flag. The deploy lock counts itself down out loud
-  ("ready in 3...") so a locked button never reads as a hung match.
+### Modes
 
-- **Buy screen instead of classes.** Every life you get **200 tokens** and spec
-  a build: a gun, upgrades bolted to it, an armour frame, and consumables.
-  Nothing is earned or banked — the budget resets each life — and your build
-  persists across deaths, so respawning is one button press unless you want to
-  re-spec. **You deploy when you press the button, not on a timer** (there's a
-  short floor first: 5 s at match start, 2 s after a death).
+- **DEATHMATCH** — kills score, first side to the threshold.
+- **ZONES** — a marked area pays the side with the most bodies inside it a point
+  a second. It relocates every 30 s.
+- **CONQUEST** — the Battlefront mode. Sides fight over **capture posts**, you
+  deploy on a post your side holds, and holding more posts bleeds the enemy's
+  shared reinforcement pool. Run it to zero and you lose.
+- **BATTLE ROYALE** — no respawns, no classes. Everyone drops in with a sidearm
+  and scavenges the rest off the ground while a storm closes in. The storm picks
+  its next centre from *inside* the current circle, which is what makes moving
+  early a bet rather than a certainty.
+- **MASSIVE BATTLE** — up to 50 a side on generated ground, playing by deathmatch
+  rules. Most of them are **line troopers**: a rifle, a scope and nothing else.
 
-  | Row | Options (cost) |
-  |---|---|
-  | Primary | None 0 · Rifle 45 · Burst 50 · Semi 55 · Repeater 70 · HMG 80 · Sniper 85 · RPG 110 |
-  | Sidearm | DL-44 Pistol 0 · RK-3 Holdout 20 · SE-14 Revolver 35 — swap with Q / Y |
-  | Gadget | Jetpack 45 · Wrist Cable 30 (34 m grapple + vault, 5 s cooldown) · Front Shield 50 · Rotary Cannon 75 · Turret 65 |
-  | Sight | Iron 0 · **Holo ring 20** (mild zoom, tighter aim, hollow reticle you see through) · Scope 25 (magnified, blacks out the periphery) |
-  | Cooling vanes | 20 — -25% heat per shot, cools faster |
-  | Improved grip | 20 — -35% hip spread, so bloom builds less |
-  | Armour | Light Frame 20 (80 HP, +12% speed/jump) · None 0 (100 HP) · Plated 25 (130 HP) · Heavy Plate 60 (175 HP, -15% speed) |
-  | Grenades | 25 each, up to 3 — bounce off cover, 2 s fuse, radius splash |
-  | Health kit | 30 each, up to 2 — heals 60 |
-  | AI squad | headcount, up to 4 — priced **per head** at the skill you pick |
-  | Squad skill | Recruit 20 · Regular 35 · Veteran 55 · Elite 80 (each) |
+Victory thresholds are configurable per mode. **Up to 20 a side** in the four
+ordinary modes; 2, 3 or 4 teams, or a free-for-all.
 
-  Options you can't afford simply refuse to select, so anything on screen is a
-  build you can deploy with — 4 elites (320) won't fit in 200, 2 will. Your
-  sidearm is free and "no primary" is a real option, so an all-gadget build
-  still deploys armed.
+### Where your gear comes from is a setting, not the mode
 
-- **Gadgets** (one slot, F / pad X) are verbs rather than more damage:
-  - **Jetpack** — hold to fly on a fuel pool that refills on the ground.
-  - **Wrist cable** — fires a visible claw and wire up to **34 m**, reels you
-    in, then vaults you up and over. The hop is solved from the anchor height,
-    so it lifts you onto the cover you grappled instead of leaving you against
-    the side of it. A miss still throws the line out to full range and reels it
-    back empty, so the reach is something you see rather than a number. **5 s
-    between uses**, hit or miss; the HUD counts it down.
-  - **Front shield** — a barrier that stops incoming fire but not yours: your
-    own shots are excluded from it, so you shoot through your own cover. It
-    wears down under fire and breaks.
-  - **Rotary cannon** — a spin-up heavy gun; enormous output, and you walk
-    while it's out.
-  - **Turret** — drop an auto-turret that acquires, tracks and fires on its
-    own, and can be shot down.
+- **CUSTOM** opens the **buy screen**: 200 tokens a life, spent on a primary and
+  its attachments, a sidearm, three gadget slots, an armour frame and an AI
+  squad. Nothing is earned or banked and the budget resets each life, so
+  respawning with the same build is one button press.
+- **FACTION** opens the **character select** and deploys one of your side's
+  authored classes.
 
-- **AI deploy real loadouts.** Seven presets (`Loadout.BOT_BUILDS`) are spent
-  out of the same 200 tokens a player gets — rifleman, marksman, gunner,
-  engineer, scout, grenadier, shock — so a firefight has scoped snipers, heavy
-  gunners behind 193 HP of plate, engineers dropping turrets and scouts
-  grappling ahead, instead of a dozen identical riflemen. They use what they
-  bought: grenades at 9–26 m, medkits below 45% health, turrets once they reach
-  the ground they're holding or make contact, front shields they can shoot
-  through. All of it runs the same in both modes — the mode only changes where
-  they push.
-- **AI squadmates** fight for your team: they acquire the nearest enemy they can
-  actually see (45–105 m by skill), close to their engagement range, strafe and
-  shoot. With nothing to fight, a bought squadmate falls in behind the player
-  who paid for it, and anyone else — team AI, or a squadmate whose owner is
-  down — pushes for the middle of the map, so a match with one human still
-  plays itself out. Skill is what you're paying for —
-  aim error, reaction time, sight range, turn speed and toughness all scale with
-  the tier, and every tier carries the same rifle so intelligence is the only
-  variable. They don't respawn; your next deploy tops the squad back up to the
-  headcount you bought (survivors are kept).
-- Twelve weapons with AUTO / SEMI / BURST fire modes and spin-up support, each
-  with its own viewmodel silhouette — sidearms are 0.2-0.3 m stubs, the NT-242
-  is a metre of barrel, the T-21 and NT-242 carry bipods, the Z-6 and R-90 sit
-  on drums, the R-90 has a four-barrel cluster and the PLX-1 is a fat tube
-- **Kill streak per life**: your kills on the current life show under your
-  player tag, popping on each one. Dying resets it
-- **Damage indicator**: your own screen washes red when YOU get hit, harder the
-  bigger the hit — a sniper round reads very differently from a stray pellet
-- The RPG fires a real travelling rocket with radius splash damage + falloff;
-  the rest are hitscan with fast bolt tracers
-- Camera recoil per shot (settles back), 2x headshots, and crouch (lower
-  profile + smaller hitbox, steadier, slower)
-- First-person weapon viewmodel (procedural, one silhouette per class) with
-  recoil kick, muzzle flash, and walk bob — rendered only for its owner
-- Aim-down-sights that zooms the camera, tightens spread, slows look, and
-  raises the viewmodel; the Sniper adds a scoped overlay (and hides its gun)
-- Weapon **heat** instead of ammo: sustained fire overheats and locks out until
-  it cools (fixed-timestep, so it's framerate-independent on the Pi)
-- Decorative squad NPCs (same procedural character) that idle or patrol
-- Per-viewport HUD: crosshair, HP, team scoreboard, player tag, weapon name +
-  heat bar, and the victory banner
+Both work in every mode. Four players shop at once on their own sticks, so both
+screens are a grid of boxes with a free cursor rather than anything you click.
+**The cursor opens on the SPAWN box, closed, every time** — a stick still held on
+the frame you died moves a highlight and nothing else.
+
+### Classes and rosters
+
+**Eight classes a side**: four line classes and four reinforcements, built from
+the fanbase's own vocabulary rather than from adjectives — Droideka, Clone
+Commando, ARC Trooper, BX Commando Droid, B2, Death Trooper, Flametrooper,
+Wookiee Warrior, Ewok Hunter. Star Wars and Warhammer field four sides each,
+Halo two.
+
+**A class is a body, not a colour.** Speed, health, jump and **stature** are per
+unit, so a Droideka does not move at a Scout Trooper's pace and an Ewok is
+genuinely small. Stature drives model scale, capsule height, eye height and the
+headshot line together, because the moment they disagree you get a head you can
+see but cannot hit.
+
+A class earns its place by needing a new noun: `DROIDEKA_TWIN` is the highest
+sustained output behind the shortest heat pool, the flamethrower is the only
+weapon with no reach and no way to miss, the Ewok spear is the shortest reach and
+highest melee damage, and the ARC carries two DC-17s because that is what an ARC
+is.
+
+### Combat
+
+- **Heat instead of ammo.** Sustained fire overheats and locks out.
+- **Stance drives spread** — worse moving, worse airborne, better crouched — and
+  the bloom crosshair reads the same number, so the penalty is legible. A scope
+  means zero spread while aimed, on any gun.
+- **You cannot aim down sights while running**, and the first-person weapon drops
+  out of the sight line when you sprint. The trigger cancels it, easing back
+  twice as fast as it eases in.
+- **Recoil is three things off one signal**: the viewmodel kick, the camera climb
+  and a backwards shove for the big guns.
+- **Health regenerates.** There are no health kits — you recover by breaking
+  contact.
+- **Melee connects on a forward arc**, not a pinpoint ray. The lightsaber is an
+  ordinary hitscan with a 3.4 m reach and a melee flag; aiming raises the
+  **guard**, which stops every round in front outright until its pool is spent.
+- **Force lightning is channelled** and chains between bunched bodies.
+- **Three gadget slots**, and the third is a different kind of thing: slots 1 and
+  2 are what you throw or drop, slot 3 is what you put up and keep — cloak,
+  barrier, overshield, fury. Grenades are gadgets, so the recharge is the ammo.
+- **Vehicles**: one repulsorlift speeder per Star Wars faction, deliberately
+  spread across the handling envelope. A STAP is the fastest thing on the field
+  and dies to a grenade; a T-47 survives being shot at and cannot turn.
+
+### The AI
+
+Bots deploy real loadouts from the same catalogue players buy from, and skill is
+purely intelligence — aim error, reaction time, sight range and turn speed. **A
+bot's fighting range is derived, not tabled**: a shot lands while total angular
+error keeps it inside a body's width, so an elite behind a scoped rifle works out
+at ~70 m and the same elite with a scattergun at eleven.
+
+They **plan routes** rather than steering at the goal, on an occupancy grid
+stamped from the same collider footprints the map screen scans — so a new
+procedural map is navigable with no bake and no authoring. Measured across all
+ten maps: 94 of 220 journeys have a wall on the straight line, 0 planned routes
+touch one.
+
+A bot in contact **alternates between digging in and circling** rather than
+strafing forever, and posting up costs it something as well as paying: crouched,
+its capsule shrinks on the same curve its aim tightens on.
+
+### Maps
+
+Fourteen maps. Nine hand-laid arenas, four big authored outdoor maps (Geonosis,
+Kashyyyk, Senate District, Boneyard — big in three different *shapes* on
+purpose), and the **generated world**.
+
+The generated map builds from a planet chosen on the menu — Geonosis, Kashyyyk,
+Coruscant, Mustafar, Hoth or random — re-seeded every match. A planet is a table
+row: palette, sky, sun, terrain octaves, weather and which function places its
+landmarks. **Terrain is always walkable and structures are always boxes**, which
+is what lets the nav grid understand a world nobody authored.
+
+**Time of day** is a property of the generated world, and night is a second
+palette rather than a dimmer: the ground goes down a long way, the ambient less,
+and anything that is genuinely a light source goes **up**. At night the guns are
+the lighting — muzzle flashes reach three times as far and every round that lands
+lights the ground it landed on.
+
+### Presentation
+
+- Per-viewport HUD: minimap, health gauge, round ability gauges, weapon and heat,
+  scoreboard, **killfeed**, and a **death cam** that turns the view onto whoever
+  killed you and shows the health you left them on.
+- A **post-match table** — kills, deaths, headshots and best run per player.
+- **Every sound is synthesised in code.** A blaster is a struck wire (the real
+  DL-44 is Ben Burtt hitting a radio tower guy wire, and a guy wire is a string),
+  a lightsaber is four sounds and a hum that bends when you swing it, and the
+  music is generated from one eight-bar progression played two ways.
+- **Adaptive vsync, physics interpolation and a frame governor.** "Laggy" was
+  never a frame-time problem, it was a frame-pacing one: the governor holds the
+  frame to its interval by moving render scale, and drops the rate only when
+  resolution runs out.
 
 ## Project Structure
 
 ```
 godot/
-  project.godot             — GL Compatibility, autoloads, physics layers
+  project.godot             — GL Compatibility, Jolt, autoloads, physics layers
   scenes/
-    menu.tscn               — map-select menu (the main scene)
-    main.tscn               — bare bootstrap node (main.gd loads the map)
-    levels/                 — crossfire/foundry/overgrowth/highridge.tscn, hangar.tscn
-    actors/player.tscn      — CharacterBody3D FPS player
-    actors/bot.tscn         — CharacterBody3D AI squadmate
-    actors/turret.tscn      — placed auto-turret
-    fx/                     — blaster_bolt.tscn, rocket.tscn, grenade.tscn, corpse.tscn
-  scripts/
-    menu.gd                 — map-select menu: roster list, rotation, quit
-    main.gd                 — map load + split-screen + teams + score HUD + rotation
-    game_state.gd           — autoload: map roster, TDM score, teams, spawns, input map
-    loadout.gd              — the buy catalogue: weapons, upgrades, armour, gear, squads
-    bot.gd                  — AI squadmate: target/advance/engage, skill tiers
-    turret.gd               — placed auto-turret: stationary Bot cousin
-    zone.gd                 — ZONES capture area: scoring, relocation, marker
-    front_shield.gd         — shoot-through barrier gadget
-    cable_wire.gd           — the grapple's visible claw + line
-    player.gd               — movement, crouch, recoil, damage/frag, buy screen
-    character.gd            — procedural blocky humanoid + code-built anims
-    arena.gd                — procedural map base (env/floor/walls/lights/spawns),
-                              square or rectangular (size x depth)
-    map_crossfire.gd, map_foundry.gd, map_overgrowth.gd, map_highridge.gd
-                            — map layouts (extend arena)
-    foliage.gd              — shared jungle forest builder (MultiMesh trees)
-    weapon.gd               — 9-weapon blaster: fire modes, ADS, spread, heat
-    viewmodel.gd            — procedural first-person gun + recoil/flash/bob
-    rocket.gd               — RPG projectile: travel + splash damage
-    grenade.gd              — thrown grenade: bounces, fuse, splash damage
-    trooper.gd              — decorative NPC: extends CharacterModel + patrol
-    hangar.gd               — hangar spawn-point registration (both teams)
-  shaders/                  — starfield sky, floor panels, jungle ground
-assets/models/rep/          — retired Battlefront source GLB (unused)
-tools/animate_trooper.py    — retired Blender rig/animation pipeline (unused)
+    menu.tscn               — the main scene → team_select.tscn → main.tscn
+    lobby.tscn              — host / join a session over the network
+    main.tscn               — a bare Main node; main.gd does all the work
+    levels/                 — 14 maps, all procedural but the hangar
+    actors/                 — player, bot, turret, mortar, vehicle
+    fx/                     — bolts, rockets, grenades, corpses, zones
+  scripts/                  — everything (see below)
+  shaders/                  — starfield sky, terrain, planet ground, foliage
+  tests/                    — see Tests
 ```
 
-## Roadmap (parity with the retired C++ prototype, then Battlefront)
+The scripts worth knowing about, by what they own:
 
-- Droid enemies as a match mode (the AI itself is in — see AI squadmates)
-- Conquest mode: command posts, spawn-point capture, ticket bleed
-- Game-over flow and a lobby (map select is in — see Current State)
-- Particles (impact sparks, explosions) — instanced, Pi-friendly
-- **Imported ANIMATION retargeted onto the rig.** The rig now has wrists and
-  ankles (15 animated joints), which is what makes retargeted humanoid clips
-  worth having — Mixamo motion is royalty-free for games and, unlike models,
-  carries no IP problem. The clips are sampled joint rotations either way, so the
-  bridge is a bone-name map onto `CharacterModel.PATHS`.
-- **A SETTINGS SCREEN.** There is a CONTROLS screen and nowhere else for a game
-  option to live, so `DEATH STYLE` is currently parked at the bottom of it.
-  Options are already stored separately from bindings (`Controls._options`, its
-  own `[options]` section in `user://controls.cfg`), so this is a screen to
-  write, not a migration.
-- **Conquest, Royale, Massive and vehicles ONLINE** — see Multiplayer below for
-  what each still needs.
+| | |
+|---|---|
+| `game_state.gd` | autoload: the MATCH — teams, scores, modes, spawns, the record |
+| `net.gd` | autoload: the SESSION — who is playing, on what machine, on which side |
+| `audio.gd` / `sfx.gd` / `music.gd` | voices and loudness / every sound / the two tracks |
+| `loadout.gd` | the catalogue: universes, kits, weapons, classes, rosters |
+| `main.gd` | map load, split screen, teams, HUD, rotation |
+| `player.gd` / `bot.gd` | the two things that fight; duck-typed against each other |
+| `character.gd` | the procedural box humanoid and every animation |
+| `weapon.gd` / `viewmodel.gd` | what a gun does / what it looks like in your hands |
+| `map_planet.gd` | the generated world |
+| `nav_grid.gd` | the occupancy grid and A\*, stamped from map colliders |
+| `grade.gd` / `quality.gd` / `frame_governor.gd` | how light is rendered / what it may cost / holding the interval |
+
+## Roadmap
+
+- **Heroes and battle points.** The single biggest absence against Battlefront:
+  there is no earned currency and no hero units. The reinforcement classes exist
+  and are free-picked, so gating them — and then heroes — on a battle-point
+  economy is the shape of the work.
+- **Imported ANIMATION retargeted onto the rig.** The rig has wrists and ankles
+  (15 animated joints), which is what makes retargeted humanoid clips worth
+  having. Mixamo motion is royalty-free for games and, unlike models, carries no
+  IP problem. Clips are sampled joint rotations either way, so the bridge is a
+  bone-name map onto `CharacterModel.PATHS`.
+- **A settings screen.** There is a controls screen and nowhere else for a game
+  option to live, so DEATH STYLE is parked at the bottom of it. Options are
+  already stored separately from bindings, so this is a screen to write and not a
+  migration.
+- **Conquest, Royale, Massive and vehicles ONLINE** — see Multiplayer for what
+  each still needs.
+- **Terrain shader detail.** `planet_ground.gdshader` measured at 0.07 ms;
+  replacing it with a flat albedo changed nothing. That is real budget sitting
+  unused in the place most visible to a player.
 
 ## Multiplayer: hosting and joining
 
@@ -265,9 +282,53 @@ godot --path godot -- --join 127.0.0.1    # join it
 godot --path godot -- --host --seats 2    # ...with two split-screen players here
 ```
 
-## Performance rules (Pi 5 target)
+## Performance
 
-- GL Compatibility renderer; no per-frame heap-happy scripts
-- Keep draw calls low — every mesh renders 4× (once per viewport) plus shadows
-- Directional shadow atlas capped at 2048
-- Target 60 fps at 1080p split into 4 × 960×540 viewports
+**The Raspberry Pi 5 target has been dropped.** The renderer is a documented
+choice, measured on the dev machine (Intel UHD 620, 4 viewports, Kashyyyk):
+`gl_compatibility` ~26 ms/frame against `forward_plus` ~126 ms. Forward+ buys
+SSAO, SSIL, volumetric fog and soft shadows and looks dramatically better — and
+is unplayable on integrated graphics. On a discrete GPU that flips.
+
+The rules that matter, each one here because it was broken at least once:
+
+- **No per-frame allocations, materials above all.** Build materials once and
+  write `albedo_color`. Per-*shot* allocation is the same rule and easier to
+  miss: 13 rounds a second per shooter, up to twelve shooters.
+- **Nothing is spawned for an effect no human could see.** Bots have no camera.
+- **Anything unbounded gets a pool with a ceiling and a claim token**, so an
+  owner that has been outbid does nothing quietly instead of switching somebody
+  else's effect off.
+- **When N things ask the same question every frame, ask it once** — the
+  combatant snapshot took five command posts from 2.65 ms to 0.05 ms.
+- **Measure, don't reason.** Engine frame-time monitors ranged 14.6–27.1 ms
+  across identical runs, and the GPU thermally throttles to roughly half clock
+  after ten minutes. Anything GPU-side needs an A/B/A sandwich plus warm-up.
+
+**The frame is fill-bound, not draw-call bound**, and three plausible culprits
+were measured and cleared before that was believed. At 6 bodies the frame is
+15.0 ms and at 24 it is 15.5 — the bodies are not the cost, the *map* is, drawn
+once per viewport. The dials that actually move it are resolution, MSAA, the
+shadow atlas and viewport count; chunking the terrain cut triangles 24% and did
+not move the millisecond figure at all.
+
+Target is 60 fps at 1080p split into 4 × 960×540.
+
+## Tests
+
+Run these after touching anything they cover. Headless unless marked
+**WINDOWED** — appearance cannot be judged without a renderer.
+
+The full table lives in `CLAUDE.md`. The ones worth knowing:
+
+| Test | What it protects |
+|---|---|
+| `kit_rules.gd` | Every class allow-list and all 126 AI presets against their own kit. Runs with no autoloads. |
+| `soak.tscn` | A long busy match accumulates nothing — the only test that catches per-shot leaks. |
+| `massive.tscn` / `big_teams.tscn` | 50 a side, and 20 a side in the ordinary modes. Both mostly assert ABSENCES, which is what a later edit silently undoes. |
+| `kill_record.tscn` | The killfeed and the post-match table, including that a teamkill pays nothing. |
+| `net_match.tscn` | Two real processes playing a real match, asserting the two worlds AGREE. |
+| `nav_grid.tscn` | Routing across every map, re-tested against physics. |
+| `terrain_math.tscn` | The generated surface's guarantees as arithmetic. |
+| `render_cost.tscn` | **WINDOWED.** The only test that sees rendering. `QS_SMOOTH=1` is the acceptance test. |
+| `*_look.tscn` | **WINDOWED.** Screenshots for judging appearance. |
