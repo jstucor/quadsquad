@@ -1,8 +1,8 @@
 extends "res://scripts/arena.gd"
 ## "BONEYARD" — 260 m of ship graveyard, the biggest map in the rotation.
 ##
-## The third shape of big map: not open ground (Geonosis), not a forest
-## (Kashyyyk), not a grid (Senate) — a scatter of ENORMOUS objects with narrow
+## The third shape of big map: not open ground (Aridis), not a forest
+## (Silva), not a grid (Senate) — a scatter of ENORMOUS objects with narrow
 ## ways between them. A downed cruiser hull is 60 m long and 12 m tall, so it is
 ## not cover you peek around, it is terrain: it blocks a third of the map from
 ## a third of the map, and where two hulls nearly touch is a choke point that

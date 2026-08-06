@@ -11,61 +11,61 @@ extends Node3D
 ## (~/.local/share/godot/app_userdata/QuadSquad/).
 ##
 ## The body line-ups are what to check first: every one of these shares ONE
-## skeleton and one set of animations, so if a Spartan reads as a Spartan and an
+## skeleton and one set of animations, so if a Paladin reads as a Paladin and an
 ## ork reads as an ork, the head/bulk/accessory table is carrying the whole job.
 
 const PLAYER := preload("res://scenes/actors/player.tscn")
 
 ## Each row: the file tag, and the styles standing in it.
 const LINEUPS := [
-	# STAR WARS is the setting this game is built out of, and until now not one
+	# THE COMPACT WARS is the setting this game is built out of, and until now not one
 	# of its human units stood in this test — which is how twelve of them came
 	# to be sharing a single helmet. These four rows are the ones to check
-	# first: a clone, a stormtrooper, a scout and a rebel are four of the most
+	# first: a legionary, a dominion trooper, a scout and a rebel are four of the most
 	# recognisable helmets ever put on film, and if they are not instantly
 	# telling themselves apart in the _heads shot, nothing else here matters.
-	["sw_republic", [CharacterModel.Style.CLONE, CharacterModel.Style.CLONE_HEAVY,
-		CharacterModel.Style.CLONE_ARC, CharacterModel.Style.CLONE_COMMANDO]],
-	["sw_droids", [CharacterModel.Style.B1, CharacterModel.Style.B2,
-		CharacterModel.Style.DROIDEKA, CharacterModel.Style.MAGNAGUARD]],
-	["sw_droids2", [CharacterModel.Style.COMMANDO_DROID,
-		CharacterModel.Style.TACTICAL, CharacterModel.Style.GEONOSIAN]],
-	["sw_empire", [CharacterModel.Style.STORMTROOPER,
-		CharacterModel.Style.STORMTROOPER_HEAVY,
-		CharacterModel.Style.SCOUT_TROOPER, CharacterModel.Style.DEATH_TROOPER]],
-	["sw_empire2", [CharacterModel.Style.SHORETROOPER,
-		CharacterModel.Style.FLAMETROOPER, CharacterModel.Style.IMPERIAL_OFFICER,
-		CharacterModel.Style.IMPERIAL_ROYAL]],
-	["sw_rebels", [CharacterModel.Style.REBEL_TROOPER,
-		CharacterModel.Style.REBEL_VANGUARD, CharacterModel.Style.REBEL_PILOT,
-		CharacterModel.Style.REBEL_OFFICER]],
-	["sw_rebels2", [CharacterModel.Style.REBEL_COMMANDO,
-		CharacterModel.Style.WOOKIEE, CharacterModel.Style.EWOK,
-		CharacterModel.Style.JEDI]],
-	["halo_unsc", [CharacterModel.Style.SPARTAN, CharacterModel.Style.ODST,
-		CharacterModel.Style.MARINE]],
-	["halo_covenant", [CharacterModel.Style.ELITE, CharacterModel.Style.GRUNT,
-		CharacterModel.Style.BRUTE]],
-	["wh_astartes", [CharacterModel.Style.ULTRAMARINE,
-		CharacterModel.Style.BLOOD_ANGEL]],
-	["wh_xenos", [CharacterModel.Style.NECRON, CharacterModel.Style.NECRON_LORD,
-		CharacterModel.Style.ORK, CharacterModel.Style.ORK_NOB]],
+	["cw_concord", [CharacterModel.Style.LEGION, CharacterModel.Style.LEGION_HEAVY,
+		CharacterModel.Style.LEGION_VANGUARD, CharacterModel.Style.LEGION_COMMANDO]],
+	["cw_automata", [CharacterModel.Style.AUTOMATON, CharacterModel.Style.AUTOMATON_HEAVY,
+		CharacterModel.Style.AEGIS_DRONE, CharacterModel.Style.GLAIVE_DRONE]],
+	["cw_automata2", [CharacterModel.Style.INFILTRATOR_DRONE,
+		CharacterModel.Style.TACTICAL, CharacterModel.Style.VESPID]],
+	["cw_dominion", [CharacterModel.Style.DOMINION_TROOPER,
+		CharacterModel.Style.DOMINION_HEAVY,
+		CharacterModel.Style.DOMINION_SCOUT, CharacterModel.Style.REAPER_TROOPER]],
+	["cw_dominion2", [CharacterModel.Style.GARRISON_TROOPER,
+		CharacterModel.Style.INCINERATOR_TROOPER, CharacterModel.Style.DOMINION_OFFICER,
+		CharacterModel.Style.DOMINION_GUARD]],
+	["cw_pact", [CharacterModel.Style.PACT_TROOPER,
+		CharacterModel.Style.PACT_VANGUARD, CharacterModel.Style.PACT_PILOT,
+		CharacterModel.Style.PACT_OFFICER]],
+	["cw_pact2", [CharacterModel.Style.PACT_COMMANDO,
+		CharacterModel.Style.URSAN, CharacterModel.Style.KOBB,
+		CharacterModel.Style.WARDEN]],
+	["dr_coalition", [CharacterModel.Style.PALADIN, CharacterModel.Style.DROPTROOPER,
+		CharacterModel.Style.COALITION_MARINE]],
+	["dr_hierophany", [CharacterModel.Style.ZHAAL, CharacterModel.Style.KOPA,
+		CharacterModel.Style.URSID]],
+	["ih_orders", [CharacterModel.Style.SENTINEL,
+		CharacterModel.Style.CHORISTER]],
+	["ih_xenos", [CharacterModel.Style.UNSLEEPING, CharacterModel.Style.UNSLEEPING_LORD,
+		CharacterModel.Style.SCRAPKIN, CharacterModel.Style.SCRAPKIN_BOSS]],
 ]
 
 ## First-person shots: one gun from each armoury plus every kind of melee, since
 ## the blade builder is the part that is newly parameterised.
 const GUNS := [
-	["ma5b", Weapon.Class.MA5B],
+	["ma5b", Weapon.Class.AR7],
 	["needler", Weapon.Class.NEEDLER],
 	["energy_sword", Weapon.Class.ENERGY_SWORD],
 	["grav_hammer", Weapon.Class.GRAV_HAMMER],
-	["bolter", Weapon.Class.BOLTER],
-	["chainsword", Weapon.Class.CHAINSWORD],
+	["shellgun", Weapon.Class.SHELLGUN],
+	["chain blade", Weapon.Class.CHAINSWORD],
 	["thunder_hammer", Weapon.Class.THUNDER_HAMMER],
 	["warscythe", Weapon.Class.WARSCYTHE],
-	["gauss_flayer", Weapon.Class.GAUSS_FLAYER],
+	["gauss_flayer", Weapon.Class.GAUSS_RIFLE],
 	["big_shoota", Weapon.Class.BIG_SHOOTA],
-	["power_klaw", Weapon.Class.POWER_KLAW],
+	["power_klaw", Weapon.Class.CRUSHER_CLAW],
 ]
 
 var _models: Array[CharacterModel] = []
@@ -93,10 +93,10 @@ func _ready() -> void:
 		await _grab(row[0])
 		# ...and again from close up. The HEAD is the loudest part of a
 		# silhouette and the only part of these that is genuinely new geometry,
-		# so it gets a shot where you can actually see it: a Sangheili's split
+		# so it gets a shot where you can actually see it: a Zhaal's split
 		# mandibles and an ork's jaw are four boxes each and either read or don't.
 		# Tight enough that a helmet fills a useful part of the frame. At the old
-		# distance this was a mid-shot of the whole body and twelve Star Wars
+		# distance this was a mid-shot of the whole body and twelve The Compact Wars
 		# units shared one helmet in it without anybody noticing.
 		cam.global_transform = Transform3D(Basis(),
 			Vector3(0.0, 1.64, -(0.30 + span * 0.30)))
@@ -110,8 +110,8 @@ func _ready() -> void:
 	# judged head-on: from directly in front the weapon foreshortens to a bar and
 	# both arms hide behind the torso. These are the shots that say whether the
 	# hands are actually on the grips.
-	for style in [CharacterModel.Style.SPARTAN, CharacterModel.Style.ULTRAMARINE,
-			CharacterModel.Style.B1]:
+	for style in [CharacterModel.Style.PALADIN, CharacterModel.Style.SENTINEL,
+			CharacterModel.Style.AUTOMATON]:
 		_lay_out([style])
 		for shot in [["front", 0.0], ["quarter", 0.9], ["side", 1.55], ["run", 0.9]]:
 			if shot[0] == "run":

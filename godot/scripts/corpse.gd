@@ -95,7 +95,7 @@ var _animated: CharacterModel  # ANIMATED style only; null for the other two
 ## caller pays for the instantiate and nothing else; every caller already guards
 ## its handle with `is_instance_valid`.
 ## `stature` is the unit's own size (Loadout.stature). A body does not change
-## size when it dies — without this an Ewok's corpse stood up to full trooper
+## size when it dies — without this an Kobb's corpse stood up to full trooper
 ## height on the frame it hit the floor.
 func launch(xform: Transform3D, team_color: Color, push_dir: Vector3,
 		style := -1, forced := false, stature := 1.0) -> void:

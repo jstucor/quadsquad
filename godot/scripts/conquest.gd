@@ -49,8 +49,8 @@ func _place_posts() -> void:
 	var half: float = ext.x if along_x else ext.y
 	var name_i := 0
 	# Two home posts, one per side, pre-owned.
-	_spawn_post(c, along_x, -HOME_FRAC * half, GameState.Team.REPUBLIC, "REPUBLIC HQ")
-	_spawn_post(c, along_x, HOME_FRAC * half, GameState.Team.CIS, "SEPARATIST HQ")
+	_spawn_post(c, along_x, -HOME_FRAC * half, GameState.Team.CONCORD, "CONCORD HQ")
+	_spawn_post(c, along_x, HOME_FRAC * half, GameState.Team.AUTOMATA, "AUTOMATA HQ")
 	# Neutral posts down the middle. Small maps get fewer, so they do not overlap.
 	var fracs: Array = NEUTRAL_FRACS if half >= 45.0 else [0.0]
 	for f in fracs:

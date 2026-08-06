@@ -1,6 +1,6 @@
 extends "res://scripts/arena.gd"
 ## "Overgrowth" — an outdoor jungle basin, 86 m wide x 68 m deep (the biggest
-## map, and the only rectangular one), Republic spawns South and CIS North
+## map, and the only rectangular one), Concord spawns South and Automata North
 ## across a ruined stone temple at mid-field. Unlike the interior
 ## maps this one is lit as daylight: a warm sun, a green canopy-bounce fill and
 ## a humid haze, over a procedural moss/dirt floor instead of the metal deck.

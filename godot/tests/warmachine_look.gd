@@ -23,21 +23,21 @@ func _ready() -> void:
 	# A trooper at the origin as the yardstick.
 	var man := CharacterModel.new()
 	add_child(man)
-	man.set_style(CharacterModel.Style.CLONE)
+	man.set_style(CharacterModel.Style.LEGION)
 	man.set_render_layers(1)
 	man.position = Vector3(-1.0, 0, 6.4)
 
 	# THE GUNSHIP IS NOT A VEHICLE ANY MORE — it flies itself and you ride the ball
 	# turret (see gunship.gd). Built here without `begin()`, which would seat a
 	# player and start the circuit; this only needs the airframe.
-	var laat: Node3D = GUNSHIP.new()
-	add_child(laat)
-	laat.team = 0
-	laat._build()
-	laat.global_position = Vector3(3.0, 7.5, -2.0)
+	var gunship: Node3D = GUNSHIP.new()
+	add_child(gunship)
+	gunship.team = 0
+	gunship._build()
+	gunship.global_position = Vector3(3.0, 7.5, -2.0)
 	var atst := await _spawn("atst", 2, Vector3(-1.5, 0, 2.5))
 	var barc := await _spawn("", 0, Vector3(-4.0, 0, -2.0))
-	print("  AT-ST %.1f m tall, BARC %.1f m long" % [
+	print("  MARAUDER %.1f m tall, BARC %.1f m long" % [
 		atst._row["hull"].y + atst._row["hover"], barc._row["hull"].z])
 
 	var cam := Camera3D.new()
@@ -52,7 +52,7 @@ func _ready() -> void:
 
 	# ...and each alone, front three-quarter, because a group shot cannot show
 	# whether one of them reads from its own front.
-	for pair in [[laat, "laat"], [atst, "atst"]]:
+	for pair in [[gunship, "gunship"], [atst, "atst"]]:
 		var v: Node3D = pair[0]
 		cam.position = v.global_position + Vector3(6.0, -4.2, 9.0)
 		cam.look_at(v.global_position + Vector3.UP * 0.6, Vector3.UP)

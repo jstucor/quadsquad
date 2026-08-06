@@ -3,7 +3,7 @@ extends Node3D
 ## the mount/dismount round trip.
 ##
 ## Most of what this protects is an ABSENCE or a RESTORE, which is exactly the
-## kind of thing a later edit undoes silently: that Halo and Warhammer get NO
+## kind of thing a later edit undoes silently: that Deep Range and Ironhymn get NO
 ## vehicles, that a dismounted player gets its collision and its model back, that
 ## a driver who dies at the controls does NOT get them back (the death cam owns
 ## the body by then), and that a speeder never spawns on top of its own team's
@@ -41,26 +41,26 @@ func _ready() -> void:
 	get_tree().quit(0 if _fails.is_empty() else 1)
 
 
-## ONLY STAR WARS HAS VEHICLES. This is the whole scope line and it is one
+## ONLY THE COMPACT WARS HAS VEHICLES. This is the whole scope line and it is one
 ## function, so this is the test that catches somebody "generalising" it later.
 func _test_universe_rule() -> void:
-	print("== the Star Wars rule ==")
-	var sw: Array = Vehicle.spawns_for(Loadout.Universe.STAR_WARS)
-	_expect(sw.size() == 4, "Star Wars fields 4 vehicles, got %d" % sw.size())
-	for u: int in [Loadout.Universe.HALO, Loadout.Universe.WARHAMMER]:
+	print("== the The Compact Wars rule ==")
+	var sw: Array = Vehicle.spawns_for(Loadout.Universe.COMPACT)
+	_expect(sw.size() == 4, "The Compact Wars fields 4 vehicles, got %d" % sw.size())
+	for u: int in [Loadout.Universe.DEEP_RANGE, Loadout.Universe.IRONHYMN]:
 		var got: Array = Vehicle.spawns_for(u)
 		_expect(got.is_empty(),
 			"universe %d fields NO vehicles, got %d" % [u, got.size()])
 	# One per SIDE, and the sides are the ones the universe actually names — a
 	# fifth row here would be a vehicle belonging to a faction that cannot be
 	# fielded, which nothing else would report.
-	var teams: Array = Loadout.UNIVERSES[Loadout.Universe.STAR_WARS]["teams"]
+	var teams: Array = Loadout.UNIVERSES[Loadout.Universe.COMPACT]["teams"]
 	_expect(sw.size() == teams.size(),
-		"one vehicle per Star Wars side (%d vehicles, %d sides)"
+		"one vehicle per The Compact Wars side (%d vehicles, %d sides)"
 			% [sw.size(), teams.size()])
 	for t: int in sw:
 		_expect(t >= 0 and t < teams.size(),
-			"vehicle team %d is a real Star Wars side" % t)
+			"vehicle team %d is a real The Compact Wars side" % t)
 
 
 ## Every row states everything the mechanism reads. A missing key is a default
@@ -141,12 +141,12 @@ func _test_mount_round_trip() -> void:
 	print("\n== mount / dismount ==")
 	var v: Vehicle = VEHICLE_SCENE_new()
 	add_child(v)
-	v.setup(Vehicle.REPUBLIC)
+	v.setup(Vehicle.CONCORD)
 	v.global_position = Vector3(0, 2.0, 40.0)
 	var p: Player = PLAYER.instantiate()
 	p.player_index = 0
 	p.input_device = -1
-	p.team = Vehicle.REPUBLIC
+	p.team = Vehicle.CONCORD
 	add_child(p)
 	p.global_position = Vector3(1.5, 0.2, 40.0)
 	for i in 30:
@@ -184,7 +184,7 @@ func _test_mount_round_trip() -> void:
 
 	# AN ENEMY'S SPEEDER IS NOT YOURS. The mount area refuses it outright, so
 	# there is no way to steal one even standing in it with the button held.
-	p.team = Vehicle.EMPIRE
+	p.team = Vehicle.DOMINION
 	p.pickup_in_reach = v
 	p.pickup_pressed = true
 	for i in 6:
@@ -200,7 +200,7 @@ func _test_damage_and_wreck() -> void:
 	print("\n== damage ==")
 	var v: Vehicle = VEHICLE_SCENE_new()
 	add_child(v)
-	v.setup(Vehicle.REPUBLIC)
+	v.setup(Vehicle.CONCORD)
 	v.global_position = Vector3(0, 2.0, 80.0)
 	await get_tree().physics_frame
 
@@ -209,14 +209,14 @@ func _test_damage_and_wreck() -> void:
 	# reads `attacker.global_position` — a bare Node3D standing outside the scene
 	# is a test artifact that reports as a product error.
 	var friend := Dummy.new()
-	friend.team = Vehicle.REPUBLIC
+	friend.team = Vehicle.CONCORD
 	add_child(friend)
 	var before := v.health
 	v.take_damage(100.0, friend)
 	_expect(is_equal_approx(v.health, before), "a teammate cannot shoot it")
 
 	var foe := Dummy.new()
-	foe.team = Vehicle.EMPIRE
+	foe.team = Vehicle.DOMINION
 	add_child(foe)
 	foe.global_position = Vector3(0, 1.0, 70.0)
 	v.take_damage(100.0, foe)
@@ -227,7 +227,7 @@ func _test_damage_and_wreck() -> void:
 	var p: Player = PLAYER.instantiate()
 	p.player_index = 0
 	p.input_device = -1
-	p.team = Vehicle.REPUBLIC
+	p.team = Vehicle.CONCORD
 	add_child(p)
 	p.global_position = Vector3(1.5, 0.2, 80.0)
 	for i in 20:
@@ -265,13 +265,13 @@ func _test_real_matches() -> void:
 	print("\n== in a real match ==")
 	# (universe, mode, teams, how many speeders should be on the field)
 	var cases := [
-		[Loadout.Universe.STAR_WARS, GameState.Mode.DEATHMATCH, 2, 2],
-		[Loadout.Universe.STAR_WARS, GameState.Mode.DEATHMATCH, 4, 4],
-		[Loadout.Universe.STAR_WARS, GameState.Mode.CONQUEST, 2, 2],
+		[Loadout.Universe.COMPACT, GameState.Mode.DEATHMATCH, 2, 2],
+		[Loadout.Universe.COMPACT, GameState.Mode.DEATHMATCH, 4, 4],
+		[Loadout.Universe.COMPACT, GameState.Mode.CONQUEST, 2, 2],
 		# Royale is scavenging, not a motor pool.
-		[Loadout.Universe.STAR_WARS, GameState.Mode.ROYALE, 2, 0],
-		[Loadout.Universe.HALO, GameState.Mode.DEATHMATCH, 2, 0],
-		[Loadout.Universe.WARHAMMER, GameState.Mode.DEATHMATCH, 4, 0],
+		[Loadout.Universe.COMPACT, GameState.Mode.ROYALE, 2, 0],
+		[Loadout.Universe.DEEP_RANGE, GameState.Mode.DEATHMATCH, 2, 0],
+		[Loadout.Universe.IRONHYMN, GameState.Mode.DEATHMATCH, 4, 0],
 	]
 	for c: Array in cases:
 		GameState.universe = c[0]
@@ -302,7 +302,7 @@ func _test_real_matches() -> void:
 		main.queue_free()
 		await _frames(6)
 	# Leave the autoload as we found it for anything running after this.
-	GameState.universe = Loadout.Universe.STAR_WARS
+	GameState.universe = Loadout.Universe.COMPACT
 	GameState.mode = GameState.Mode.DEATHMATCH
 
 
@@ -311,7 +311,7 @@ func _test_real_matches() -> void:
 ##
 ## A WALKER'S LEGS ARE DRAWN, NOT SIMULATED — the hull hovers off a ray and the
 ## legs are geometry hung off it — so the leg length and the row's `hover` are
-## two numbers that have to agree and NOTHING enforces it. The first AT-ST's feet
+## two numbers that have to agree and NOTHING enforces it. The first MARAUDER's feet
 ## finished three metres in the air, and a screenshot does not reliably show that
 ## (the shadow lands under it either way, and there is no other body in frame at
 ## walker scale). A number does.
@@ -362,7 +362,7 @@ func _test_war_machines() -> void:
 ## Every other check here measures the machine. This one measures the ONE
 ## interaction it exists for, from the only position a player is ever in — feet
 ## on the floor, next to the hull — and it is the check that was missing when the
-## AT-ST shipped unboardable.
+## MARAUDER shipped unboardable.
 ##
 ## The fault was invisible to all of the above. The walker's hull was right, its
 ## clearance was right, its feet were on the ground, it registered as a combatant
@@ -440,7 +440,7 @@ func _frames(n: int) -> void:
 
 ## WHAT THE DRIVER SEES AND WHAT THE SIGHT PROMISES.
 ##
-## Two reports, one section. The AT-ST's point of view was unusable, and the
+## Two reports, one section. The MARAUDER's point of view was unusable, and the
 ## reason is a number: the authored `Seat` is a SADDLE, so the camera rides a
 ## body height ABOVE it — right for a speeder, and on a walker it put the eye
 ## above the pod's own roof, a camera floating in clear air over the machine with
@@ -452,22 +452,22 @@ func _frames(n: int) -> void:
 ## The sight is drawn on the point the GUN's own ray reaches, not at the middle of
 ## the screen, and that is the assertion below that matters most — a vehicle's gun
 ## is nowhere near the driver's eye and is clamped to a cone the camera is not, so
-## a centred reticle is a lie exactly when it is most needed. It is the LAAT
+## a centred reticle is a lie exactly when it is most needed. It is the HAMMERHEAD
 ## parallax lesson: two rays can point the same way and land eighty metres apart.
 func _test_driver_sight() -> void:
 	print("\n== the driver's eye and the driver's sight ==")
-	for spec: Array in [["", "BARC SPEEDER"], ["atst", "AT-ST WALKER"]]:
+	for spec: Array in [["", "LANCER SPEEDER"], ["atst", "MARAUDER WALKER"]]:
 		var v: Vehicle = VEHICLE_SCENE_new()
 		add_child(v)
 		if str(spec[0]).is_empty():
-			v.setup(Vehicle.REPUBLIC)
+			v.setup(Vehicle.CONCORD)
 		else:
-			v.setup_as(str(spec[0]), Vehicle.REPUBLIC)
+			v.setup_as(str(spec[0]), Vehicle.CONCORD)
 		v.global_position = Vector3(0, 3.0, -60.0)
 		var p: Player = PLAYER.instantiate()
 		p.player_index = 0
 		p.input_device = -1
-		p.team = Vehicle.REPUBLIC
+		p.team = Vehicle.CONCORD
 		add_child(p)
 		p.global_position = v.global_position + Vector3(1.5, 0.0, 0.0)
 		for i in 30:

@@ -78,7 +78,7 @@ func _spawn() -> Player:
 	add_child(p)
 	await get_tree().process_frame
 	p.pending = Loadout.new()
-	p.pending.adopt_kit(Loadout.Kit.CLONE)
+	p.pending.adopt_kit(Loadout.Kit.LEGION)
 	p._apply_loadout()
 	p._dead = false
 	p.global_position = Vector3(0, 0.2, 0)
@@ -608,7 +608,7 @@ func _steps_this_frame(p: Player) -> int:
 ## That is what confines the rotation to ROLL. Rolling about the view axis cannot
 ## move where the centre of the screen points; yaw or pitch would put the reticle
 ## and the barrel on different lines, which is precisely the fault that made the
-## LAAT's ball turret unusable and is not worth reintroducing for an effect.
+## HAMMERHEAD's ball turret unusable and is not worth reintroducing for an effect.
 func _check_shake() -> void:
 	print("\n== screen shake ==")
 	var p := await _spawn()

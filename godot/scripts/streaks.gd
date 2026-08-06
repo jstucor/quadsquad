@@ -15,7 +15,7 @@ extends Object
 ##
 ##   CALL-IN   something happens somewhere else. Recon, orbital strike, a walker
 ##             delivered to you. You carry on being what you were.
-##   BECOME    something happens to YOU. Ork Warboss, Jedi Master. You stop being
+##   BECOME    something happens to YOU. Ork Warboss, Warden Master. You stop being
 ##             a trooper and the rest of the life is played as something else.
 ##
 ## **A REWARD IS OFFERED, NOT APPLIED.** D-UP takes it, D-DOWN turns it down (see
@@ -37,7 +37,7 @@ enum Kind { RECON, BOMBARDMENT, VEHICLE, BECOME, GUNSHIP }
 ## A REWARD BELONGS TO A FACTION, AND TO NOTHING ELSE.
 ##
 ## It was gated on KIT as well, which meant the reward you could earn depended on
-## what you had bought that life — so a Republic player in a clone kit and one in
+## what you had bought that life — so a Concord player in a legionary kit and one in
 ## a Force kit were fighting for different prizes on the same side, and switching
 ## class mid-match silently changed the ladder under you. A faction is the thing a
 ## player picks once and identifies with, and it is the same answer for every one
@@ -50,10 +50,10 @@ enum Kind { RECON, BOMBARDMENT, VEHICLE, BECOME, GUNSHIP }
 ## Stated as a MAP rather than as a `universe` + `teams` pair because a reward can
 ## belong to different sides in different settings, and the pair cannot express
 ## that without two rows that would then drift apart. It is also what makes an
-## absent universe a REFUSAL rather than a fallthrough: team 0 is the Republic in
-## Star Wars and the UNSC in Halo, and neither may inherit the other's prize.
+## absent universe a REFUSAL rather than a fallthrough: team 0 is the Concord in
+## The Compact Wars and the COALITION in Deep Range, and neither may inherit the other's prize.
 ## THE LADDER IS THE SAME SHAPE FOR EVERY FACTION: two rewards anybody can earn,
-## then that side's OWN signature, and for Star Wars a fourth at the top.
+## then that side's OWN signature, and for The Compact Wars a fourth at the top.
 const KILLS_RECON := 4
 const KILLS_ORBITAL := 7
 const KILLS_SIGNATURE := 10
@@ -85,8 +85,8 @@ const SIGNATURE_BLURB := "Your side's finest takes the field"
 ##
 ## A gadget here is NOT checked against the kit's allow-list, exactly as an
 ## authored faction class's is not — `_build_from` writes the field. That is
-## deliberate: a Droideka Prime carries the Wookiee's front shield because a
-## droideka IS a shield, and the allow-lists are a SHOP rule, not a physics one.
+## deliberate: a Aegis Drone Prime carries the Ursan's front shield because a
+## aegis drone IS a shield, and the allow-lists are a SHOP rule, not a physics one.
 ##
 ## ---------------------------------------------------------------------------
 ## A SIGNATURE IS SUPPOSED TO BE TOO STRONG. That is the design, not a tuning
@@ -135,7 +135,7 @@ const REWARDS: Array[Dictionary] = [
 	# THE ORBITAL STRIKE IS DELIBERATELY UNIVERSAL. Every side has somebody
 	# overhead, and it is the one reward that asks nothing of what you are — no
 	# body to become, no machine to climb into, no faction hardware. It is the
-	# rung that keeps the ladder the same height for a Grot and a Space Marine.
+	# rung that keeps the ladder the same height for a Runt and a Sentinel.
 	{
 		"name": "ORBITAL STRIKE", "kills": KILLS_ORBITAL, "kind": Kind.BOMBARDMENT,
 		"blurb": "Take fire control aboard the ship and call the rounds down yourself",
@@ -150,33 +150,33 @@ const REWARDS: Array[Dictionary] = [
 	#
 	# This is the rule `tests/streaks.gd` enforces, and it is here because the
 	# first version had SIX factions sharing a generic "Juggernaut" — which is
-	# the same failure as the first roster pass (CLONE PILOT and REBEL HEAVY
+	# the same failure as the first roster pass (LEGION PILOT and PACT HEAVY
 	# carrying recycled rifles): a reward generated from an adjective rather than
-	# designed from the fanbase's own vocabulary. A Necron Lord and an Ork
+	# designed from the fanbase's own vocabulary. A Unsleeping Lord and an Ork
 	# Warboss are not two skins on one Juggernaut, and if they were, there would
 	# be no reason to care which side you were on.
 	#
-	# Every one is a BECOME except the Republic's and the Empire's, which were
+	# Every one is a BECOME except the Concord's and the Dominion's, which were
 	# asked for as machines. The body and the gun are the whole of each row: the
 	# mechanism underneath is identical and stated once.
 	# =========================================================================
 
-	# ---- STAR WARS -----------------------------------------------------------
+	# ---- THE COMPACT WARS -----------------------------------------------------------
 	{
-		"name": "LAAT GUNSHIP", "kills": KILLS_SIGNATURE, "kind": Kind.GUNSHIP,
+		"name": "HAMMERHEAD GUNSHIP", "kills": KILLS_SIGNATURE, "kind": Kind.GUNSHIP,
 		"blurb": "Ride the ball turret while it circles the field",
-		"factions": {Loadout.Universe.STAR_WARS: [0]},
+		"factions": {Loadout.Universe.COMPACT: [0]},
 		"duration": 22.0,
 	},
 	{
-		"name": "DROIDEKA PRIME", "kills": KILLS_SIGNATURE, "kind": Kind.BECOME,
+		"name": "AEGIS PRIME", "kills": KILLS_SIGNATURE, "kind": Kind.BECOME,
 		"blurb": "Paired repeaters behind a shield, and no way to run",
-		"factions": {Loadout.Universe.STAR_WARS: [1]},
+		"factions": {Loadout.Universe.COMPACT: [1]},
 		"overshield": 759.0,
 		"preset": {
-			"name": "DROIDEKA PRIME", "kit": Loadout.Kit.CLONE,
-			"primary": Weapon.Class.DROIDEKA_TWIN, "sidearm": Weapon.Class.PISTOL,
-			"armor": 3, "style": CharacterModel.Style.DROIDEKA,
+			"name": "AEGIS PRIME", "kit": Loadout.Kit.LEGION,
+			"primary": Weapon.Class.AEGIS_TWIN, "sidearm": Weapon.Class.PISTOL,
+			"armor": 3, "style": CharacterModel.Style.AEGIS_DRONE,
 			"unit_health": 3.07, "unit_speed": 0.72, "unit_stature": 0.95,
 			# COOLING matters more here than on anything else in the game: the twin
 			# is the highest sustained output in the catalogue behind the SHORTEST
@@ -189,23 +189,23 @@ const REWARDS: Array[Dictionary] = [
 		},
 	},
 	{
-		"name": "AT-ST WALKER", "kills": KILLS_SIGNATURE, "kind": Kind.VEHICLE,
+		"name": "MARAUDER WALKER", "kills": KILLS_SIGNATURE, "kind": Kind.VEHICLE,
 		"blurb": "A walker is dropped in beside you",
-		"factions": {Loadout.Universe.STAR_WARS: [2]},
+		"factions": {Loadout.Universe.COMPACT: [2]},
 		"vehicle": "atst",
 	},
 	{
-		"name": "WOOKIEE CHIEFTAIN", "kills": KILLS_SIGNATURE, "kind": Kind.BECOME,
-		"blurb": "Two metres of fur, plate and bowcaster",
-		"factions": {Loadout.Universe.STAR_WARS: [3]},
+		"name": "URSAN CHIEFTAIN", "kills": KILLS_SIGNATURE, "kind": Kind.BECOME,
+		"blurb": "Two metres of fur, plate and quarrel caster",
+		"factions": {Loadout.Universe.COMPACT: [3]},
 		"overshield": 594.0,
 		"preset": {
-			"name": "WOOKIEE CHIEFTAIN", "kit": Loadout.Kit.WOOKIEE,
-			"primary": Weapon.Class.HMG, "sidearm": Weapon.Class.BOWCASTER,
-			"armor": 3, "style": CharacterModel.Style.WOOKIEE,
+			"name": "URSAN CHIEFTAIN", "kit": Loadout.Kit.URSAN,
+			"primary": Weapon.Class.HMG, "sidearm": Weapon.Class.QUARREL_CASTER,
+			"armor": 3, "style": CharacterModel.Style.URSAN,
 			"unit_health": 3.42, "unit_speed": 0.88, "unit_stature": 1.14,
-			# NO SCOPE ON THE BOWCASTER, deliberately, and for the reason the
-			# WOOKIEE kit already forbids it: zero spread collapses all three
+			# NO SCOPE ON THE QUARREL CASTER, deliberately, and for the reason the
+			# URSAN kit already forbids it: zero spread collapses all three
 			# quarrels onto one point and the pellet gun stops being one.
 			"sight": Loadout.Sight.RED_DOT, "cooling": true,
 			"grip": true, "foregrip": true,
@@ -217,14 +217,14 @@ const REWARDS: Array[Dictionary] = [
 
 	# ---- HALO ----------------------------------------------------------------
 	{
-		"name": "SPARTAN HEADHUNTER", "kills": KILLS_SIGNATURE, "kind": Kind.BECOME,
+		"name": "PALADIN HEADHUNTER", "kills": KILLS_SIGNATURE, "kind": Kind.BECOME,
 		"blurb": "Mjolnir plate and a shield that comes back",
-		"factions": {Loadout.Universe.HALO: [0]},
+		"factions": {Loadout.Universe.DEEP_RANGE: [0]},
 		"overshield": 726.0,
 		"preset": {
-			"name": "SPARTAN HEADHUNTER", "kit": Loadout.Kit.SPARTAN,
-			"primary": Weapon.Class.M247_HMG, "sidearm": Weapon.Class.M6D,
-			"armor": 3, "style": CharacterModel.Style.SPARTAN,
+			"name": "PALADIN HEADHUNTER", "kit": Loadout.Kit.PALADIN,
+			"primary": Weapon.Class.HM40, "sidearm": Weapon.Class.S6,
+			"armor": 3, "style": CharacterModel.Style.PALADIN,
 			"unit_health": 3.19, "unit_speed": 1.05, "unit_stature": 1.10,
 			"sight": Loadout.Sight.RED_DOT, "cooling": true,
 			"grip": true, "foregrip": true,
@@ -234,15 +234,15 @@ const REWARDS: Array[Dictionary] = [
 		},
 	},
 	{
-		"name": "SANGHEILI ZEALOT", "kills": KILLS_SIGNATURE, "kind": Kind.BECOME,
+		"name": "ZHAAL BLADEMASTER", "kills": KILLS_SIGNATURE, "kind": Kind.BECOME,
 		"blurb": "An energy sword and the speed to reach you with it",
-		"factions": {Loadout.Universe.HALO: [1]},
+		"factions": {Loadout.Universe.DEEP_RANGE: [1]},
 		"overshield": 660.0,
 		"preset": {
-			"name": "SANGHEILI ZEALOT", "kit": Loadout.Kit.SANGHEILI,
+			"name": "ZHAAL BLADEMASTER", "kit": Loadout.Kit.ZHAAL,
 			"primary": Weapon.Class.ENERGY_SWORD,
 			"sidearm": Weapon.Class.PLASMA_PISTOL,
-			"armor": 2, "style": CharacterModel.Style.ELITE_ULTRA,
+			"armor": 2, "style": CharacterModel.Style.ZHAAL_ULTRA,
 			"unit_health": 2.95, "unit_speed": 1.22, "unit_stature": 1.14,
 			# A MELEE SIGNATURE HIDES THE SIGHT/COOLING/GRIP ROWS, so its weapon
 			# buff goes on the SIDEARM instead: DUAL is two plasma pistols the
@@ -255,55 +255,55 @@ const REWARDS: Array[Dictionary] = [
 		},
 	},
 
-	# ---- WARHAMMER 40,000 ----------------------------------------------------
+	# ---- IRONHYMN ----------------------------------------------------
 	{
-		"name": "TERMINATOR", "kills": KILLS_SIGNATURE, "kind": Kind.BECOME,
-		"blurb": "Tactical Dreadnought armour and a heavy bolter",
-		"factions": {Loadout.Universe.WARHAMMER: [0]},
+		"name": "IRONCLAD", "kills": KILLS_SIGNATURE, "kind": Kind.BECOME,
+		"blurb": "Tactical Dreadnought armour and a heavy shellgun",
+		"factions": {Loadout.Universe.IRONHYMN: [0]},
 		"overshield": 825.0,
 		"preset": {
-			"name": "TERMINATOR", "kit": Loadout.Kit.ULTRAMARINE,
+			"name": "IRONCLAD", "kit": Loadout.Kit.SENTINEL,
 			"primary": Weapon.Class.HEAVY_BOLTER,
 			"sidearm": Weapon.Class.BOLT_PISTOL,
-			"armor": 3, "style": CharacterModel.Style.ULTRAMARINE,
+			"armor": 3, "style": CharacterModel.Style.SENTINEL,
 			"unit_health": 4.01, "unit_speed": 0.70, "unit_stature": 1.16,
 			"sight": Loadout.Sight.RED_DOT, "cooling": true,
 			"grip": true, "foregrip": true,
 			"gadget": Loadout.Gadget.ASSAULT_CANNON,
-			"gadget2": Loadout.Gadget.KRAK_GRENADE,
+			"gadget2": Loadout.Gadget.BREACH_CHARGE,
 			"gadget3": Loadout.Gadget.IRON_HALO,
 		},
 	},
 	{
-		"name": "SANGUINARY EXEMPLAR", "kills": KILLS_SIGNATURE, "kind": Kind.BECOME,
+		"name": "CRIMSON EXEMPLAR", "kills": KILLS_SIGNATURE, "kind": Kind.BECOME,
 		"blurb": "Gold plate, a power sword and wings to arrive on",
-		"factions": {Loadout.Universe.WARHAMMER: [1]},
+		"factions": {Loadout.Universe.IRONHYMN: [1]},
 		"overshield": 660.0,
 		"preset": {
-			"name": "SANGUINARY EXEMPLAR", "kit": Loadout.Kit.BLOOD_ANGEL,
+			"name": "CRIMSON EXEMPLAR", "kit": Loadout.Kit.CHORISTER,
 			"primary": Weapon.Class.POWER_SWORD,
-			"sidearm": Weapon.Class.PLASMA_PISTOL_40K,
-			"armor": 2, "style": CharacterModel.Style.BLOOD_ANGEL,
+			"sidearm": Weapon.Class.ORDER_PLASMA_PISTOL,
+			"armor": 2, "style": CharacterModel.Style.CHORISTER,
 			"unit_health": 3.19, "unit_speed": 1.18, "unit_jump": 1.45,
 			"unit_stature": 1.12,
 			"secondary_mod": Loadout.SecondaryMod.DUAL,
 			# The wings are the whole read on this one, so they are the gadget on
 			# the button rather than a line in the blurb.
 			"gadget": Loadout.Gadget.JUMP_PACK,
-			"gadget2": Loadout.Gadget.MELTA_BOMB,
-			"gadget3": Loadout.Gadget.RED_THIRST,
+			"gadget2": Loadout.Gadget.FUSION_CHARGE,
+			"gadget3": Loadout.Gadget.CRIMSON_RAGE,
 		},
 	},
 	{
-		"name": "NECRON OVERLORD", "kills": KILLS_SIGNATURE, "kind": Kind.BECOME,
+		"name": "UNSLEEPING OVERLORD", "kills": KILLS_SIGNATURE, "kind": Kind.BECOME,
 		"blurb": "A warscythe, and it gets back up",
-		"factions": {Loadout.Universe.WARHAMMER: [2]},
+		"factions": {Loadout.Universe.IRONHYMN: [2]},
 		"overshield": 693.0,
 		"preset": {
-			"name": "NECRON OVERLORD", "kit": Loadout.Kit.NECRON,
+			"name": "UNSLEEPING OVERLORD", "kit": Loadout.Kit.UNSLEEPING,
 			"primary": Weapon.Class.WARSCYTHE,
 			"sidearm": Weapon.Class.GAUSS_PISTOL,
-			"armor": 3, "style": CharacterModel.Style.NECRON_LORD,
+			"armor": 3, "style": CharacterModel.Style.UNSLEEPING_LORD,
 			"unit_health": 3.66, "unit_speed": 0.92, "unit_stature": 1.15,
 			"secondary_mod": Loadout.SecondaryMod.DUAL,
 			"gadget": Loadout.Gadget.TESLA_ARC,
@@ -312,31 +312,31 @@ const REWARDS: Array[Dictionary] = [
 		},
 	},
 	{
-		"name": "ORK WARBOSS", "kills": KILLS_SIGNATURE, "kind": Kind.BECOME,
+		"name": "SCRAP WARLORD", "kills": KILLS_SIGNATURE, "kind": Kind.BECOME,
 		"blurb": "A power klaw and the size to swing it",
-		"factions": {Loadout.Universe.WARHAMMER: [3]},
+		"factions": {Loadout.Universe.IRONHYMN: [3]},
 		"overshield": 759.0,
 		"preset": {
-			"name": "ORK WARBOSS", "kit": Loadout.Kit.ORK,
-			"primary": Weapon.Class.POWER_KLAW, "sidearm": Weapon.Class.SLUGGA,
-			"armor": 3, "style": CharacterModel.Style.ORK_NOB,
+			"name": "SCRAP WARLORD", "kit": Loadout.Kit.SCRAPKIN,
+			"primary": Weapon.Class.CRUSHER_CLAW, "sidearm": Weapon.Class.SLUG_PISTOL,
+			"armor": 3, "style": CharacterModel.Style.SCRAPKIN_BOSS,
 			"unit_health": 4.13, "unit_speed": 0.95, "unit_stature": 1.20,
 			"secondary_mod": Loadout.SecondaryMod.DUAL,
-			"gadget": Loadout.Gadget.ROKKIT_PACK,
-			"gadget2": Loadout.Gadget.STIKKBOMB,
-			"gadget3": Loadout.Gadget.WAAAGH,
+			"gadget": Loadout.Gadget.SCRAP_JETS,
+			"gadget2": Loadout.Gadget.SCRAP_BOMB,
+			"gadget3": Loadout.Gadget.WARCRY,
 		},
 	},
 
 	# =========================================================================
-	# ...and one at the top of the Star Wars ladder that ALL FOUR sides reach,
-	# because the Force is allegiance and not faction hardware. It is the one
+	# ...and one at the top of the The Compact Wars ladder that ALL FOUR sides reach,
+	# because Kinesis is allegiance and not faction hardware. It is the one
 	# reward deliberately shared, and it still resolves to two different bodies.
 	# =========================================================================
 	{
-		"name": "FORCE MASTER", "kills": KILLS_FORCE, "kind": Kind.BECOME,
-		"blurb": "A master of the Force takes the field",
-		"factions": {Loadout.Universe.STAR_WARS: [0, 1, 2, 3]},
+		"name": "KINESIS MASTER", "kills": KILLS_FORCE, "kind": Kind.BECOME,
+		"blurb": "A master of Kinesis takes the field",
+		"factions": {Loadout.Universe.COMPACT: [0, 1, 2, 3]},
 		"shared": true,
 		# WATCHED, NOT LOOKED THROUGH. Everything a Force Master does happens to
 		# the BODY — a two-metre blade on an arc, a guard across the chest, a
@@ -350,21 +350,21 @@ const REWARDS: Array[Dictionary] = [
 		# on a LIGHT FRAME with no second pool it stood up at 208 effective health
 		# against the ten-kill Terminator's 795, so the four-kill climb from the
 		# signature to the master was a downgrade in everything but flair. It keeps
-		# the light frame — a Force adept is fast because it has to close — and
+		# the light frame — a Kinesis adept is fast because it has to close — and
 		# takes the pool as a SHIELD instead, which is the one that gets spent.
 		"overshield": 858.0,
 		"preset_by_team": {
-			0: {"name": "JEDI MASTER", "style": CharacterModel.Style.JEDI},
-			3: {"name": "JEDI MASTER", "style": CharacterModel.Style.JEDI},
-			1: {"name": "SITH MASTER", "style": CharacterModel.Style.IMPERIAL_ROYAL},
-			2: {"name": "SITH MASTER", "style": CharacterModel.Style.IMPERIAL_ROYAL},
+			0: {"name": "GRAND WARDEN", "style": CharacterModel.Style.WARDEN},
+			3: {"name": "GRAND WARDEN", "style": CharacterModel.Style.WARDEN},
+			1: {"name": "DREAD REAVER", "style": CharacterModel.Style.DOMINION_GUARD},
+			2: {"name": "DREAD REAVER", "style": CharacterModel.Style.DOMINION_GUARD},
 		},
 		"preset": {
-			"name": "FORCE MASTER", "kit": Loadout.Kit.FORCE,
+			"name": "KINESIS MASTER", "kit": Loadout.Kit.ADEPT,
 			"primary": Weapon.Class.SABER, "sidearm": Weapon.Class.PISTOL,
-			"armor": 0, "style": CharacterModel.Style.JEDI,
-			"gadget": Loadout.Gadget.FORCE_LIGHTNING,
-			"gadget2": Loadout.Gadget.FORCE_PUSH,
+			"armor": 0, "style": CharacterModel.Style.WARDEN,
+			"gadget": Loadout.Gadget.ARC_STORM,
+			"gadget2": Loadout.Gadget.KINETIC_PUSH,
 			"gadget3": Loadout.Gadget.FURY,
 			"unit_health": 4.01, "unit_speed": 1.18, "unit_jump": 1.35,
 		},
@@ -379,8 +379,8 @@ const REWARDS: Array[Dictionary] = [
 ##
 ## `team` is the side. Nothing else is asked, which is the whole point — see the
 ## note on `factions`.
-## `universe` and `side` are the TEAM'S OWN, because a match may have UNSC on one
-## side and the Republic on the other and there is no single setting to ask.
+## `universe` and `side` are the TEAM'S OWN, because a match may have COALITION on one
+## side and the Concord on the other and there is no single setting to ask.
 ## Passed in for the same reason `faction_classes` takes one: this file may not
 ## name an autoload either.
 static func available(side: int, universe := -1) -> Array[Dictionary]:
@@ -401,7 +401,7 @@ static func _allows(row: Dictionary, side: int, universe: int) -> bool:
 	var by_universe: Dictionary = row["factions"]
 	# THE UNIVERSE IS LOOKED UP FIRST and an absent one is a refusal, not a
 	# fallthrough — a team index means a different side in every setting, so a
-	# Spartan on team 0 must never inherit the Republic's gunship.
+	# Paladin on team 0 must never inherit the Concord's gunship.
 	if not by_universe.has(universe):
 		return false
 	return (by_universe[universe] as Array).has(side)
@@ -420,8 +420,8 @@ static func earned(rewards: Array[Dictionary], before: int, after: int) -> Dicti
 
 
 ## The preset a BECOME reward deploys, resolved for a side. A row may state
-## `preset_by_team` to override parts of its base `preset` — that is how JEDI and
-## SITH are one reward and one mechanism with two names and two bodies.
+## `preset_by_team` to override parts of its base `preset` — that is how WARDEN and
+## REAVER are one reward and one mechanism with two names and two bodies.
 static func become_preset(row: Dictionary, team: int) -> Dictionary:
 	var preset: Dictionary = (row.get("preset", {}) as Dictionary).duplicate(true)
 	var by_team: Dictionary = row.get("preset_by_team", {})

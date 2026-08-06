@@ -15,7 +15,7 @@ extends Node
 ##   2. Building 24 bodies of 24 DIFFERENT styles prices the worst case in the
 ##      game, not the normal one. `Meshes.chamfer_box` caches per SIZE, so the
 ##      first body of a style pays for every mesh it invents and the rest of that
-##      style pay for none. A squad of clones and a line-up of one of everything
+##      style pay for none. A squad of legionaries and a line-up of one of everything
 ##      are different questions and both are asked below.
 ##
 ## Headless, so the renderer does nothing and what is left is the script and the
@@ -96,7 +96,7 @@ func _build_cost(mixed: bool) -> float:
 		var m := CharacterModel.new()
 		add_child(m)
 		m.set_style(i % CharacterModel.Style.size() if mixed
-			else CharacterModel.Style.CLONE)
+			else CharacterModel.Style.LEGION)
 		_models.append(m)
 	var ms := (Time.get_ticks_usec() - t) / 1000.0 / float(BODIES)
 	await get_tree().process_frame

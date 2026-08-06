@@ -19,13 +19,13 @@ signal zone_state(holder: int, contested: bool, seconds_left: int)
 ## — a killfeed that holds node references is a killfeed full of nulls.
 signal kill_logged(entry: Dictionary)
 
-enum Team { REPUBLIC, CIS }
+enum Team { CONCORD, AUTOMATA }
 ## DEATHMATCH scores on kills; ZONES scores a point per second for whichever
 ## team has the most bodies inside the roaming capture area.
 ## ROYALE is the odd one out: it is not scored at all. Nobody respawns, you
 ## start with a sidearm and scavenge the rest off the ground, a shrinking storm
 ## herds everyone together, and the last side still standing wins.
-## CONQUEST is the Battlefront mode: two sides fight over CAPTURE POSTS spread
+## CONQUEST is the The Genre mode: two sides fight over CAPTURE POSTS spread
 ## across the map. Holding more posts than the enemy bleeds their shared
 ## REINFORCEMENT tickets, and each death spends one; the side that runs its
 ## tickets to zero loses. You deploy AT a post your side holds, chosen on the
@@ -89,7 +89,7 @@ const MAPS: Array[Dictionary] = [
 		"scene": preload("res://scenes/levels/overgrowth.tscn")},
 	{"name": "HIGHRIDGE", "blurb": "Jungle mountain, tunnel and a flag on the peak",
 		"scene": preload("res://scenes/levels/highridge.tscn")},
-	{"name": "HANGAR", "blurb": "Imperial deck, close quarters",
+	{"name": "HANGAR", "blurb": "Dominion deck, close quarters",
 		"scene": preload("res://scenes/levels/hangar.tscn")},
 	{"name": "SPILLWAY", "blurb": "Long narrow channel, staggered blocks",
 		"scene": preload("res://scenes/levels/spillway.tscn")},
@@ -99,12 +99,12 @@ const MAPS: Array[Dictionary] = [
 		"scene": preload("res://scenes/levels/relay.tscn")},
 	{"name": "CATWALK", "blurb": "Cramped corridors, every fight is a corner",
 		"scene": preload("res://scenes/levels/catwalk.tscn")},
-	{"name": "GEONOSIS", "blurb": "Vast red basin: five mesas around an arena. 300m across",
-		"scene": preload("res://scenes/levels/geonosis.tscn")},
-	{"name": "KASHYYYK", "blurb": "Wroshyr forest: groves, clearings and a village. 220m",
-		"scene": preload("res://scenes/levels/kashyyyk.tscn")},
-	{"name": "SENATE DISTRICT", "blurb": "City grid at night: long avenues, a central plaza. 240m",
-		"scene": preload("res://scenes/levels/senate.tscn")},
+	{"name": "ARIDIS", "blurb": "Vast red basin: five mesas around an arena. 300m across",
+		"scene": preload("res://scenes/levels/aridis.tscn")},
+	{"name": "SILVA", "blurb": "Wroshyr forest: groves, clearings and a village. 220m",
+		"scene": preload("res://scenes/levels/silva.tscn")},
+	{"name": "CIVIC DISTRICT", "blurb": "City grid at night: long avenues, a central plaza. 240m",
+		"scene": preload("res://scenes/levels/civic.tscn")},
 	{"name": "BONEYARD", "blurb": "Ship graveyard: vast hulls and the chokes between them. 260m",
 		"scene": preload("res://scenes/levels/boneyard.tscn")},
 	# The generated one, rolled. Its blurb is the PLANET's, filled in by
@@ -118,8 +118,8 @@ const MAPS: Array[Dictionary] = [
 	# and a PLANET dropdown somewhere else deciding which of the five it built —
 	# so five of the game's nineteen maps were invisible on the screen where you
 	# choose a map, reachable only by picking a row that did not name any of them
-	# and then finding a second control. A player choosing between Hoth and
-	# Kashyyyk is choosing a MAP by every meaning of the word.
+	# and then finding a second control. A player choosing between Boreal and
+	# Silva is choosing a MAP by every meaning of the word.
 	#
 	# APPENDED, NEVER INSERTED (house rule 8). `map_index` is stored in a saved
 	# playlist and in `user://setup.cfg` now, so inserting a row here silently
@@ -135,15 +135,15 @@ const MAPS: Array[Dictionary] = [
 	# of the same name, and the difference is the whole point of the row: one is
 	# an authored 220 m forest that is the same every time, the other is a forest
 	# rolled fresh at the drop.
-	{"name": "GEONOSIS (GENERATED)", "blurb": "", "procedural": true, "planet": 0,
+	{"name": "ARIDIS (GENERATED)", "blurb": "", "procedural": true, "planet": 0,
 		"scene": preload("res://scenes/levels/planet.tscn")},
-	{"name": "KASHYYYK (GENERATED)", "blurb": "", "procedural": true, "planet": 1,
+	{"name": "SILVA (GENERATED)", "blurb": "", "procedural": true, "planet": 1,
 		"scene": preload("res://scenes/levels/planet.tscn")},
-	{"name": "CORUSCANT (GENERATED)", "blurb": "", "procedural": true, "planet": 2,
+	{"name": "CIVIS (GENERATED)", "blurb": "", "procedural": true, "planet": 2,
 		"scene": preload("res://scenes/levels/planet.tscn")},
-	{"name": "MUSTAFAR (GENERATED)", "blurb": "", "procedural": true, "planet": 3,
+	{"name": "CINDER (GENERATED)", "blurb": "", "procedural": true, "planet": 3,
 		"scene": preload("res://scenes/levels/planet.tscn")},
-	{"name": "HOTH (GENERATED)", "blurb": "", "procedural": true, "planet": 4,
+	{"name": "BOREAL (GENERATED)", "blurb": "", "procedural": true, "planet": 4,
 		"scene": preload("res://scenes/levels/planet.tscn")},
 	# THE CLOSE-QUARTERS ONE, and the only generated INTERIOR: 84 m against a
 	# planet's 300, roofed, and laid out as rooms behind walls rather than ground
@@ -160,18 +160,18 @@ const MAPS: Array[Dictionary] = [
 ]
 ## A team is just an index now, 0 .. active_teams()-1. Two is the classic
 ## two-faction match; three or four makes it a free-for-all between squads;
-## FREE FOR ALL gives every player a team of one. Team.REPUBLIC and Team.CIS are
+## FREE FOR ALL gives every player a team of one. Team.CONCORD and Team.AUTOMATA are
 ## still 0 and 1, so maps that name them keep working.
 ##
 ## Arrays, not dictionaries keyed by the enum: every `team_colors[team]` lookup
 ## in the game indexes by int and carries on working unchanged.
 ##
-## WHO those sides ARE comes from the UNIVERSE (see Loadout.UNIVERSES) — UNSC and
-## Covenant, or four Warhammer factions — so these are vars refreshed by
+## WHO those sides ARE comes from the UNIVERSE (see Loadout.UNIVERSES) — COALITION and
+## Hierophany, or four Ironhymn factions — so these are vars refreshed by
 ## apply_universe() rather than constants. Everything that reads them indexes an
 ## array of four either way.
 const MAX_TEAMS := 4
-var team_names: Array[String] = ["REPUBLIC", "SEPARATIST", "MANDALORE", "HUTT CARTEL"]
+var team_names: Array[String] = ["CONCORD LEGION", "AUTOMATA", "MANDALORE", "HUTT CARTEL"]
 var team_colors: Array[Color] = [
 	Color(0.35, 0.55, 1.0),   # blue
 	Color(1.0, 0.40, 0.32),   # red
@@ -181,7 +181,7 @@ var team_colors: Array[Color] = [
 
 ## WHAT A SIDE'S GUNFIRE LOOKS LIKE, which is not the same question as what its
 ## scoreboard chip looks like — hence a second array rather than reusing
-## team_colors. The Empire's chip is grey plate and its bolts are green; a grey
+## team_colors. The Dominion's chip is grey plate and its bolts are green; a grey
 ## tracer would be no tracer at all.
 ##
 ## It is a fall-through, not an override: a weapon that states its own `flash`
@@ -229,20 +229,20 @@ func bolt_color(team: int) -> Color:
 ## Setters rather than a call at match start, so the buy screen's HP figures are
 ## right the moment the menu changes and can never disagree with what deploys.
 ## An initialiser does not run a setter, so _init seeds both as well.
-var universe := Loadout.Universe.STAR_WARS:
+var universe := Loadout.Universe.COMPACT:
 	set(value):
 		universe = clampi(value, 0, Loadout.UNIVERSES.size() - 1)
 		Loadout.active_universe = universe
 		# PICKING A SETTING DEALS ITS SIDES OUT IN ORDER, which is what makes the
-		# universe dropdown still mean what it always meant: choose STAR WARS and
-		# you get Republic, Separatist, Empire, Rebels. Changing an individual
+		# universe dropdown still mean what it always meant: choose THE COMPACT WARS and
+		# you get Concord, Automata, Dominion, the Pact. Changing an individual
 		# side afterwards is what makes a cross-setting match.
 		for t in team_faction.size():
 			team_faction[t] = Loadout.first_faction_of(universe) + t
 		refresh_sides()
 
 ## WHICH FACTION EACH SIDE IS, as an index into `Loadout.factions()` — the flat
-## list across every setting. This is what lets UNSC fight the Republic: a match
+## list across every setting. This is what lets COALITION fight the Concord: a match
 ## no longer HAS one universe, it has up to four sides that each name one.
 ##
 ## `universe` is still a real setting and still the thing the menu leads with; it
@@ -252,7 +252,7 @@ var team_faction: Array[int] = [0, 1, 2, 3]
 
 ## AND WHAT COLOUR EACH SIDE WEARS — an index into `Loadout.TEAM_TINTS`, 0 being
 ## the faction's own. It rides the model ACCENTS and the BOLT together (see
-## `Loadout.tint_bolt`), because "purple clones" that still fire blue is half a
+## `Loadout.tint_bolt`), because "purple legionaries" that still fire blue is half a
 ## setting.
 var team_tint: Array[int] = [0, 0, 0, 0]
 
@@ -289,7 +289,7 @@ func team_universe(team: int) -> int:
 
 ## True when the sides on the field are not all from one setting — which is a
 ## legal match and a deliberate one, and the thing a few systems have to know
-## about (vehicles are Star Wars only, and a shop cannot offer two catalogues).
+## about (vehicles are The Compact Wars only, and a shop cannot offer two catalogues).
 func mixed_universes() -> bool:
 	var seen := -1
 	for t in active_teams():
@@ -611,7 +611,7 @@ var aim_assist := AimAssist.PADS
 ##
 ## Conquest was written as "the mode with no buy screen" and deathmatch as "the
 ## mode with one", which meant the two were welded to the rules they shipped
-## with. They are not the same choice: a Battlefront-style roster is just as
+## with. They are not the same choice: a The Genre-style roster is just as
 ## playable in deathmatch, and shopping is just as playable while fighting over
 ## command posts. So this is its own setting, `default_class_mode` only seeds it
 ## from the mode, and both screens work in every mode.
@@ -647,7 +647,7 @@ var free_for_all := false
 const MIN_HUMANS := 1
 const MAX_HUMANS := 4
 const MIN_TEAM_SIZE := 1
-## TWENTY A SIDE IN THE ORDINARY MODES. It was six, which is not a Battlefront
+## TWENTY A SIDE IN THE ORDINARY MODES. It was six, which is not a The Genre
 ## match — a 6v6 on 260 m of Boneyard is four people who never find each other.
 ## MASSIVE already proved a hundred bodies runs (see `crowded` for the four
 ## measures that made it possible); what stopped deathmatch, zones and conquest
@@ -842,8 +842,8 @@ func record_results(winner: int) -> void:
 ## A QUEUE OF MATCHES, NOT A MAP ROTATION. `rotate_maps` walks the map roster in
 ## order and keeps every other setting fixed, which answers "we cannot be bothered
 ## to choose again" and nothing else. What four people at a couch actually want is
-## the thing Battlefront's front end is built around: three rounds we picked, in
-## the order we picked them — Conquest on Kashyyyk as the Republic, then a quick
+## the thing The Genre's front end is built around: three rounds we picked, in
+## the order we picked them — Conquest on Silva as the Concord, then a quick
 ## deathmatch in the hangar, then a battle royale — set up once, before anybody
 ## sits down, and then played without going back to a menu between them.
 ##
@@ -1163,7 +1163,7 @@ func massive() -> bool:
 ##
 ## IT KEEPS THE ONE ALREADY CHOSEN. Every planet is its own row now, so "lock
 ## this to the procedural world" must not mean "throw away the fact that they
-## picked Hoth" — the rule is that a hundred bodies need generated ground, not
+## picked Boreal" — the rule is that a hundred bodies need generated ground, not
 ## that they need a rolled one.
 func procedural_map_index() -> int:
 	if map_is_procedural():
@@ -1403,7 +1403,7 @@ func sample_combatants() -> void:
 	live_n = n
 
 
-## Combatants currently invisible to AI (the Trandoshan's cloak). A set kept
+## Combatants currently invisible to AI (the Saurian's cloak). A set kept
 ## here rather than a flag on the body so every AI vision check can consult it
 ## the same way it consults `smokes`, without duck-typing a method onto Player,
 ## Bot and Turret. Only Player ever adds to it today.
@@ -1464,7 +1464,7 @@ const TROOPER_HEIGHT := 1.8
 const CHEST_FRACTION := 0.56
 
 
-## HOW HIGH TO AIM AT A BODY, above its feet. Units have a stature now — an Ewok
+## HOW HIGH TO AIM AT A BODY, above its feet. Units have a stature now — an Kobb
 ## stands about 1.1 m and a Super Battle Droid over 2.1 — so a fixed chest height
 ## puts an AI's rounds over the small ones and into the belt of the big ones,
 ## and does the same to the sight checks that decide whether they are seen at

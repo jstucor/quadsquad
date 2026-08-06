@@ -26,9 +26,9 @@ extends Node3D
 ## yardstick, and a class deployed with fewer abilities than its neighbours.
 
 # The gun a "standard trooper" shoots back with, for the TTK IN column. The E-11
-# is the most-fired weapon in Star Wars and sits mid-table on damage, which is
+# is the most-fired weapon in The Compact Wars and sits mid-table on damage, which is
 # what makes it a fair yardstick rather than a flattering one.
-const YARDSTICK_GUN := Weapon.Class.E11
+const YARDSTICK_GUN := Weapon.Class.DK11
 const YARDSTICK_HEALTH := 100.0   # ARMOR[1] "NONE", which is what a line class wears
 
 # Guard rails. Wide on purpose: this is asking "is this absurd", not "is this
@@ -59,7 +59,7 @@ const TTK_OUT_MIN := 0.35
 # jump pack are five names for four behaviours, and every one of them answers
 # the question a melee class has to be able to answer.
 const CLOSERS := [Loadout.Gadget.DASH, Loadout.Gadget.JETPACK,
-	Loadout.Gadget.FORCE_LEAP, Loadout.Gadget.CABLE, Loadout.Gadget.FURY]
+	Loadout.Gadget.KINETIC_LEAP, Loadout.Gadget.CABLE, Loadout.Gadget.FURY]
 
 var _fails: Array[String] = []
 
@@ -149,7 +149,7 @@ func _row(index: int) -> Dictionary:
 ## slower than a rifleman and has no answer to that is not a hard matchup, it is
 ## an impossible one — it can be walked backwards away from, forever, by every
 ## gun in the game. Four classes shipped like that (the Brute Chieftain, the
-## Vanguard Veteran, the Necron Lord and, before its roll, the Droideka).
+## Vanguard Veteran, the Unsleeping Lord and, before its roll, the Aegis Drone).
 func _has_closer(preset: Dictionary) -> bool:
 	for key in ["gadget", "gadget2", "gadget3"]:
 		var g: int = int(preset.get(key, 0))
@@ -170,7 +170,7 @@ func _has_closer(preset: Dictionary) -> bool:
 ## lasts, not how hard it hits" — which is true and was still the wrong call,
 ## because it is precisely the thing balancing every heavy weapon in the game.
 ## Leaving it out reported the T-21 and the DC-17m as the two hardest-hitting guns
-## on the Republic roster, and neither can hold its trigger for a full second.
+## on the Concord roster, and neither can hold its trigger for a full second.
 func _dps(profile: Dictionary, sustained := false) -> float:
 	var interval: float = maxf(float(profile.get("fire_interval", 1.0)), 0.001)
 	var pellets: int = profile.get("pellets", 1)
@@ -205,7 +205,7 @@ func _per_shot(profile: Dictionary) -> float:
 
 ## How many of the three gadget slots this class actually deploys with. A class
 ## carrying one where its neighbours carry three is not a design decision, it is
-## a row somebody stopped filling in — which is exactly what the Clone Wars
+## a row somebody stopped filling in — which is exactly what the Compact Wars
 ## rosters were before this pass.
 func _ability_count(preset: Dictionary) -> int:
 	var n := 0
@@ -220,7 +220,7 @@ func _check_row(r: Dictionary) -> void:
 	# TTK IN is checked against the EFFECTIVE figure, not the raw one. A body is
 	# scaled in height only, so the target a shooter has to track is smaller in
 	# proportion to its stature and takes correspondingly longer to empty — an
-	# Ewok's 48 HP is not the 0.32 s it looks like on paper. Without this the
+	# Kobb's 48 HP is not the 0.32 s it looks like on paper. Without this the
 	# floor would forbid exactly the units that are supposed to be tiny.
 	var eff: float = r["ttk_in"] / r["stature"]
 	_expect(eff >= TTK_IN_MIN,
@@ -265,7 +265,7 @@ func _report_extremes(rows: Array) -> void:
 	# fastest AND the hardest to kill is not a class, it is the answer to the
 	# question "which class should I pick", and every other row becomes scenery.
 	# The Royal Guard was doing exactly this before it had a physique of its own
-	# — it inherited the Force kit's x1.2 speed on top of heavy plate.
+	# — it inherited Kinesis kit's x1.2 speed on top of heavy plate.
 	_expect(by_speed[0]["name"] != by_hp[0]["name"],
 		"%s is both the fastest and the toughest class on its roster" % by_speed[0]["name"])
 

@@ -1,6 +1,6 @@
 extends "res://scripts/arena.gd"
-## "Crossfire" — a planetside landing zone at night, 50 m square, Republic
-## holding the South pads and CIS the North across a central comms bunker.
+## "Crossfire" — a planetside landing zone at night, 50 m square, Concord
+## holding the South pads and Automata the North across a central comms bunker.
 ##
 ## The lighting is the map's character: it is genuinely dark out here, and what
 ## you can see is what the floodlight pylons and the pad markings light. The

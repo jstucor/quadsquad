@@ -15,7 +15,7 @@ const RETARGET_INTERVAL := 0.4
 const FIRE_HEAT_CEILING := 0.75
 const EYE_HEIGHT := 1.05
 
-var team: int = GameState.Team.REPUBLIC
+var team: int = GameState.Team.CONCORD
 var owner_player: Node3D
 var health := MAX_HEALTH
 

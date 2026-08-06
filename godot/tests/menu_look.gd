@@ -49,7 +49,7 @@ func _ready() -> void:
 	universe_dd.select(1)
 	universe_dd.item_selected.emit(1)
 	await _frames(2)
-	print("picked 'HALO' -> universe %d, sides %s" % [
+	print("picked 'DEEP RANGE' -> universe %d, sides %s" % [
 		GameState.universe, str(GameState.team_names)])
 	ttk_dd.select(GameState.Ttk.REALISTIC)
 	ttk_dd.item_selected.emit(GameState.Ttk.REALISTIC)

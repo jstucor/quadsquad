@@ -1,7 +1,7 @@
 extends "res://scripts/character.gd"
 ## Decorative squad NPC: a procedural CharacterModel that loops an animation
 ## (random phase so squads don't march in lockstep) and optionally patrols
-## between waypoints. No collision — Battlefront AI replaces this _process
+## between waypoints. No collision — The Genre AI replaces this _process
 ## movement with a CharacterBody3D state machine later.
 
 @export var anim := "idle"

@@ -161,12 +161,12 @@ func _light_braziers() -> void:
 ## readable at a glance from across the map.
 func _hang_banners() -> void:
 	var faces := [
-		[Vector3(0, 3.6, -5.6), 0.0, GameState.Team.REPUBLIC],
-		[Vector3(0, 3.6, 5.6), 0.0, GameState.Team.CIS],
-		[Vector3(-5.6, 3.6, 0), PI * 0.5, GameState.Team.REPUBLIC],
-		[Vector3(5.6, 3.6, 0), PI * 0.5, GameState.Team.CIS],
+		[Vector3(0, 3.6, -5.6), 0.0, GameState.Team.CONCORD],
+		[Vector3(0, 3.6, 5.6), 0.0, GameState.Team.AUTOMATA],
+		[Vector3(-5.6, 3.6, 0), PI * 0.5, GameState.Team.CONCORD],
+		[Vector3(5.6, 3.6, 0), PI * 0.5, GameState.Team.AUTOMATA],
 	]
-	for team in [GameState.Team.REPUBLIC, GameState.Team.CIS]:
+	for team in [GameState.Team.CONCORD, GameState.Team.AUTOMATA]:
 		var xforms := []
 		for f in faces:
 			if f[2] != team:

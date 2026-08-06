@@ -1,6 +1,6 @@
 extends Control
 ## THE BALL TURRET'S OWN SIGHT, drawn over one viewport while that player is
-## riding the LAAT.
+## riding the HAMMERHEAD.
 ##
 ## It exists because the ordinary HUD answers none of the questions a gunner has.
 ## The bloom crosshair reads `Weapon.current_spread_deg()` off the rifle the
@@ -106,9 +106,9 @@ func _bar_total(ride: Dictionary) -> float:
 
 ## WHERE THE SIGHT GOES, and it is not always the middle of the screen.
 ##
-## A ride's seat is boresighted by construction — the LAAT's camera sits 2.25 m
+## A ride's seat is boresighted by construction — the HAMMERHEAD's camera sits 2.25 m
 ## straight behind its own muzzle — so the centre IS where the rounds go. A
-## vehicle's is not: the AT-ST's cannon is under the cockpit, a speeder's is out
+## vehicle's is not: the MARAUDER's cannon is under the cockpit, a speeder's is out
 ## on the nose, and the gun is clamped to a cone the camera is not, so past the
 ## stop the barrel stays put while the view keeps turning. So the mount hands
 ## over the world point its next round LANDS on and the sight is drawn there.

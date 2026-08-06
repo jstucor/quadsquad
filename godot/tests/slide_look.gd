@@ -38,7 +38,7 @@ func _ready() -> void:
 
 	for i in CLIPS.size():
 		var m := CharacterModel.new()
-		m.set_style(CharacterModel.Style.CLONE)
+		m.set_style(CharacterModel.Style.LEGION)
 		m.set_team_color(GameState.team_color(0))
 		add_child(m)
 		m.position = Vector3((i - (CLIPS.size() - 1) * 0.5) * SPACING, 0.0, 0.0)

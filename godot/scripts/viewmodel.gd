@@ -117,8 +117,8 @@ var _blade_core: StandardMaterial3D  # kept so a parry can flare them
 var _blade_glow: StandardMaterial3D
 ## What the melee weapon currently in hand LOOKS like, read off its own profile
 ## in _build (see Weapon.melee_look). One saber builder and one staff builder
-## serve every blade in every universe — a lightsaber, an energy sword, a
-## chainsword and a thunder hammer differ by these six numbers and nothing else.
+## serve every blade in every universe — a arc blade, an energy sword, a
+## chain blade and a thunder hammer differ by these six numbers and nothing else.
 var _blade_col := BLADE_CORE
 var _glow_col := BLADE_GLOW
 var _blade_len := BLADE_LENGTH
@@ -222,19 +222,19 @@ const SHAPES := {
 		"receiver": Vector3(0.046, 0.068, 0.3), "barrel": Vector3(0.023, 0.023, 0.52),
 		"stock": true, "grip": true, "mag": Vector3(0.027, 0.095, 0.045), "muzzle": 0.055,
 	},
-	Weapon.Class.DH17: {  # DH-17: boxy service pistol
+	Weapon.Class.DH7: {  # DH-17: boxy service pistol
 		"receiver": Vector3(0.038, 0.06, 0.15), "barrel": Vector3(0.024, 0.024, 0.13),
 		"stock": false, "grip": false, "mag": Vector3(0.028, 0.09, 0.035), "muzzle": 0.03,
 	},
-	Weapon.Class.BRYAR: {  # Bryar: long-barrelled, cylinder under the receiver
+	Weapon.Class.BR9: {  # Bryar: long-barrelled, cylinder under the receiver
 		"receiver": Vector3(0.04, 0.062, 0.16), "barrel": Vector3(0.024, 0.024, 0.24),
 		"stock": false, "grip": false, "cylinder": 0.04, "muzzle": 0.04,
 	},
-	Weapon.Class.BOWCASTER: {  # Wookiee crossbow: fat body, short bore, limbs
+	Weapon.Class.QUARREL_CASTER: {  # Ursan crossbow: fat body, short bore, limbs
 		"receiver": Vector3(0.072, 0.09, 0.22), "barrel": Vector3(0.03, 0.03, 0.18),
 		"stock": true, "grip": true, "drum": 0.05, "muzzle": 0.04, "limbs": 0.15,
 	},
-	# The lightsaber is built by _build_saber, not from these fields: a hilt and
+	# The arc blade is built by _build_saber, not from these fields: a hilt and
 	# a blade share nothing with a receiver and a barrel. The entry exists so
 	# the class is present in the table and `saber` can flag the branch.
 	Weapon.Class.SABER: {
@@ -253,54 +253,54 @@ const SHAPES := {
 		"stock": false, "grip": false, "staff": true,
 	},
 
-	# --- HALO: UNSC -----------------------------------------------------------
+	# --- DEEP RANGE: COALITION -----------------------------------------------------------
 	# Boxy, top-heavy, magazine-fed. The MA5B's counter housing and the SPNKr's
 	# twin tubes are the two silhouettes people actually recognise.
-	Weapon.Class.MA5B: {  # MA5B: fat carry handle over a short barrel
+	Weapon.Class.AR7: {  # MA5B: fat carry handle over a short barrel
 		"receiver": Vector3(0.062, 0.09, 0.26), "barrel": Vector3(0.03, 0.03, 0.20),
 		"stock": true, "grip": true, "mag": Vector3(0.036, 0.13, 0.055), "muzzle": 0.045,
 	},
-	Weapon.Class.BR55: {  # BR55: slim rifle, long barrel, ships with optics
+	Weapon.Class.BR3: {  # BR55: slim rifle, long barrel, ships with optics
 		"receiver": Vector3(0.05, 0.075, 0.28), "barrel": Vector3(0.024, 0.024, 0.36),
 		"stock": true, "grip": true, "mag": Vector3(0.03, 0.10, 0.05), "muzzle": 0.04,
 	},
-	Weapon.Class.M7_SMG: {  # M7: stockless, tall magazine, stubby bore
+	Weapon.Class.S9_SMG: {  # M7: stockless, tall magazine, stubby bore
 		"receiver": Vector3(0.048, 0.072, 0.17), "barrel": Vector3(0.022, 0.022, 0.14),
 		"stock": false, "grip": true, "mag": Vector3(0.032, 0.15, 0.042), "muzzle": 0.032,
 	},
-	Weapon.Class.M90_SHOTGUN: {  # M90: fat tube under a fat barrel
+	Weapon.Class.CQ12: {  # M90: fat tube under a fat barrel
 		"receiver": Vector3(0.072, 0.09, 0.30), "barrel": Vector3(0.05, 0.05, 0.30),
 		"stock": true, "grip": true, "muzzle": 0.08, "tube": true,
 	},
-	Weapon.Class.SRS99: {  # SRS99: enormous barrel, bipod, heavy optics
+	Weapon.Class.LR99: {  # SRS99: enormous barrel, bipod, heavy optics
 		"receiver": Vector3(0.05, 0.07, 0.34), "barrel": Vector3(0.026, 0.026, 0.66),
 		"stock": true, "grip": true, "mag": Vector3(0.028, 0.08, 0.05), "muzzle": 0.08,
 		"bipod": true,
 	},
-	Weapon.Class.SPNKR: {  # SPNKr: twin tubes, no stock
+	Weapon.Class.RL8: {  # SPNKr: twin tubes, no stock
 		"receiver": Vector3(0.115, 0.115, 0.54), "barrel": Vector3(0.09, 0.09, 0.20),
 		"stock": false, "grip": true, "muzzle": 0.14, "tube": true, "barrels": 2,
 	},
-	Weapon.Class.M6D: {  # M6D: heavy sidearm with a scope block
+	Weapon.Class.S6: {  # M6D: heavy sidearm with a scope block
 		"receiver": Vector3(0.042, 0.065, 0.16), "barrel": Vector3(0.026, 0.026, 0.14),
 		"stock": false, "grip": false, "mag": Vector3(0.028, 0.09, 0.038), "muzzle": 0.035,
 	},
-	Weapon.Class.M247_HMG: {  # M247: belt-fed, drum, bipod
+	Weapon.Class.HM40: {  # M247: belt-fed, drum, bipod
 		"receiver": Vector3(0.075, 0.085, 0.34), "barrel": Vector3(0.048, 0.048, 0.46),
 		"stock": true, "grip": true, "drum": 0.05, "muzzle": 0.08, "bipod": true,
 	},
-	Weapon.Class.M392_DMR: {  # M392: long, thin, scoped
+	Weapon.Class.DM3: {  # M392: long, thin, scoped
 		"receiver": Vector3(0.046, 0.07, 0.30), "barrel": Vector3(0.023, 0.023, 0.50),
 		"stock": true, "grip": true, "mag": Vector3(0.028, 0.10, 0.045), "muzzle": 0.05,
 	},
-	Weapon.Class.SPARTAN_LASER: {  # laser: a squared-off block with a lens
+	Weapon.Class.LANCE_LASER: {  # laser: a squared-off block with a lens
 		"receiver": Vector3(0.10, 0.12, 0.42), "barrel": Vector3(0.055, 0.055, 0.12),
 		"stock": false, "grip": true, "drum": 0.055, "muzzle": 0.11,
 	},
 
-	# --- HALO: Covenant -------------------------------------------------------
+	# --- DEEP RANGE: Hierophany -------------------------------------------------------
 	# Rounded, vented, no magazines anywhere — plasma weapons carry a drum where
-	# a UNSC gun carries a mag, and the needler wears its crystals as limbs.
+	# a COALITION gun carries a mag, and the needler wears its crystals as limbs.
 	Weapon.Class.PLASMA_RIFLE: {
 		"receiver": Vector3(0.075, 0.095, 0.26), "barrel": Vector3(0.034, 0.034, 0.14),
 		"stock": false, "grip": true, "drum": 0.05, "muzzle": 0.055,
@@ -309,11 +309,11 @@ const SHAPES := {
 		"receiver": Vector3(0.05, 0.075, 0.15), "barrel": Vector3(0.026, 0.026, 0.09),
 		"stock": false, "grip": false, "cylinder": 0.042, "muzzle": 0.045,
 	},
-	Weapon.Class.NEEDLER: {  # the crystals: the bowcaster's limbs, stood on end
+	Weapon.Class.NEEDLER: {  # the crystals: the quarrel caster's limbs, stood on end
 		"receiver": Vector3(0.062, 0.085, 0.22), "barrel": Vector3(0.028, 0.028, 0.13),
 		"stock": false, "grip": true, "muzzle": 0.04, "limbs": 0.11,
 	},
-	Weapon.Class.COV_CARBINE: {
+	Weapon.Class.HIER_CARBINE: {
 		"receiver": Vector3(0.052, 0.08, 0.28), "barrel": Vector3(0.026, 0.026, 0.34),
 		"stock": false, "grip": true, "drum": 0.038, "muzzle": 0.042,
 	},
@@ -325,7 +325,7 @@ const SHAPES := {
 		"receiver": Vector3(0.10, 0.105, 0.44), "barrel": Vector3(0.07, 0.07, 0.20),
 		"stock": false, "grip": true, "drum": 0.07, "muzzle": 0.12, "tube": true,
 	},
-	Weapon.Class.BRUTE_SHOT: {  # drum-fed grenade thrower with a blade under it
+	Weapon.Class.CLEAVER_GUN: {  # drum-fed grenade thrower with a blade under it
 		"receiver": Vector3(0.085, 0.10, 0.30), "barrel": Vector3(0.05, 0.05, 0.22),
 		"stock": true, "grip": true, "drum": 0.075, "muzzle": 0.09,
 	},
@@ -333,7 +333,7 @@ const SHAPES := {
 		"receiver": Vector3(0.058, 0.08, 0.16), "barrel": Vector3(0.045, 0.045, 0.12),
 		"stock": false, "grip": false, "muzzle": 0.07,
 	},
-	# The two Covenant melee weapons build from the blade path, not these fields.
+	# The two Hierophany melee weapons build from the blade path, not these fields.
 	Weapon.Class.ENERGY_SWORD: {
 		"receiver": Vector3(0.05, 0.05, 0.22), "barrel": Vector3(0.03, 0.03, 0.0),
 		"stock": false, "grip": false, "saber": true,
@@ -343,10 +343,10 @@ const SHAPES := {
 		"stock": false, "grip": false, "saber": true,
 	},
 
-	# --- WARHAMMER: Adeptus Astartes -----------------------------------------
-	# Everything is oversized, boxed and ribbed: a bolter is a hand-held cannon,
+	# --- IRONHYMN: Adeptus Order -----------------------------------------
+	# Everything is oversized, boxed and ribbed: a shellgun is a hand-held cannon,
 	# so the receiver is deeper than any blaster's and the magazine is huge.
-	Weapon.Class.BOLTER: {
+	Weapon.Class.SHELLGUN: {
 		"receiver": Vector3(0.085, 0.105, 0.28), "barrel": Vector3(0.042, 0.042, 0.20),
 		"stock": true, "grip": true, "mag": Vector3(0.05, 0.14, 0.07), "muzzle": 0.065,
 	},
@@ -362,7 +362,7 @@ const SHAPES := {
 		"receiver": Vector3(0.08, 0.10, 0.30), "barrel": Vector3(0.05, 0.05, 0.18),
 		"stock": true, "grip": true, "drum": 0.062, "muzzle": 0.10,
 	},
-	Weapon.Class.MELTAGUN: {  # a bell, a flask, and nothing else
+	Weapon.Class.FUSION_GUN: {  # a bell, a flask, and nothing else
 		"receiver": Vector3(0.09, 0.10, 0.24), "barrel": Vector3(0.075, 0.075, 0.16),
 		"stock": false, "grip": true, "drum": 0.07, "muzzle": 0.15, "tube": true,
 	},
@@ -374,7 +374,7 @@ const SHAPES := {
 		"receiver": Vector3(0.052, 0.075, 0.17), "barrel": Vector3(0.034, 0.034, 0.11),
 		"stock": false, "grip": false, "mag": Vector3(0.038, 0.10, 0.05), "muzzle": 0.05,
 	},
-	Weapon.Class.PLASMA_PISTOL_40K: {
+	Weapon.Class.ORDER_PLASMA_PISTOL: {
 		"receiver": Vector3(0.052, 0.08, 0.16), "barrel": Vector3(0.034, 0.034, 0.10),
 		"stock": false, "grip": false, "cylinder": 0.05, "muzzle": 0.075,
 	},
@@ -395,10 +395,10 @@ const SHAPES := {
 		"stock": false, "grip": false, "saber": true,
 	},
 
-	# --- WARHAMMER: Necrons ---------------------------------------------------
+	# --- IRONHYMN: Necrons ---------------------------------------------------
 	# Gauss weapons are skeletal: a thin spine, ribbed housings, and a tubular
 	# emitter cage rather than a bore. The limbs field does the cage.
-	Weapon.Class.GAUSS_FLAYER: {
+	Weapon.Class.GAUSS_RIFLE: {
 		"receiver": Vector3(0.05, 0.075, 0.30), "barrel": Vector3(0.024, 0.024, 0.30),
 		"stock": true, "grip": false, "muzzle": 0.05, "limbs": 0.08,
 	},
@@ -435,10 +435,10 @@ const SHAPES := {
 		"stock": false, "grip": false, "staff": true,
 	},
 
-	# --- WARHAMMER: Orks ------------------------------------------------------
+	# --- IRONHYMN: Orks ------------------------------------------------------
 	# Welded, over-magazined and bolted together: every ork gun is a bigger drum
 	# than it needs on a barrel that is too short for it.
-	Weapon.Class.SHOOTA: {
+	Weapon.Class.SLUGTHROWER: {
 		"receiver": Vector3(0.085, 0.10, 0.26), "barrel": Vector3(0.04, 0.04, 0.18),
 		"stock": true, "grip": true, "mag": Vector3(0.048, 0.16, 0.06), "muzzle": 0.07,
 	},
@@ -446,86 +446,86 @@ const SHAPES := {
 		"receiver": Vector3(0.105, 0.115, 0.30), "barrel": Vector3(0.055, 0.055, 0.34),
 		"stock": false, "grip": true, "drum": 0.085, "muzzle": 0.09, "barrels": 2,
 	},
-	Weapon.Class.SLUGGA: {
+	Weapon.Class.SLUG_PISTOL: {
 		"receiver": Vector3(0.058, 0.08, 0.16), "barrel": Vector3(0.036, 0.036, 0.10),
 		"stock": false, "grip": false, "drum": 0.05, "muzzle": 0.06,
 	},
-	Weapon.Class.ROKKIT_LAUNCHA: {
+	Weapon.Class.SCRAP_ROCKET: {
 		"receiver": Vector3(0.12, 0.12, 0.50), "barrel": Vector3(0.10, 0.10, 0.18),
 		"stock": false, "grip": true, "muzzle": 0.16, "tube": true,
 	},
-	Weapon.Class.MEGA_BLASTA: {
+	Weapon.Class.JUNK_BLASTER: {
 		"receiver": Vector3(0.095, 0.105, 0.30), "barrel": Vector3(0.058, 0.058, 0.22),
 		"stock": true, "grip": true, "drum": 0.08, "muzzle": 0.12, "limbs": 0.10,
 	},
-	Weapon.Class.BURNA: {
+	Weapon.Class.TORCH: {
 		"receiver": Vector3(0.08, 0.095, 0.24), "barrel": Vector3(0.042, 0.042, 0.26),
 		"stock": false, "grip": true, "drum": 0.085, "muzzle": 0.10,
 	},
-	Weapon.Class.CHOPPA: {
+	Weapon.Class.CLEAVER: {
 		"receiver": Vector3(0.06, 0.06, 0.22), "barrel": Vector3(0.03, 0.03, 0.0),
 		"stock": false, "grip": false, "saber": true,
 	},
-	Weapon.Class.POWER_KLAW: {
+	Weapon.Class.CRUSHER_CLAW: {
 		"receiver": Vector3(0.07, 0.07, 0.26), "barrel": Vector3(0.03, 0.03, 0.0),
 		"stock": false, "grip": false, "saber": true,
 	},
 	# --- THE FACTION GUNS -----------------------------------------------------
 	# A class is recognised by what it is HOLDING before anything else, so each of
-	# these is proportioned to its owner: the B1's rifle is thin and cheap, the
-	# Droideka's is a paired pod, the incinerator is a tank with a nozzle.
-	Weapon.Class.DC15S: {  # clone carbine: the DC-15A cut down
+	# these is proportioned to its owner: the light automaton's rifle is thin and cheap, the
+	# Aegis Drone's is a paired pod, the incinerator is a tank with a nozzle.
+	Weapon.Class.VL15S: {  # legionary carbine: the DC-15A cut down
 		"receiver": Vector3(0.05, 0.07, 0.20), "barrel": Vector3(0.026, 0.026, 0.22),
 		"stock": true, "grip": true, "mag": Vector3(0.03, 0.10, 0.05), "muzzle": 0.045,
 	},
-	Weapon.Class.DC17: {  # ARC pistol, carried in pairs
+	Weapon.Class.VL17: {  # ARC pistol, carried in pairs
 		"receiver": Vector3(0.036, 0.058, 0.13), "barrel": Vector3(0.022, 0.022, 0.13),
 		"stock": false, "grip": false, "mag": Vector3(0.026, 0.08, 0.034), "muzzle": 0.032,
 	},
-	Weapon.Class.DC17M: {  # commando rifle: boxy, optics, underslung block
+	Weapon.Class.VL17M: {  # commando rifle: boxy, optics, underslung block
 		"receiver": Vector3(0.058, 0.085, 0.28), "barrel": Vector3(0.026, 0.026, 0.26),
 		"stock": true, "grip": true, "mag": Vector3(0.034, 0.12, 0.05), "muzzle": 0.04,
 	},
-	Weapon.Class.DC15X: {  # sharpshooter: all barrel, bipod
+	Weapon.Class.VL15X: {  # sharpshooter: all barrel, bipod
 		"receiver": Vector3(0.045, 0.062, 0.30), "barrel": Vector3(0.022, 0.022, 0.66),
 		"stock": true, "grip": false, "mag": Vector3(0.026, 0.07, 0.04), "muzzle": 0.07,
 		"bipod": true,
 	},
-	Weapon.Class.E5: {  # B1: thin, cheap, unloved
+	Weapon.Class.X5: {  # light automaton: thin, cheap, unloved
 		"receiver": Vector3(0.042, 0.06, 0.24), "barrel": Vector3(0.022, 0.022, 0.30),
 		"stock": false, "grip": true, "mag": Vector3(0.026, 0.09, 0.04), "muzzle": 0.035,
 	},
-	Weapon.Class.E5S: {
+	Weapon.Class.X5S: {
 		"receiver": Vector3(0.042, 0.06, 0.30), "barrel": Vector3(0.02, 0.02, 0.60),
 		"stock": true, "grip": false, "mag": Vector3(0.024, 0.07, 0.038), "muzzle": 0.06,
 		"bipod": true,
 	},
-	Weapon.Class.DROIDEKA_TWIN: {  # a paired pod, not a rifle
+	Weapon.Class.AEGIS_TWIN: {  # a paired pod, not a rifle
 		"receiver": Vector3(0.10, 0.075, 0.22), "barrel": Vector3(0.026, 0.026, 0.30),
 		"barrels": 2, "stock": false, "grip": false, "muzzle": 0.04,
 	},
-	Weapon.Class.SONIC_BLASTER: {  # Geonosian: a drum on a short tube
+	Weapon.Class.SONIC_BLASTER: {  # Vespid: a drum on a short tube
 		"receiver": Vector3(0.075, 0.085, 0.20), "barrel": Vector3(0.05, 0.05, 0.18),
 		"stock": false, "grip": true, "drum": 0.06, "muzzle": 0.09,
 	},
 	Weapon.Class.VIBROSWORD: {"saber": true},
-	Weapon.Class.E11: {  # stormtrooper: the shape everybody knows
+	Weapon.Class.DK11: {  # dominion trooper: the shape everybody knows
 		"receiver": Vector3(0.05, 0.075, 0.22), "barrel": Vector3(0.026, 0.026, 0.24),
 		"stock": true, "grip": true, "mag": Vector3(0.03, 0.10, 0.048), "muzzle": 0.042,
 	},
-	Weapon.Class.DLT19: {  # heavy: long, fat, drum-fed
+	Weapon.Class.DK19: {  # heavy: long, fat, drum-fed
 		"receiver": Vector3(0.07, 0.08, 0.30), "barrel": Vector3(0.042, 0.042, 0.42),
 		"stock": true, "grip": true, "drum": 0.05, "muzzle": 0.07, "bipod": true,
 	},
-	Weapon.Class.DLT20A: {  # scout: long barrel, scope, no bulk
+	Weapon.Class.DK20A: {  # scout: long barrel, scope, no bulk
 		"receiver": Vector3(0.046, 0.066, 0.28), "barrel": Vector3(0.022, 0.022, 0.52),
 		"stock": true, "grip": false, "mag": Vector3(0.026, 0.08, 0.04), "muzzle": 0.05,
 	},
-	Weapon.Class.SE14R: {  # death trooper machine pistol
+	Weapon.Class.SR14R: {  # death trooper machine pistol
 		"receiver": Vector3(0.04, 0.062, 0.15), "barrel": Vector3(0.022, 0.022, 0.14),
 		"stock": false, "grip": false, "mag": Vector3(0.028, 0.10, 0.036), "muzzle": 0.03,
 	},
-	Weapon.Class.E11D: {  # death trooper rifle: an E-11 under a fat suppressor
+	Weapon.Class.DK11D: {  # death trooper rifle: an E-11 under a fat suppressor
 		"receiver": Vector3(0.05, 0.075, 0.24), "barrel": Vector3(0.038, 0.038, 0.30),
 		"stock": true, "grip": true, "mag": Vector3(0.03, 0.11, 0.048), "muzzle": 0.05,
 	},
@@ -533,21 +533,21 @@ const SHAPES := {
 		"receiver": Vector3(0.085, 0.10, 0.26), "barrel": Vector3(0.034, 0.034, 0.16),
 		"stock": false, "grip": true, "drum": 0.065, "muzzle": 0.10, "tube": true,
 	},
-	Weapon.Class.A280C: {
+	Weapon.Class.A28C: {
 		"receiver": Vector3(0.05, 0.072, 0.26), "barrel": Vector3(0.024, 0.024, 0.34),
 		"stock": true, "grip": true, "mag": Vector3(0.03, 0.11, 0.048), "muzzle": 0.045,
 	},
-	Weapon.Class.CR2: {  # SMG: stubby, high mag, no stock
+	Weapon.Class.CR9: {  # SMG: stubby, high mag, no stock
 		"receiver": Vector3(0.048, 0.07, 0.17), "barrel": Vector3(0.022, 0.022, 0.12),
 		"stock": false, "grip": true, "mag": Vector3(0.032, 0.13, 0.042), "muzzle": 0.034,
 	},
-	Weapon.Class.DH447: {
+	Weapon.Class.DH44: {
 		"receiver": Vector3(0.044, 0.062, 0.30), "barrel": Vector3(0.02, 0.02, 0.62),
 		"stock": true, "grip": false, "mag": Vector3(0.026, 0.075, 0.04), "muzzle": 0.055,
 		"bipod": true,
 	},
-	Weapon.Class.EWOK_SPEAR: {"staff": true},
-	Weapon.Class.M319: {  # grenadier: a fat tube on a frame
+	Weapon.Class.KOBB_SPEAR: {"staff": true},
+	Weapon.Class.GL19: {  # grenadier: a fat tube on a frame
 		"receiver": Vector3(0.075, 0.09, 0.28), "barrel": Vector3(0.062, 0.062, 0.24),
 		"stock": true, "grip": true, "muzzle": 0.085, "tube": true,
 	},
@@ -616,40 +616,40 @@ const PARRY_FLARE := 9.0     # added to BLADE_ENERGY at the moment of the block
 ## nobody else has. That is the same argument the character styles make: a
 ## faction reads by silhouette and palette, not by polygon count.
 ##
-## Listed for the exceptions only; anything unlisted is Star Wars, which is what
+## Listed for the exceptions only; anything unlisted is The Compact Wars, which is what
 ## the catalogue was before the other universes existed.
-enum Make { STARWARS, UNSC, COVENANT, ASTARTES, NECRON, ORK }
+enum Make { COMPACT, COALITION, HIEROPHANY, ORDER, UNSLEEPING, SCRAPKIN }
 const FAMILY := {
-	Weapon.Class.MA5B: Make.UNSC, Weapon.Class.BR55: Make.UNSC,
-	Weapon.Class.M7_SMG: Make.UNSC, Weapon.Class.M90_SHOTGUN: Make.UNSC,
-	Weapon.Class.SRS99: Make.UNSC, Weapon.Class.SPNKR: Make.UNSC,
-	Weapon.Class.M6D: Make.UNSC, Weapon.Class.M247_HMG: Make.UNSC,
-	Weapon.Class.M392_DMR: Make.UNSC, Weapon.Class.SPARTAN_LASER: Make.UNSC,
-	Weapon.Class.PLASMA_RIFLE: Make.COVENANT, Weapon.Class.PLASMA_PISTOL: Make.COVENANT,
-	Weapon.Class.NEEDLER: Make.COVENANT, Weapon.Class.COV_CARBINE: Make.COVENANT,
-	Weapon.Class.BEAM_RIFLE: Make.COVENANT, Weapon.Class.FUEL_ROD: Make.COVENANT,
-	Weapon.Class.BRUTE_SHOT: Make.COVENANT, Weapon.Class.MAULER: Make.COVENANT,
-	Weapon.Class.SPIKER: Make.COVENANT, Weapon.Class.M319: Make.UNSC,
-	Weapon.Class.BOLTER: Make.ASTARTES, Weapon.Class.HEAVY_BOLTER: Make.ASTARTES,
-	Weapon.Class.STALKER_BOLT: Make.ASTARTES, Weapon.Class.PLASMA_GUN: Make.ASTARTES,
-	Weapon.Class.MELTAGUN: Make.ASTARTES, Weapon.Class.FLAMER: Make.ASTARTES,
-	Weapon.Class.BOLT_PISTOL: Make.ASTARTES,
-	Weapon.Class.PLASMA_PISTOL_40K: Make.ASTARTES,
-	Weapon.Class.GRENADE_LAUNCHER: Make.ASTARTES,
-	Weapon.Class.GAUSS_FLAYER: Make.NECRON, Weapon.Class.GAUSS_BLASTER: Make.NECRON,
-	Weapon.Class.TESLA_CARBINE: Make.NECRON,
-	Weapon.Class.SYNAPTIC_DISINTEGRATOR: Make.NECRON,
-	Weapon.Class.HEAT_RAY: Make.NECRON,
-	Weapon.Class.TRANSDIMENSIONAL_BEAMER: Make.NECRON,
-	Weapon.Class.GAUSS_PISTOL: Make.NECRON,
-	Weapon.Class.SHOOTA: Make.ORK, Weapon.Class.BIG_SHOOTA: Make.ORK,
-	Weapon.Class.SLUGGA: Make.ORK, Weapon.Class.ROKKIT_LAUNCHA: Make.ORK,
-	Weapon.Class.MEGA_BLASTA: Make.ORK, Weapon.Class.BURNA: Make.ORK,
+	Weapon.Class.AR7: Make.COALITION, Weapon.Class.BR3: Make.COALITION,
+	Weapon.Class.S9_SMG: Make.COALITION, Weapon.Class.CQ12: Make.COALITION,
+	Weapon.Class.LR99: Make.COALITION, Weapon.Class.RL8: Make.COALITION,
+	Weapon.Class.S6: Make.COALITION, Weapon.Class.HM40: Make.COALITION,
+	Weapon.Class.DM3: Make.COALITION, Weapon.Class.LANCE_LASER: Make.COALITION,
+	Weapon.Class.PLASMA_RIFLE: Make.HIEROPHANY, Weapon.Class.PLASMA_PISTOL: Make.HIEROPHANY,
+	Weapon.Class.NEEDLER: Make.HIEROPHANY, Weapon.Class.HIER_CARBINE: Make.HIEROPHANY,
+	Weapon.Class.BEAM_RIFLE: Make.HIEROPHANY, Weapon.Class.FUEL_ROD: Make.HIEROPHANY,
+	Weapon.Class.CLEAVER_GUN: Make.HIEROPHANY, Weapon.Class.MAULER: Make.HIEROPHANY,
+	Weapon.Class.SPIKER: Make.HIEROPHANY, Weapon.Class.GL19: Make.COALITION,
+	Weapon.Class.SHELLGUN: Make.ORDER, Weapon.Class.HEAVY_BOLTER: Make.ORDER,
+	Weapon.Class.STALKER_BOLT: Make.ORDER, Weapon.Class.PLASMA_GUN: Make.ORDER,
+	Weapon.Class.FUSION_GUN: Make.ORDER, Weapon.Class.FLAMER: Make.ORDER,
+	Weapon.Class.BOLT_PISTOL: Make.ORDER,
+	Weapon.Class.ORDER_PLASMA_PISTOL: Make.ORDER,
+	Weapon.Class.GRENADE_LAUNCHER: Make.ORDER,
+	Weapon.Class.GAUSS_RIFLE: Make.UNSLEEPING, Weapon.Class.GAUSS_BLASTER: Make.UNSLEEPING,
+	Weapon.Class.TESLA_CARBINE: Make.UNSLEEPING,
+	Weapon.Class.SYNAPTIC_DISINTEGRATOR: Make.UNSLEEPING,
+	Weapon.Class.HEAT_RAY: Make.UNSLEEPING,
+	Weapon.Class.TRANSDIMENSIONAL_BEAMER: Make.UNSLEEPING,
+	Weapon.Class.GAUSS_PISTOL: Make.UNSLEEPING,
+	Weapon.Class.SLUGTHROWER: Make.SCRAPKIN, Weapon.Class.BIG_SHOOTA: Make.SCRAPKIN,
+	Weapon.Class.SLUG_PISTOL: Make.SCRAPKIN, Weapon.Class.SCRAP_ROCKET: Make.SCRAPKIN,
+	Weapon.Class.JUNK_BLASTER: Make.SCRAPKIN, Weapon.Class.TORCH: Make.SCRAPKIN,
 }
 
 
 func _family(class_id: int) -> int:
-	return FAMILY.get(class_id, Make.STARWARS)
+	return FAMILY.get(class_id, Make.COMPACT)
 
 
 ## FOUR MATERIALS PER MAKE, and `metallic` is 0.0 in every one of them — see the
@@ -664,30 +664,30 @@ func _family(class_id: int) -> int:
 ## viewmodel anyway and four materials is nothing next to the thirty meshes it
 ## is about to make.
 const PALETTES := {
-	# Imperial/Republic: gunmetal and black polymer, a red heat cell.
-	Make.STARWARS: {"gun": Color(0.28, 0.285, 0.31), "dark": Color(0.075, 0.075, 0.085),
+	# Dominion/Concord: gunmetal and black polymer, a red heat cell.
+	Make.COMPACT: {"gun": Color(0.28, 0.285, 0.31), "dark": Color(0.075, 0.075, 0.085),
 		"bright": Color(0.46, 0.465, 0.49), "cell": Color(1.0, 0.25, 0.15)},
-	# UNSC: olive drab over black, with a white-blue readout. Utility kit.
-	Make.UNSC: {"gun": Color(0.20, 0.22, 0.17), "dark": Color(0.06, 0.065, 0.06),
+	# COALITION: olive drab over black, with a white-blue readout. Utility kit.
+	Make.COALITION: {"gun": Color(0.20, 0.22, 0.17), "dark": Color(0.06, 0.065, 0.06),
 		"bright": Color(0.42, 0.44, 0.40), "cell": Color(0.45, 0.85, 1.0)},
-	# Covenant: violet shell, darker violet grip, hot cyan plasma.
-	Make.COVENANT: {"gun": Color(0.36, 0.28, 0.50), "dark": Color(0.16, 0.12, 0.24),
+	# Hierophany: violet shell, darker violet grip, hot cyan plasma.
+	Make.HIEROPHANY: {"gun": Color(0.36, 0.28, 0.50), "dark": Color(0.16, 0.12, 0.24),
 		"bright": Color(0.62, 0.54, 0.78), "cell": Color(0.25, 0.85, 1.0)},
-	# Astartes: bone and dark red over black, brass-toned furniture.
-	Make.ASTARTES: {"gun": Color(0.34, 0.10, 0.09), "dark": Color(0.07, 0.06, 0.06),
+	# Order: bone and dark red over black, brass-toned furniture.
+	Make.ORDER: {"gun": Color(0.34, 0.10, 0.09), "dark": Color(0.07, 0.06, 0.06),
 		"bright": Color(0.62, 0.55, 0.32), "cell": Color(1.0, 0.55, 0.15)},
-	# Necron: near-black with a green core. The only palette with no warm tone.
-	Make.NECRON: {"gun": Color(0.13, 0.14, 0.15), "dark": Color(0.05, 0.06, 0.06),
+	# Unsleeping: near-black with a green core. The only palette with no warm tone.
+	Make.UNSLEEPING: {"gun": Color(0.13, 0.14, 0.15), "dark": Color(0.05, 0.06, 0.06),
 		"bright": Color(0.38, 0.42, 0.40), "cell": Color(0.35, 1.0, 0.45)},
 	# Ork: scrap. Rust-brown frame, black rubber, and a red bit because red ones
 	# go faster.
-	Make.ORK: {"gun": Color(0.30, 0.20, 0.13), "dark": Color(0.09, 0.08, 0.07),
+	Make.SCRAPKIN: {"gun": Color(0.30, 0.20, 0.13), "dark": Color(0.09, 0.08, 0.07),
 		"bright": Color(0.44, 0.34, 0.22), "cell": Color(1.0, 0.30, 0.10)},
 }
 
 
 func _palette(make: int) -> Dictionary:
-	var c: Dictionary = PALETTES.get(make, PALETTES[Make.STARWARS])
+	var c: Dictionary = PALETTES.get(make, PALETTES[Make.COMPACT])
 	var gun := StandardMaterial3D.new()
 	gun.albedo_color = c["gun"]
 	gun.metallic = 0.0
@@ -708,7 +708,7 @@ func _palette(make: int) -> Dictionary:
 	# as the rounds it fires. `Weapon.bolt_color` already resolves that for the
 	# tracer, the muzzle light and the impact scorch; the lit parts of the weapon
 	# itself were the one thing still painted from the faction PALETTE, so a
-	# purple clone carried a gun with a red heat cell and fired blue.
+	# purple legionary carried a gun with a red heat cell and fired blue.
 	#
 	# It falls through to the palette's own cell when no team has been resolved
 	# yet — a weapon builds itself before it has a shooter, and a gun with an
@@ -885,7 +885,7 @@ func _build(class_id: int, scoped: bool, holo: bool) -> void:
 	_box(Vector3(0.028, 0.012, 0.014), Vector3(-receiver.x * 0.5 - 0.010, 0.016, 0.01), bright)
 	# Top rail: a run of side slots along the receiver. A repeated small feature is
 	# what gives a surface SCALE — the same trick as the tower mullions on
-	# Coruscant, and the reason a plain box could be any size. Keep the centre
+	# Civis, and the reason a plain box could be any size. Keep the centre
 	# empty, because that is the sight channel.
 	var slots := clampi(int(rz / 0.028), 3, 9)
 	for i in slots:
@@ -926,7 +926,7 @@ func _build(class_id: int, scoped: bool, holo: bool) -> void:
 				Vector3(0.03 * side, -0.06, barrel_z + 0.04), dark)
 			leg.rotation.z = 0.35 * side
 	if shape.get("limbs", false):
-		# The bowcaster's crossbow limbs, out at the MUZZLE end and swept back,
+		# The quarrel caster's crossbow limbs, out at the MUZZLE end and swept back,
 		# with a string strung between the tips. It is the whole reason the
 		# weapon is recognisable — built from the same boxes as everything else,
 		# because a silhouette is what a viewmodel is for and this one is a
@@ -1025,7 +1025,7 @@ func _dress(make: int, receiver: Vector3, barrel: Vector3, barrel_z: float,
 	var ry := receiver.y
 	var rz := receiver.z
 	match make:
-		Make.UNSC:
+		Make.COALITION:
 			# THE CARRY HANDLE. It is the one silhouette everybody recognises: a
 			# raised bridge over the receiver with the sight tucked under it. Build
 			# it as side rails so the sight picture has a clear centre channel.
@@ -1043,8 +1043,8 @@ func _dress(make: int, receiver: Vector3, barrel: Vector3, barrel_z: float,
 			for i in 4:
 				_box(Vector3(barrel.x + 0.016, barrel.y + 0.014, 0.010),
 					Vector3(0, 0.012, barrel_z + barrel.z * 0.34 - i * 0.020), dark)
-		Make.COVENANT:
-			# NO STRAIGHT LINES AND NO CORNERS: a Covenant weapon is a shell with
+		Make.HIEROPHANY:
+			# NO STRAIGHT LINES AND NO CORNERS: a Hierophany weapon is a shell with
 			# a glowing core down the middle. Two tapered halves clamped round a
 			# plasma channel, which is a cylinder rather than a box — the only
 			# family here built out of round parts, and that alone reads as alien
@@ -1060,8 +1060,8 @@ func _dress(make: int, receiver: Vector3, barrel: Vector3, barrel_z: float,
 				var prong := _box(Vector3(0.014, 0.030, 0.075),
 					Vector3(side * 0.026, 0.012, barrel_z - barrel.z * 0.4), gun)
 				prong.rotation.y = -0.18 * side
-		Make.ASTARTES:
-			# HEAVY, AND DECORATED. A bolter is a ritual object as much as a gun:
+		Make.ORDER:
+			# HEAVY, AND DECORATED. A shellgun is a ritual object as much as a gun:
 			# a fat shell casing box under the receiver, a purity seal hanging off
 			# the side, and a wide muzzle collar.
 			_box(Vector3(rx * 1.25, 0.045, rz * 0.5),
@@ -1071,13 +1071,13 @@ func _dress(make: int, receiver: Vector3, barrel: Vector3, barrel_z: float,
 			var collar := _cyl(barrel.x * 1.5, 0.030,
 				Vector3(0, 0.012, barrel_z - barrel.z * 0.34), bright)
 			collar.rotation.x = PI / 2.0
-			# Chunky top rail cheeks, because an Astartes optic is a slab — but
+			# Chunky top rail cheeks, because an Order optic is a slab — but
 			# not a slab across the player's notch.
 			for side: float in [-1.0, 1.0]:
 				_box(Vector3(rx * 0.22, 0.018, rz * 0.34),
 					Vector3(side * SIGHT_CHANNEL_X, ry * 0.5 + 0.012, -rz * 0.1), gun)
-		Make.NECRON:
-			# A BLADE, NOT A GUN. Necron weapons are flat, angular and lit from
+		Make.UNSLEEPING:
+			# A BLADE, NOT A GUN. Unsleeping weapons are flat, angular and lit from
 			# inside: a spine down the top with a green channel in it, and two
 			# swept vanes at the muzzle instead of a barrel shroud.
 			for side: float in [-1.0, 1.0]:
@@ -1093,7 +1093,7 @@ func _dress(make: int, receiver: Vector3, barrel: Vector3, barrel_z: float,
 			var tube := _cyl(0.008, barrel.z * 0.8,
 				Vector3(0, 0.012, barrel_z), accent)
 			tube.rotation.x = PI / 2.0
-		Make.ORK:
+		Make.SCRAPKIN:
 			# BOLTED-ON SCRAP, and deliberately ASYMMETRIC — a matched pair reads
 			# as issued kit, which orks do not have. Plates at angles, rivets, and
 			# an oversized ammo drum hanging off one side.
@@ -1114,13 +1114,13 @@ func _dress(make: int, receiver: Vector3, barrel: Vector3, barrel_z: float,
 					Vector3(-0.014 + i * 0.014, 0.012,
 						barrel_z - barrel.z * 0.5 - 0.02), gun)
 		_:
-			# STAR WARS: a cooling shroud with a lit seam, which is the look the
+			# THE COMPACT WARS: a cooling shroud with a lit seam, which is the look the
 			# whole catalogue started from.
 			_box(Vector3(0.006, 0.010, rz * 0.55),
 				Vector3(-rx * 0.5 - 0.002, ry * 0.28, -0.02), accent)
 
 
-## The lightsaber: a machined hilt with a blade standing out of it. Built on its
+## The arc blade: a machined hilt with a blade standing out of it. Built on its
 ## own path because it shares no part with a gun.
 ##
 ## The blade is TWO nested cylinders — a near-white core inside a wider, softer
@@ -1131,13 +1131,13 @@ func _dress(make: int, receiver: Vector3, barrel: Vector3, barrel_z: float,
 ##
 ## It leaves `_flash` null: a blade has no muzzle. kick() already null-checks it.
 ## Read the melee look off the weapon's own profile, falling back to the
-## lightsaber's numbers. Done here rather than in SHAPES so the first-person
+## arc blade's numbers. Done here rather than in SHAPES so the first-person
 ## blade and the third-person one (CharacterModel.set_melee) read ONE source and
 ## cannot disagree about what the player is holding.
 func _read_blade_look(class_id: int, staff := false) -> void:
 	var p: Dictionary = Weapon.PROFILES.get(class_id, {})
 	# A pole weapon defaults to the electrostaff's violet, a blade to the
-	# lightsaber's blue — so the two weapons that shipped before any of this
+	# arc blade's blue — so the two weapons that shipped before any of this
 	# still build exactly as they did without carrying colour keys of their own.
 	_blade_col = p.get("blade_core", STAFF_CORE if staff else BLADE_CORE)
 	_glow_col = p.get("blade_glow", STAFF_GLOW if staff else BLADE_GLOW)
@@ -1148,7 +1148,7 @@ func _read_blade_look(class_id: int, staff := false) -> void:
 
 
 ## A blade material. `energy` 0 means the weapon's body is STEEL rather than
-## plasma — a chainsword, a thunder hammer, a choppa, a klaw — and steel is a LIT
+## plasma — a chain blade, a thunder hammer, a choppa, a klaw — and steel is a LIT
 ## surface, not an emitting one.
 ##
 ## That distinction was missed the first time and the result was the loudest
@@ -1235,7 +1235,7 @@ func _build_saber() -> void:
 		# A HEAD, not a blade — and the split doubles as the rule for who carries
 		# a field, which is why no new key is needed: every boxed head in the
 		# game (grav hammer, thunder hammer, power klaw) is a power weapon, and
-		# every steel cylinder (chainsword, choppa) is a plain length of metal.
+		# every steel cylinder (chain blade, choppa) is a plain length of metal.
 		#
 		# Steel, and it stays steel: the power field is a
 		# CAP on the striking face, sitting proud of it and INSIDE the head's own
@@ -1249,7 +1249,7 @@ func _build_saber() -> void:
 			Vector3(0, -0.015, blade_z - _blade_len * 0.52), glow_mat, _saber)
 	else:
 		_cyl(_blade_rad, _blade_len, Vector3(0, -0.015, blade_z), core_mat, _saber)
-		# Plasma only. A chainsword and a choppa are lengths of steel with no
+		# Plasma only. A chain blade and a choppa are lengths of steel with no
 		# field on them at all, and a sleeve at 1.9x the radius over one is a
 		# translucent paddle with a sword somewhere inside it.
 		if _blade_energy > 0.0:
@@ -1285,7 +1285,7 @@ const STAFF_CORE := Color(0.86, 0.62, 1.0)   # violet-white charged core
 const STAFF_GLOW := Color(0.58, 0.16, 0.98)  # purple aura around it
 # The crackling lightning at the tips is DERIVED (halfway between the core and
 # its aura) rather than stated, so a pole weapon that picks its own colours — a
-# Necron warscythe's green — crackles in them without a third colour key.
+# Unsleeping warscythe's green — crackles in them without a third colour key.
 const STAFF_ARC_BOLTS := 3       # little bolts spitting off each emitter
 const STAFF_ARC_SEGS := 4        # jagged pieces per bolt
 const STAFF_ARC_JITTER := 0.02   # how far a joint kicks off line, in m
@@ -1478,7 +1478,7 @@ func _shield_rib(a: Vector2, b: Vector2, thick: float, mat: StandardMaterial3D) 
 ## The colour of the glow at the barrel tip. Owned rather than hardcoded because
 ## it is the SHOOTER's own view of their gun's fire, and it has to be the colour
 ## their rounds actually are — Weapon pushes it (see Weapon.bolt_color), so an
-## Imperial rifle flashes green in the hands holding it as well as on the wall.
+## Dominion rifle flashes green in the hands holding it as well as on the wall.
 var _flash_col := Color(1.0, 0.72, 0.35)
 var _flash_mat: StandardMaterial3D
 

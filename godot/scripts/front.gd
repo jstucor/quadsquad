@@ -625,12 +625,12 @@ func _fire(s: Dictionary) -> void:
 
 
 ## Which body a side fields, following the menu's own faction pick — so a player
-## who set up a Warhammer match last time is met by Space Marines. Falls back to
-## the first class of the first Star Wars roster.
+## who set up a Ironhymn match last time is met by Space Marines. Falls back to
+## the first class of the first The Compact Wars roster.
 func _style_for(team: int) -> int:
 	var classes := GameState.classes_for(team)
 	if classes.is_empty():
-		return CharacterModel.Style.CLONE
+		return CharacterModel.Style.LEGION
 	return Loadout.faction_build(int(classes[0])).character_style()
 
 

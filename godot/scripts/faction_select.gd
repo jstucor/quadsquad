@@ -159,7 +159,7 @@ func _build() -> void:
 	_start.grab_focus()
 
 
-## Every faction in the game, labelled with its setting — "NECRONS" alone does
+## Every faction in the game, labelled with its setting — "THE UNSLEEPING" alone does
 ## not say which game you are looking at once two settings can be on the field.
 func _faction_items() -> PackedStringArray:
 	var out := PackedStringArray()

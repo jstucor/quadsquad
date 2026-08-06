@@ -8,7 +8,7 @@ is a changelog — if something is no longer true, delete it rather than append 
 
 ## Project Overview
 
-**QuadSquad** — 4-player local split-screen Star Wars-style FPS for Linux, built in
+**QuadSquad** — 4-player local split-screen sci-fi FPS for Linux, built in
 **Godot 4.7** with the **GL Compatibility** renderer. Target is Ubuntu laptops on
 integrated graphics; the Raspberry Pi 5 target was dropped (see PERFORMANCE). The
 former custom C++/SDL2/EnTT engine was removed in 2026-07; its features are the
@@ -17,6 +17,21 @@ roadmap in README.md.
 Everything is **procedural and built in code** — characters, weapons, maps, props,
 UI and sound. No imported meshes, no textures, no audio files, no build step. A new
 unit, gun, map or sound is a table row plus a builder function.
+
+**EVERY SETTING, SIDE, UNIT, GUN AND WORLD IS ORIGINAL, AND THAT IS A SHIPPING
+CONSTRAINT RATHER THAN a preference.** The three settings — THE COMPACT WARS,
+DEEP RANGE, IRONHYMN — began as Star Wars, Halo and Warhammer 40,000, and a
+commercial release of that is not risky so much as a countdown: Steam requires
+you to affirm you hold rights to everything in the build, and all three
+rightsholders enforce. **The rename cost almost nothing because of how the
+catalogue is built** (see CATALOGUE): a universe is a set of table rows, nothing
+about the rules, modes, maps or shooting knows one exists, and every balance
+number, index and test survived the pass untouched. That is the property to
+protect — **a mechanic may never learn the name of the thing wearing it**, or
+the next rename is a rewrite. Nothing new may name a real-world franchise's
+unit, weapon, planet or faction, in a string OR in an identifier; the tests
+enforce the table/enum agreement (house rule 7) but nothing enforces this, so it
+is on whoever adds the row.
 
 ## Commands
 
@@ -139,13 +154,13 @@ once. The per-system sections below assume them rather than repeating them.
 
 - **A UNIVERSE is a set of CLASSES, the SIDES they fight for, and which of the
   catalogue those classes can reach** (`Loadout.UNIVERSES`, `Loadout.Universe`, the
-  UNIVERSE dropdown). STAR WARS / HALO / WARHAMMER 40,000. Nothing about the rules,
+  UNIVERSE dropdown). THE COMPACT WARS / DEEP RANGE / IRONHYMN. Nothing about the rules,
   modes, maps or shooting knows a universe exists: every weapon lives in the ONE
   `Weapon.Class` enum and every body in the ONE `CharacterModel.Style` enum, so a
-  bolter is a hitscan with a heavy round and a Spartan is a table row. Every row states
-  its universe; **no key means STAR WARS** (what the catalogue was before this existed),
-  `ANY_UNIVERSE` for rows belonging to nobody. Star Wars and Warhammer field four sides,
-  Halo two.
+  shellgun is a hitscan with a heavy round and a Paladin is a table row. Every row states
+  its universe; **no key means THE COMPACT WARS** (what the catalogue was before this existed),
+  `ANY_UNIVERSE` for rows belonging to nobody. The Compact Wars and Ironhymn field four sides,
+  Deep Range two.
 - **The universe enum lives in `Loadout`, not `GameState`; `GameState` MIRRORS it into
   `Loadout.active_universe`.** `tests/kit_rules.gd` runs under `--script`, which has no
   autoloads, so Loadout may never name GameState. `Loadout.ttk_health` is the same trick.
@@ -154,14 +169,14 @@ once. The per-system sections below assume them rather than repeating them.
 - **Allow-lists check the universe FIRST, derived from the KIT rather than read off the
   setting** (`Loadout._allows_entry`). Only `Row.KIT` reads `active_universe`, because it
   is the row that chooses which universe's class you are on — and it is WALKED, not
-  clamped, or a step off the last Star Wars class lands on a Spartan.
+  clamped, or a step off the last The Compact Wars class lands on a Paladin.
 - **THE BUY SCREEN'S CLASS ROW OFFERS THE UNIVERSE'S AUTHORED CHARACTERS, NOT THE KIT
   ARCHETYPES** (`Loadout.custom_classes`, `adopt_character`). There are only fourteen `Kit`s
   and they are shared three ways, so measured, the row put **five** classes in front of a Star
-  Wars player and four in Warhammer — while the game has **thirty-two authored characters in
-  each** (sixteen in Halo). A player building a custom loadout chose between CLONE TROOPER and
-  WOOKIEE while the roster next door fielded a Clone Commando, an ARC Trooper, a Death Trooper
-  and an Ewok Hunter: classes that existed, were balanced, were tested, and that the mode most
+  Wars player and four in Ironhymn — while the game has **thirty-two authored characters in
+  each** (sixteen in Deep Range). A player building a custom loadout chose between LEGIONARY and
+  URSAN while the roster next door fielded a Legion Commando, an ARC Trooper, a Death Trooper
+  and a Kobb Hunter: classes that existed, were balanced, were tested, and that the mode most
   people play could not reach. It is the SAME rows FACTION mode deploys, so this adds no
   catalogue and nothing to keep in step — a class authored for a roster turns up here for free.
   **`kit` is now DERIVED from the character** (a character states its own), and the row can be
@@ -172,22 +187,22 @@ once. The per-system sections below assume them rather than repeating them.
   `primaries`/`secondaries` lists exist to make a CLASS mean something, and they did that job
   when the row offered five archetypes; now that it offers all thirty-two, the CHARACTER is the
   meaning — its body, its physique and the guns it walks in with — and the restriction was only
-  stopping a player from rebuilding the thing they had just been handed. Measured: a Spartan
-  reached 9 primaries and now reaches 20, an Ultramarine 9 and now 26, a Wookiee **two**.
-  **What it does NOT relax is `"kit"` exclusivity** — a saber, a bowcaster, a thermal holo are
-  MECHANISM (a saber needs the guard, a Force power needs the button) where a per-kit list is
+  stopping a player from rebuilding the thing they had just been handed. Measured: a Paladin
+  reached 9 primaries and now reaches 20, an Sentinel 9 and now 26, an Ursan **two**.
+  **What it does NOT relax is `"kit"` exclusivity** — a saber, a quarrel caster, a thermal holo are
+  MECHANISM (a saber needs the guard, a Kinesis power needs the button) where a per-kit list is
   only balance. Same line `royale_items` already draws.
 - **A CHARACTER CLASS (`Loadout.Kit`) is a set of ALLOW-LISTS over the one catalogue,
   not a catalogue of its own.** `KITS` states what each may reach (`gadgets`, `sustain`,
   `secondary_mods`, `armor`, `default_armor`, `gadget_slots`, `grenades`, optional
   `speed`/`health`, and optional `primaries`/`secondaries`/`sights`/`grenade_types`
   meaning ONLY those). All four allow-list rows share one rule: a `"kit"`-marked entry
-  belongs to its owner alone and is always reachable by them (saber, bowcaster, smoke,
+  belongs to its owner alone and is always reachable by them (saber, quarrel caster, smoke,
   thermal holo); otherwise a per-kit list restricts, else anything ordinary goes. Adding
   a gun is one table entry plus a decision about who may have it — never a parallel shop.
 - **Moving an item to a class takes it off everyone who already had it, INCLUDING the AI
   presets.** A `"kit"` key is a re-balance of the whole roster, not a label. `kit_rules`
-  is what says so — the Wookiee taking the T-21 made the clone GUNNER preset illegal.
+  is what says so — the Ursan taking the T-90 made the legionary GUNNER preset illegal.
 - **A gadget from another universe is usually the same verb in different words**, so a
   GADGETS row may carry `"like"` naming the gadget whose behaviour it uses
   (`Loadout.gadget_action`). A bubble shield, an iron halo and a kustom force field are
@@ -200,8 +215,8 @@ once. The per-system sections below assume them rather than repeating them.
   answers `NO_PRIMARY` and `secondary_index` answers 0, both legal and completely wrong.
   `kit_rules` asks the strict question — *did you get the gun you asked for?* — across
   all 126 presets. Fix by APPENDING the gun, never inserting.
-- **`secondary: 0` means "the cheapest row"**, which for Star Wars is the DL-44 — so all
-  32 Star Wars classes drew Han Solo's pistol, B1 droids included. `kit_rules` now
+- **`secondary: 0` means "the cheapest row"**, which for The Compact Wars is the BR-44 — so all
+  32 The Compact Wars classes drew Han Solo's pistol, light automaton droids included. `kit_rules` now
   requires every authored class to NAME its sidearm; AI presets are exempt (a shop build
   picking the free row is a budget decision).
 - **Primary and sidearm have SEPARATE modification slots.** SIGHT/COOLING/GRIP fit the
@@ -212,9 +227,9 @@ once. The per-system sections below assume them rather than repeating them.
   seed exists at all — a kit left holding an illegal row 0 is one the cursor cannot step
   off, since every direction is refused — but on its own it stopped being enough the
   moment CUSTOM opened the whole armoury: with every ordinary sidearm legal, "the first
-  allowed row" is row 0, so it walked past the bowcaster and deployed the Wookiee with
+  allowed row" is row 0, so it walked past the quarrel caster and deployed the Ursan with
   Han Solo's pistol. A `"kit"` entry is MECHANISM rather than balance, so it is what that
-  class opens holding until the player says otherwise. Only the bowcaster carries the key
+  class opens holding until the player says otherwise. Only the quarrel caster carries the key
   today, which is exactly why the regression was invisible everywhere else.
 - **Weapon upgrades never mutate `Weapon.PROFILES`**: `set_class(c, mods)` folds flags
   into a private `_upgraded_profile`.
@@ -240,18 +255,18 @@ once. The per-system sections below assume them rather than repeating them.
 ### Sides: factions and colours
 
 - **A MATCH NO LONGER HAS A UNIVERSE — IT HAS SIDES THAT EACH NAME ONE**
-  (`GameState.team_faction`, an index into `Loadout.factions()`). That is what lets UNSC fight the
-  Republic. `UNIVERSES` still groups the CATALOGUE — which classes and guns a faction can reach is
+  (`GameState.team_faction`, an index into `Loadout.factions()`). That is what lets COALITION fight the
+  Concord. `UNIVERSES` still groups the CATALOGUE — which classes and guns a faction can reach is
   its universe's answer and that is unchanged — but `universe` is now the dropdown that DEALS a
   setting's sides out in order, not a claim that only one catalogue is on the field.
 - **THE FLAT LIST IS DERIVED, NEVER AUTHORED TWICE.** A faction's name, colour and bolt already live
   in `UNIVERSES`, and a hand-written second table would be one edit from a side whose chip and whose
   tracer disagree with the roster it fields. **It walks `FACTION_ROSTERS`, not the name list** —
-  Halo names four sides and authors two, and a side you can select but cannot field is worse than
+  Deep Range names four sides and authors two, and a side you can select but cannot field is worse than
   absent.
 - **THE SIDE INDEX IS THE FACTION'S OWN SLOT, NOT THE TEAM NUMBER**, and this is the one that fails
-  silently. In a mixed match team 1 might be UNSC, which is slot 0 of Halo; wrapping the team number
-  into Halo's two rosters fields the Covenant instead, with the right name and the right colour on
+  silently. In a mixed match team 1 might be COALITION, which is slot 0 of Deep Range; wrapping the team number
+  into Deep Range's two rosters fields the Hierophany instead, with the right name and the right colour on
   it. Everything that knows a team goes through `GameState.classes_for` / `team_build_for`;
   `Loadout` takes the pair apart because it may never name an autoload (`kit_rules` has no
   autoloads, so `faction_classes` and `Streaks.available` TAKE a universe rather than reading one).
@@ -261,53 +276,53 @@ once. The per-system sections below assume them rather than repeating them.
   handed a TEAM NUMBER and nothing else, so it read the roster out of `active_universe` at the team's own
   index. Those coincide on the menu's default deal-out, which is why every check passed while the game
   shipped the fault; pick a side its own faction, which is the entire point of the row, and the character
-  select lists one roster while the body that stands up comes from another (measured: choosing UNSC and
-  deploying a B1 BATTLE DROID). The fix is that `faction_class_build()` reads
+  select lists one roster while the body that stands up comes from another (measured: choosing COALITION and
+  deploying a light automaton BATTLE DROID). The fix is that `faction_class_build()` reads
   `faction_class_index()` — the function the NAME and the blurb already read — so the three are three
   reads of one answer and no later edit can move one without moving all three.
 - **A COLOUR CHOICE DRIVES THE ARMOUR AND THE TRACER TOGETHER** (`GameState.team_tint`,
-  `Loadout.TEAM_TINTS`, index 0 = the faction's own). Purple clones that still fire blue is half a
+  `Loadout.TEAM_TINTS`, index 0 = the faction's own). Purple legionaries that still fire blue is half a
   setting. **The bolt is DERIVED from the chip rather than picked separately**, because the two exist
   for different jobs — a chip is read against a HUD, a tracer against terrain — and the existing note
-  on `bolts` is that the Empire's grey plate would make a grey tracer no tracer at all. `tint_bolt`
+  on `bolts` is that the Dominion's grey plate would make a grey tracer no tracer at all. `tint_bolt`
   pushes saturation and value up with a FLOOR rather than a multiplier: BLACK is a fine chip and as a
   bolt would be nothing at all.
 - **VEHICLES ARE ASKED PER SIDE.** `Vehicle.spawns_for` is still the one place the Star-Wars-only rule
-  lives; it is simply consulted per team, so the Republic keeps its speeder when the enemy is
-  Covenant. A vehicle's HULL comes from its faction's slot and its COLOURS from the team flying it,
+  lives; it is simply consulted per team, so the Concord keeps its speeder when the enemy is
+  Hierophany. A vehicle's HULL comes from its faction's slot and its COLOURS from the team flying it,
   and with a chosen tint those are different answers — hence `Vehicle.set_team_color`.
-- **A STREAK SIGNATURE MAY NOT SHARE A NAME WITH AN ORDINARY CLASS.** Five did (SPARTAN-II, DROIDEKA,
-  WOOKIEE WARRIOR, SANGUINARY GUARD, NECRON LORD are all line classes), which made the ten-kill prize
+- **A STREAK SIGNATURE MAY NOT SHARE A NAME WITH AN ORDINARY CLASS.** Five did (PALADIN-II, AEGIS DRONE,
+  URSAN WARRIOR, CHOIR GUARD, UNSLEEPING LORD are all line classes), which made the ten-kill prize
   a unit that side already deploys at zero. `tests/factions.gd` checks every reward and every reward
   PRESET against `FACTION_BUILDS`.
 
 ### Classes and rosters
 
-- **EIGHT CLASSES A SIDE.** Star Wars fields Republic, Separatist, Empire and Rebel
-  Alliance; Halo two of eight; Warhammer four. `FACTION_ROSTERS` is keyed by universe and
+- **EIGHT CLASSES A SIDE.** The Compact Wars fields Concord, Automata, Dominion and Pact
+  Alliance; Deep Range two of eight; Ironhymn four. `FACTION_ROSTERS` is keyed by universe and
   names classes by index into `FACTION_BUILDS` (see house rule 8). AI presets are not
   keyed by universe — a preset's universe is derivable from the class it names
   (`universe_builds`).
 - **A ROSTER IS BUILT FROM THE FANBASE'S OWN VOCABULARY, not from adjectives.** The first
-  attempt produced CLONE PILOT and REBEL HEAVY carrying recycled rifles, which is what a
-  roster looks like when it is generated rather than designed. Battlefront's structure is
+  attempt produced LEGION PILOT and PACT HEAVY carrying recycled rifles, which is what a
+  roster looks like when it is generated rather than designed. The Genre's structure is
   four LINE classes (assault, heavy, officer, specialist) plus four REINFORCEMENTS, and
-  the reinforcements are the units people queue for: Droideka, Clone Commando, ARC
-  Trooper, BX Commando Droid, B2, Death Trooper, Flametrooper, Wookiee Warrior, Ewok
-  Hunter. **Halo works the other way round — the sandbox IS the roster**, so no two Halo
+  the reinforcements are the units people queue for: Aegis Drone, Legion Commando, ARC
+  Trooper, BX Commando Droid, heavy automaton, Death Trooper, Incinerator Trooper, Ursan Warrior, Kobb
+  Hunter. **Deep Range works the other way round — the sandbox IS the roster**, so no two Deep Range
   classes share a primary and each is named by the gun it walks in with.
 - **THE TEST OF A CLASS IS WHETHER IT NEEDED A NEW NOUN.** Sixteen weapons and nine
-  gadgets exist because a class could not be itself without them: a Droideka firing a
-  DC-15 is not a Droideka. `DROIDEKA_TWIN` is the highest sustained output behind the
+  gadgets exist because a class could not be itself without them: an Aegis Drone firing a
+  VL-15 is not an Aegis Drone. `DROIDEKA_TWIN` is the highest sustained output behind the
   shortest heat pool; `FLAMETHROWER` is the only weapon with no reach and no way to miss;
-  `EWOK_SPEAR` is the shortest reach and highest melee damage; `DC17M` is the only
+  `EWOK_SPEAR` is the shortest reach and highest melee damage; `VL17M` is the only
   three-round burst; the `DC17` exists so the ARC can carry TWO. All sixteen went into the
   SHOP as well — a weapon only a faction class can hold is one most players never see.
 - **A CLASS IS A BODY, NOT A COLOUR — the PHYSIQUE table** (`Loadout.unit_speed` /
   `unit_health` / `unit_jump` / `unit_stature`, read through `move_speed()` /
   `max_health()` / `jump_power()` / `stature()`). Speed and health had only ever been
-  per-KIT, so all sixteen Clone Wars classes on the default kit were **byte-identical** —
-  a Droideka moved at a Scout Trooper's pace. Unit numbers REPLACE the kit's; the CLONE
+  per-KIT, so all sixteen Compact Wars classes on the default kit were **byte-identical** —
+  an Aegis Drone moved at a Scout Trooper's pace. Unit numbers REPLACE the kit's; the LEGION
   TROOPER states nothing and is 1.0 by definition, every other number is read against it.
   This is also what fixed the Royal Guard, who was on the FORCE kit and inheriting ×1.2
   speed under heavy plate.
@@ -320,14 +335,14 @@ once. The per-system sections below assume them rather than repeating them.
   duck-typed on `body_height()`). Bot, Turret and ForcePowers all used a flat 1.0 m chest,
   which over a 1.12–2.09 m roster puts rounds over the small ones and into the belt of the
   big ones — and does the same to the sight checks deciding if they are seen at all.
-- Notable kits: **WOOKIEE** heavy (T-21 and PLX-1 exclusive, front shield, plate only,
-  ×1.3 health ×0.9 speed; bowcaster sidearm is a 3-pellet hitscan, and its kit forbids the
+- Notable kits: **URSAN** heavy (T-90 and PX-1 exclusive, front shield, plate only,
+  ×1.3 health ×0.9 speed; quarrel caster sidearm is a 3-pellet hitscan, and its kit forbids the
   SCOPE there on purpose — zero spread would collapse all three quarrels onto one point).
-  **TRANDOSHAN** skirmisher (×1.15 speed ×0.95 health, owns SMOKE and the THERMAL HOLO —
+  **SAURIAN** skirmisher (×1.15 speed ×0.95 health, owns SMOKE and the THERMAL HOLO —
   throw smoke, then read bodies inside it nobody else can see; gadgets CLOAK and DASH).
   **FORCE** adept (×1.25 health — it can only close while everyone else shoots on the way
   in; double jump intrinsic, dash both intrinsic and selectable as `Gadget.DASH`).
-  `kit_rules` allows DASH on the adept and Trandoshan and nobody else.
+  `kit_rules` allows DASH on the adept and Saurian and nobody else.
 
 ### Kill streak rewards
 
@@ -337,7 +352,7 @@ once. The per-system sections below assume them rather than repeating them.
   deaths is one the best player accumulates and the worst player watches.
 - **TWO KINDS OF REWARD, AND THE SPLIT IS THE DESIGN** — the same distinction the third gadget slot
   makes. **CALL-IN** (recon, orbital strike, a walker delivered to you) happens somewhere else and you
-  carry on being what you were; **BECOME** (a Droideka Prime, an Ork Warboss, a Force master) happens
+  carry on being what you were; **BECOME** (an Aegis Drone Prime, a Scrap Warlord, a Kinesis master) happens
   to YOU and the rest of that life is played as something else.
 - **A REWARD IS OFFERED, NOT APPLIED** — D-UP takes it, D-DOWN turns it down (`reward_accept` /
   `reward_decline`, and the prompt names them through `Controls.label` so it follows a rebind). **The
@@ -360,8 +375,8 @@ once. The per-system sections below assume them rather than repeating them.
   and `sight`/`cooling`/`grip`/`foregrip` on a RANGED primary — a melee signature hides those rows, so it
   states `secondary_mod: DUAL` instead and walks in with two sidearms, which is also the only answer to
   the one thing a sword-only body cannot do. **A gadget here is NOT checked against the kit's allow-list**,
-  exactly as an authored faction class's is not: a Droideka Prime carries the Wookiee's front shield
-  because a droideka IS a shield, and the allow-lists are a SHOP rule, not a physics one.
+  exactly as an authored faction class's is not: an Aegis Drone Prime carries the Ursan's front shield
+  because a aegis drone IS a shield, and the allow-lists are a SHOP rule, not a physics one.
 - **A SIGNATURE IS SUPPOSED TO BE TOO STRONG.** That is the design and the pools were raised to make it
   true: roughly 12-16x a trooper's effective health, against 7-11x before. The argument is what a
   ten-kill streak COSTS — ten kills without dying once, in a mode where everybody respawns and nobody
@@ -383,7 +398,7 @@ once. The per-system sections below assume them rather than repeating them.
   whole buff rests on, it is invisible — nothing about a body that does not heal looks different — and a
   player who does not know about it will play a signature like a trooper, break contact expecting to come
   back full, and die of a rule nobody told them. **The banner names the BODY, not the row**: one Force
-  Master row resolves to JEDI MASTER or SITH MASTER, so it reads `build_name` rather than `row["name"]`.
+  Master row resolves to WARDEN MASTER or REAVER MASTER, so it reads `build_name` rather than `row["name"]`.
 - **A BECOME REWARD DOES NOT REGENERATE** (`Player._no_regen`, set by `_become` and cleared by every
   ordinary `_apply_loadout`), and that is the counterweight to the pool rather than a smaller pool being
   one. A signature stands up at 7–11× a trooper's effective health; with regen on top the only way to
@@ -391,7 +406,7 @@ once. The per-system sections below assume them rather than repeating them.
   hiding until it leaves and the correct play AS one is to break contact and come back whole every time.
   Without regen every point spent is a point gone — you can win five fights on one shield and not fifty —
   and it is the only counterweight that SCALES with how big the pool gets. **The SUSTAIN slot is the
-  deliberate exception**: an OVERSHIELD or an IRON HALO re-issues the second pool, so slot 3 is the one
+  deliberate exception**: an OVERSHIELD or an AEGIS HALO re-issues the second pool, so slot 3 is the one
   thing that still gives ground back, which is why every signature carries one.
 - **The sustain gadgets TOP UP the overshield, they do not assign it.** A signature is issued 400-odd
   points through `Streaks`; `Gadget.OVERSHIELD` writing `OVERSHIELD_POOL` (110) flat would put the
@@ -410,44 +425,44 @@ once. The per-system sections below assume them rather than repeating them.
   eight of that side's classes. Stated as a MAP rather than a `universe` + `teams` pair because a
   reward can belong to different sides in different settings, and the pair cannot express that
   without two rows that then drift. **An absent universe is a refusal, not a fallthrough** — team 0
-  is the Republic in Star Wars and somebody else in Halo.
+  is the Concord in The Compact Wars and somebody else in Deep Range.
 - **ONE SIGNATURE PER FACTION AND NO TWO SIDES SHARE ONE**, across all TEN factions. The first pass
   had SIX of them sharing a generic "Juggernaut", which is the same failure as the first roster
-  attempt (CLONE PILOT and REBEL HEAVY carrying recycled rifles): a reward generated from an
-  ADJECTIVE rather than designed from the fanbase's own vocabulary. A Necron Lord and an Ork Warboss
+  attempt (LEGION PILOT and PACT HEAVY carrying recycled rifles): a reward generated from an
+  ADJECTIVE rather than designed from the setting's own vocabulary. An Unsleeping Lord and a Scrap Warlord
   are not two skins on one Juggernaut, and if they were there would be no reason to care which side
-  you are on. Republic LAAT GUNSHIP, Separatist DROIDEKA PRIME, Imperial AT-ST WALKER, Rebel WOOKIEE
-  CHIEFTAIN, UNSC SPARTAN HEADHUNTER, Covenant SANGHEILI ZEALOT, Ultramarine TERMINATOR, Blood Angel
-  SANGUINARY EXEMPLAR, Necron NECRON OVERLORD, Ork ORK WARBOSS. **`tests/streaks.gd` walks every
+  you are on. Concord HAMMERHEAD GUNSHIP, Automata AEGIS DRONE PRIME, Dominion MARAUDER WALKER, Pact URSAN
+  CHIEFTAIN, COALITION PALADIN HEADHUNTER, Hierophany ZHAAL ZEALOT, Sentinel TERMINATOR, Chorister
+  CHOIR EXEMPLAR, Unsleeping UNSLEEPING OVERLORD, Ork ORK WARBOSS. **`tests/streaks.gd` walks every
   faction in every universe and reports the two sides that share one BY NAME** — a count would not
   say what broke. **The names are deliberately NOT the line classes' names** (house rule in
-  `tests/factions.gd`): SPARTAN-II, DROIDEKA, WOOKIEE WARRIOR, SANGUINARY GUARD and NECRON LORD are
+  `tests/factions.gd`): PALADIN-II, AEGIS DRONE, URSAN WARRIOR, CHOIR GUARD and UNSLEEPING LORD are
   all units a side already deploys at zero kills, so a signature carrying one is a ten-kill prize
   that is visibly nothing new. `tests/signature_look.tscn` is the line-up that judges the set.
 - **THE TWO UNIVERSAL RUNGS ARE WHAT KEEP THE LADDER LEVEL.** Recon and the ORBITAL STRIKE carry no
   `factions` key at all, and the orbital especially is the one reward that asks nothing of what you
   are — no body to become, no machine to climb into, no faction hardware — so it is the rung that is
-  the same height for a Grot and a Space Marine. Every side gets exactly three rewards, four in Star
-  Wars (which adds the Force master); a faction with fewer than the one across the map is a balance
+  the same height for a Runt and a Sentinel. Every side gets exactly three rewards, four in Star
+  Wars (which adds Kinesis master); a faction with fewer than the one across the map is a balance
   bug nothing else in the project would report.
-- **ALL FOUR STAR WARS SIDES REACH A FORCE MASTER**, because which one you get is ALLEGIANCE and not
-  class — Republic and Rebels draw a Jedi, Separatists and Empire a Sith. **The top rung may not be the
+- **ALL FOUR THE COMPACT WARS SIDES REACH A KINESIS MASTER**, because which one you get is ALLEGIANCE and not
+  class — Concord and the Pact draw a Warden, Separatists and Dominion a Reaver. **The top rung may not be the
   squishiest thing on the ladder** and it was: on a LIGHT FRAME with no second pool it stood up at 208
-  effective health against the ten-kill Terminator's 795, so the four-kill climb from a signature to the
-  master was a downgrade in everything but flair. It keeps the light frame — a Force adept is fast
+  effective health against the ten-kill Ironclad's 795, so the four-kill climb from a signature to the
+  master was a downgrade in everything but flair. It keeps the light frame — a Kinesis adept is fast
   because it has to close — and takes its pool as a SHIELD, which is the one that gets spent.
-- **JEDI AND SITH ARE ONE ROW**, not two (`preset_by_team` overriding parts of the base `preset`). Same
+- **WARDEN AND REAVER ARE ONE ROW**, not two (`preset_by_team` overriding parts of the base `preset`). Same
   mechanism, two names and two bodies; stating them twice is how the two would drift.
-- **AND THE FORCE MASTER IS PLAYED IN THIRD PERSON** (`"third_person": true` on the row →
+- **AND THE KINESIS MASTER IS PLAYED IN THIRD PERSON** (`"third_person": true` on the row →
   `Player.third_person`). Everything a saber duellist does happens to the BODY — a two-metre blade swung
   on an arc, a guard raised across the chest, a leap, a shove — and a first-person camera 30 cm from the
   hilt is pointed at the one part of all that which cannot be seen. **It is a TABLE KEY and not a test on
   the reward's name**, so a future saber signature gets it by stating one word.
   **THE PARALLAX QUESTION IS WHY IT IS PER-REWARD RATHER THAN A SETTING.** Moving the camera off the head
-  puts the crosshair and the gun on two different lines, which is the fault that made the LAAT's ball
+  puts the crosshair and the gun on two different lines, which is the fault that made the HAMMERHEAD's ball
   turret unusable — and there it was fatal. Here it is not, and that is a property of THIS BODY: shots
-  trace from the weapon (`Weapon._fire_hitscan`, which is on the head) and a Force Master's weapons are a
-  melee ARC, a Force CONE and a sidearm. A trooper on a scoped rifle in this camera would be a different
+  trace from the weapon (`Weapon._fire_hitscan`, which is on the head) and a Kinesis Master's weapons are a
+  melee ARC, a kinetic CONE and a sidearm. A trooper on a scoped rifle in this camera would be a different
   question and the answer would be no.
   The camera rides `remote_cam.position` — the RemoteTransform3D already copies its own transform onto
   the camera, so moving it back along the head's +Z IS a chase camera and every existing driver of the
@@ -455,7 +470,7 @@ once. The per-system sections below assume them rather than repeating them.
   owns BOTH cull-mask bits in one function, so the body and the viewmodel can never both be on or both be
   off — which is what "my gun is floating in front of my own face" and "I am invisible to myself" each
   look like. **`_apply_loadout` resets it**, for the same reason it resets `_no_regen`: that function is
-  also what a fresh DEPLOY calls, and without the reset, dying once as a Force Master leaves you playing
+  also what a fresh DEPLOY calls, and without the reset, dying once as a Kinesis Master leaves you playing
   the rest of the match over your own shoulder.
 - **A TRANSFORMATION MUST PRESERVE THE STREAK *AND* THE TAKEN-SET.** `_apply_loadout` resets both
   because it is also what a fresh DEPLOY calls, and here it is not one. Without the first, a transformed
@@ -469,7 +484,7 @@ once. The per-system sections below assume them rather than repeating them.
   pulse** rather than marking once, because the roster changes underneath it and a body that spawned
   after a one-shot mark would be the only invisible thing on the field; marks overlap the pulse so a
   contact never blinks. **A cloak still beats it** — same check every AI vision test makes, or a
-  four-kill streak would make the Trandoshan's signature ability worthless.
+  four-kill streak would make the Saurian's signature ability worthless.
 - **AN ORBITAL ROUND ARRIVES; A MORTAR ROUND IS ANNOUNCED** (`OrbitalStrike.SHELL_HANG`, overriding
   `mortar_shell.launch`'s own solve). The mortar's long hang is a FAIRNESS feature — you hear it coming
   and walk out from under it — and inheriting it from 90 m up gave the strike a 6.4 s time of flight on
@@ -486,7 +501,7 @@ once. The per-system sections below assume them rather than repeating them.
   is sky in the frame and it reads as altitude rather than as a zoomed-out map screen), the stick walks
   the mark across the ground and the trigger brings rounds down on it for `duration`. The auto-aim
   survives as the OPENING mark only (`_densest_enemy_ground`), so it drops you in already pointed at the
-  fight. **It reuses the whole of the LAAT's seating** — `enter_vehicle`, `seat_is_eye`,
+  fight. **It reuses the whole of the HAMMERHEAD's seating** — `enter_vehicle`, `seat_is_eye`,
   `vehicle_owns_view` + `take_view_delta`, and `gunner_readout()` so `gunner_hud.gd` draws both sights
   and neither knows about the other. Nothing re-implements ballistics: the rounds are `mortar_shell.gd`.
 - **THE RATION IS THE CLOCK, NOT A MAGAZINE.** Hold the trigger and it keeps firing for the whole
@@ -500,7 +515,7 @@ once. The per-system sections below assume them rather than repeating them.
   engine warning per shell per physics frame — four rounds every 0.3 s buried every other line of output
   — and picked an arbitrary roll about an axis that is invisible on a capsule. A shell is a body of
   revolution, so any up vector off the flight axis is correct; it only has to not be parallel to it.
-- **THE GUNSHIP IS NOT A VEHICLE AND YOU DO NOT DRIVE IT** (`gunship.gd`). A LAAT is not remembered
+- **THE GUNSHIP IS NOT A VEHICLE AND YOU DO NOT DRIVE IT** (`gunship.gd`). A HAMMERHEAD is not remembered
   for being piloted, it is remembered for the two glass balls on its flanks with a trooper sealed in
   each one hosing green fire downward — so the airframe flies its own circuit and the player rides the
   BALL TURRET. Handing them the stick would make it a slow speeder with good armour. Every answer
@@ -567,7 +582,7 @@ once. The per-system sections below assume them rather than repeating them.
   driver bleed, dying at the controls, being a combatant bots shoot at); a vehicle that materialised
   around you would need every one of those answered again. Set down BEHIND the player: on top is the
   documented capsule-ejection bug and in front is a wall between them and what they were shooting at.
-- **ONLY THE REPUBLIC AND THE EMPIRE GET A MACHINE** — the LAAT and the AT-ST. Every other side's
+- **ONLY THE CONCORD AND THE DOMINION GET A MACHINE** — the HAMMERHEAD and the MARAUDER. Every other side's
   signature is a BECOME, which is a preset and no new hardware; a machine costs a hull, a hover
   height and a `Vehicle.STREAK_VEHICLES` row. See VEHICLES for how the two are built.
 
@@ -578,7 +593,7 @@ once. The per-system sections below assume them rather than repeating them.
 - **The VICTORY threshold is configurable** (`GameState.score_targets`, seeded from
   `SCORE_LIMITS`): kills or zone-hold seconds, from `menu.gd`'s `SCORE_CHOICES`. Royale is
   not tunable (last side standing is not a number).
-- **CONQUEST is the Battlefront mode**: sides fight over CAPTURE POSTS (`command_post.gd`)
+- **CONQUEST is the The Genre mode**: sides fight over CAPTURE POSTS (`command_post.gd`)
   laid out by `conquest.gd`, and you DEPLOY on a post your side holds, picked in the
   DEPLOY POST box (`Player._step_spawn_post`, `_conquest_spawn_transform`). `score_limit()`
   is the REINFORCEMENT pool: `report_death` spends one and `conquest_bleed` drains the side
@@ -662,7 +677,7 @@ once. The per-system sections below assume them rather than repeating them.
   over the ordinary ceiling, unless `_fix_setup` walks it back onto the ladder.
 - **A team is just an index**, 0..`active_teams()-1` — 2, 3 or 4 sides, or FREE FOR ALL
   (one team per player, no AI fill). `team_names`/`team_colors` are vars, not constants:
-  who the sides ARE comes from the universe. `Team.REPUBLIC`/`CIS` are still 0 and 1 so
+  who the sides ARE comes from the universe. `Team.CONCORD`/`Automata` are still 0 and 1 so
   maps naming them are untouched.
 - **With 3+ teams `place_corner_spawns` REPLACES the map's authored spawns.** Maps only
   author two sets of markers, so extra sides would otherwise share somebody else's start —
@@ -748,7 +763,7 @@ once. The per-system sections below assume them rather than repeating them.
 - **`cam_recoil` IS WHAT A TRIGGER PULL COSTS, NOT WHAT ONE ROUND COSTS** (`Weapon._shot_recoil`
   divides by `burst_count`). A burst's rounds leave 55 ms apart against a 6/s settle, so barely
   7% of the first round's kick has decayed before the third lands — they stack. Charging the
-  full number three times threw the EL-16's camera up **13.7° on one pull**, and the
+  full number three times threw the BL-16's camera up **13.7° on one pull**, and the
   first-shot weighting took it past 18: not a hard gun, a gun that cannot be fired twice at the
   same man. It also makes the column comparable across fire modes for the first time.
 - **A RECOIL PATTERN IS SOMETHING YOU LEARN; RANDOM SPRAY IS SOMETHING YOU ENDURE.** The
@@ -758,18 +773,18 @@ once. The per-system sections below assume them rather than repeating them.
   component weaves on a smooth curve (`RECOIL_WEAVE`), and only `RECOIL_YAW_JITTER` is random.
   **The pattern restarts after `RECOIL_PATTERN_RESET` off the trigger**, which is what makes
   TAPPING a real technique rather than a slower way to spray.
-- **A MACHINE GUN IS THE STEADIEST THING YOU CAN CARRY, AND IT WAS THE WORST.** The T-21 ran at
-  7.6°/s of steady climb against the DC-15's 3.1 — a belt-fed weapon climbing two and a half
+- **A MACHINE GUN IS THE STEADIEST THING YOU CAN CARRY, AND IT WAS THE WORST.** The T-90 ran at
+  7.6°/s of steady climb against the VL-15's 3.1 — a belt-fed weapon climbing two and a half
   times as fast as a rifle, which made every one of them a three-round weapon with a long tail
   of wasted rounds. They are the most controllable guns in the game now and still pay for it in
   the widest cones in the catalogue. `tests/recoil_feel.tscn` measures both figures on every gun
   through the real signal path, because a table column cannot be read — per-pull kick, rate and
   settle only mean anything together.
-- **THE LMGs ARE A CATEGORY, NOT A RATE** (`RT97C` / `DLT19D` / `M739_SAW` / `GAUSS_CANNON`).
+- **THE LMGs ARE A CATEGORY, NOT A RATE** (`RT9` / `DK19D` / `SAW7` / `GAUSS_CANNON`).
   There were three sustained-fire guns and all three were one idea at three rates: a lot of small
   rounds through a wide cone. The four new ones are spread along the rate/damage axis (3 rounds
   in 0.52 s at one end, 7 in 0.36 s at the other) and every setting gets one, so an LMG player is
-  not forced into Star Wars. Appended to `Class`, `PROFILES` and `WEAPONS` (house rule 8).
+  not forced into The Compact Wars. Appended to `Class`, `PROFILES` and `WEAPONS` (house rule 8).
 - **HOLD THE CROUCH BUTTON AT A RUN AND YOU GO TO GROUND** (`Player.sliding()`,
   `_begin_slide`/`_update_slide`/`_end_slide`). It is the first movement decision in the game that
   COMMITS you: everything else here is free and instant — crouch is a toggle, sprint is a modifier, the
@@ -831,7 +846,7 @@ once. The per-system sections below assume them rather than repeating them.
 - **`kick_back` cannot just be added to `velocity`** — movement rewrites `velocity.x/z` from
   the stick every frame — so it rides alongside as its own decaying `_kick_vel`, like
   `_unstick_push`. Flattened to horizontal on purpose: firing at the floor should stagger
-  you, not launch you. **Same trap for the cable vault, the Force shove and anything else
+  you, not launch you. **Same trap for the cable vault, Kinesis shove and anything else
   that adds velocity to a body that writes its own.**
 - **Stance drives spread** (`Weapon.stance_spread_mult`, set by
   `Player._update_stance_spread`, multiplied into `current_spread_deg`): >1 moving, higher
@@ -865,7 +880,7 @@ once. The per-system sections below assume them rather than repeating them.
 - **You cannot ADS while RUNNING** (`Player._is_running`: sprint held, not crouched, stick
   pushed). Standing still holding sprint still lets you aim.
 - **HANDLING IS ONE NUMBER PER GUN AND IT IS THE OTHER HALF OF WHAT A WEAPON COSTS**
-  (`Weapon.handling`, **no key means 1.0** — the DC-15, which everything else in that table is
+  (`Weapon.handling`, **no key means 1.0** — the VL-15, which everything else in that table is
   already read against). Every column in `PROFILES` was a statement about what a ROUND does —
   damage, reach, cone, heat, kick — and nothing said what the weapon is like to CARRY, so a
   Gauss Cannon came to the eye exactly as fast as a holdout pistol. That is how a catalogue can
@@ -936,7 +951,7 @@ once. The per-system sections below assume them rather than repeating them.
   nothing else. Same mechanism the chase camera uses.
   **MOSTLY ROLL, BECAUSE ROLL IS THE ONE BORESIGHT-NEUTRAL AXIS** — rotating about the view axis cannot
   move where the centre of the screen points, where yaw or pitch would put the reticle and the barrel on
-  different lines. That is the LAAT ball turret's fault, and it is not worth reintroducing for an
+  different lines. That is the HAMMERHEAD ball turret's fault, and it is not worth reintroducing for an
   effect. Measured at full trauma: the camera displaces 0.075 and **the gun moves 0.000 degrees**.
   Trauma is SQUARED on the way out, so a big hit reads as violently different rather than merely larger,
   and it decays linearly so it always ENDS.
@@ -948,7 +963,7 @@ once. The per-system sections below assume them rather than repeating them.
   carried IN from the frame before.
 - **Sights are one slot with ALTERNATIVES** (`Loadout.Sight`), not stackable toggles: iron,
   RED DOT (`has_reddot()`, also sets `holo` to share the no-blackout path), holo ring, SCOPE
-  and 4X (differing only in `zoom_fov`), and the Trandoshan's thermal holo. Fitting any one
+  and 4X (differing only in `zoom_fov`), and the Saurian's thermal holo. Fitting any one
   CLEARS the others, because `has_scope()` is what grants pinpoint accuracy — the reticle
   drawn and the accuracy dealt must never disagree.
 - **The two grip attachments are split by what they touch**: IMPROVED GRIP is HIP-FIRE
@@ -967,13 +982,13 @@ once. The per-system sections below assume them rather than repeating them.
   `_refresh_offhand()` must be called anywhere the hands can change.
 - Call `try_fire` only from physics frames.
 
-#### Melee, the guard and Force powers
+#### Melee, the guard and Kinesis powers
 
 - **Melee connects on a forward ARC, not a pinpoint ray** (`Weapon._melee_strike`, used by
   any `is_melee()` weapon): nearest enemy inside `range` and `MELEE_ARC` (50°) with no wall
   between, so a blade lands at the range it fights at instead of demanding the crosshair be
   dead on a moving target. No headshots on a swing.
-- **The LIGHTSABER is an ordinary hitscan with a 3.4 m `range` and a `melee` flag** — no new
+- **The ARC BLADE is an ordinary hitscan with a 3.4 m `range` and a `melee` flag** — no new
   code path, it simply cannot reach. Aim does not zoom it; aim raises the GUARD
   (`Player.guard_up`), a pool paying `BLOCK_COST` per point stopped, only inside `BLOCK_ARC`
   in front, breaking at zero until it recovers past `BLOCK_RECOVER_AT` (without that
@@ -1000,12 +1015,12 @@ once. The per-system sections below assume them rather than repeating them.
   the Super Battle Droid's wrist cannon uses the same door).
 - **A melee weapon's LOOK is six profile keys** (`blade_core`, `blade_glow`, `blade_len`,
   `blade_width`, `blade_energy`, `hilt_len` — `Weapon.melee_look()`), read by BOTH viewpoints,
-  so a lightsaber, an energy sword, a chainsword and a thunder hammer are one builder and
+  so a arc blade, an energy sword, a chain blade and a thunder hammer are one builder and
   four rows. **`blade_energy` 0 is a METAL weapon**, and metal is a LIT surface: only plasma
   is `SHADING_MODE_UNSHADED` (a lit blade goes black on its shadow side, which is where a
   glowing sword is most of the point). **Unshaded bypasses lighting but NOT the tonemap**, so
   a mid-grey steel albedo through AgX at exposure 1.6 came out a flat near-white slab at one
-  value on every face — frosted glass, which is why a chainsword looked "shiny, transparent
+  value on every face — frosted glass, which is why a chain blade looked "shiny, transparent
   and glowing" at once. Steel builds as an ordinary material.
 - **AN ADDITIVE AURA MAKES WHATEVER IS UNDER IT TRANSLUCENT** — right for plasma, wrong for
   everything else. So the sleeve is built ONLY around a blade that is actually light.
@@ -1103,7 +1118,7 @@ once. The per-system sections below assume them rather than repeating them.
   that player aims a `has_thermal()` sight, so it is a scope they look through and never a
   shared tracker. Gated on a WORLD-layer raycast (mask 1): a wall blocks it, smoke has no
   collider so a cloud does not — which is what makes it see through the class's own smoke.
-- **The MANDALORIAN's WRIST ROCKET reuses the RPG's projectile whole** (`rocket.gd` already
+- **The HUNTER's WRIST ROCKET reuses the RPG's projectile whole** (`rocket.gd` already
   flies, arms, splashes and credits its shooter), so it is a launch site and three numbers. It
   launches from the HEAD, not the weapon anchor, so it fires at the crosshair without lowering
   whatever gun is in hand, started 0.6 m ahead to clear the shooter's own capsule. Weaker than
@@ -1174,7 +1189,7 @@ extends it for decorative NPCs.
   new look is a table row. `set_style(id)` frees the `Hips` subtree and rebuilds in place; the
   sibling AnimationPlayer and its joint-name tracks re-bind.
 - **A style has THREE colours, not two** (`armor` / `dark` / `accent`, plus the team accent).
-  Two tones was enough for a trooper in one palette; a Spartan's gold visor, a Necron's green
+  Two tones was enough for a trooper in one palette; a Paladin's gold visor, an Unsleeping's green
   light and an ork's bare scrap are none of those and were all being painted in the body
   colour. `accent` defaults to `dark`, so a style with nothing to say says nothing.
 - **The class colours are the BODY; `set_team_color` rides the ACCENTS** (`_suit_mat`:
@@ -1198,22 +1213,22 @@ extends it for decorative NPCs.
   went in as a stand-in for a CHAMFER. **The parts are genuinely chamfered now, so rim is down
   to a whisper (0.05–0.14)** — it is the same edge paid for twice, and a bright edge all the
   way round a part is itself a translucency cue.
-- **THE HELMET IS THE UNIT**, and for a long time Star Wars did not have one: twelve styles
+- **THE HELMET IS THE UNIT**, and for a long time The Compact Wars did not have one: twelve styles
   shared a generic `"helmet"` while every other universe got its own head the moment it landed.
-  They are nine heads now (`clone` T-visor and keel, `commando` lit band and rangefinder,
-  `stormtrooper` brow/lenses/raised nose/frown, `shoretrooper` centre keel and wide neck guard,
+  They are nine heads now (`legionary` T-visor and keel, `commando` lit band and rangefinder,
+  `dominion trooper` brow/lenses/raised nose/frown, `garrison trooper` centre keel and wide neck guard,
   `scout` wraparound goggle, `deathtrooper` flat visor and red lenses, `rebel` bowl over a
   visible face, `pilot` visor block and oxygen mask, `cap` peaked officer's cap, `royalguard`
   one vertical slit). **Cost is materials, not boxes** — `_merge_parts` collapses every box on
   a joint sharing a material into one mesh — so a head is as detailed as it likes provided it
   reuses `armor`/`dark`/`_suit_mat` and adds at most one of its own.
 - **A head kind with no `match` case falls through to the BARE face and says nothing.**
-  `GEONOSIAN`, `EWOK` and `JACKAL` all asked for `"muzzle"`, which `_build_head` never had —
+  `VESPID`, `KOBB` and `SKIRI` all asked for `"muzzle"`, which `_build_head` never had —
   three units shipped with a generic head and no error anywhere. There is no other check.
 - **Silhouette accessories are what separate the factions, not colour**: `bigpauldron`
-  (Astartes shoulders standing clear of the arm and above the collar — the generic `pauldron`
+  (Order shoulders standing clear of the arm and above the collar — the generic `pauldron`
   sits flush and merges into the torso, which is why a marine was a rectangle), `powerpack`,
-  `aquila`, `tank` (the Unggoy methane bottle, bigger than the body carrying it), `ribs`,
+  `aquila`, `tank` (the Kopa methane bottle, bigger than the body carrying it), `ribs`,
   `scrap` and `shoulderplate` (ork armour, deliberately ASYMMETRIC — a matched pair reads as
   issued kit, which orks do not have), `collar`, `gauntlet`, `greaves`, `thighplate`. Two
   calibrations: an accent cap on a pauldron must be a TRIM (0.03) not a lid (0.05) or the
@@ -1235,7 +1250,7 @@ extends it for decorative NPCs.
   (`_stamp_model_layers`). Same trap one node out as `Viewmodel.view_layer`.
 - **`set_melee(on, staff)` swaps the held blaster for a lit blade on the same `HeldGun`
   joint**, so the solved carry/guard IK is unchanged. Player calls it from `_announce_hand`
-  (every swap, not just deploy), Bot from `setup`. Before it, a Force adept charging you looked
+  (every swap, not just deploy), Bot from `setup`. Before it, a Kinesis adept charging you looked
   like a trooper standing oddly.
 
 #### The rig, the carry and the poses
@@ -1400,7 +1415,7 @@ extends it for decorative NPCs.
 - **A CORPSE IS THE SIZE THE UNIT WAS** (`launch`'s `stature`). The model is scaled BEFORE its
   joints are read; the rigid bodies are set from an **orthonormalized** transform with their box
   shapes scaled explicitly, because a RigidBody3D with a scaled basis scales its own collision
-  shape a second time. Without it an Ewok stood up to full trooper height on landing.
+  shape a second time. Without it a Kobb stood up to full trooper height on landing.
 - **A death nobody can see is not built at all** (`VIEW_RANGE`) and the floor holds `MAX_ALIVE`,
   oldest evicted first. A human's own death is `forced` past both: you watch that one. Anything
   spawning a corpse outside a match has to force it too, or it measures an early-out.
@@ -1465,23 +1480,23 @@ its animated first-person gun. `viewmodel.gd` rebuilds per class from `SHAPES`.
 - **THE LIGHTS ON THE GUN ARE THE TEAM'S COLOUR, AND THEY ARE THE BOLT'S COLOUR**
   (`Viewmodel.set_light_color`, pushed from `Weapon.bolt_color()` in `set_class` and on every
   muzzle flash). The lit parts were the last thing still painted from the faction PALETTE, so a
-  purple clone carried a gun with a red heat cell and fired blue. Same rule as the tracer, the
+  purple legionary carried a gun with a red heat cell and fired blue. Same rule as the tracer, the
   muzzle light and the impact scorch — one colour, now four things read it. Kept at
   `ACCENT_ENERGY` 1.6 and not higher for the reason the turret's sensor slit is on record for:
   past unity AgX takes emission to WHITE, and a white cell carries no team at all.
 - **EVERY GUN IS A DIELECTRIC AND EVERY FACTION BUILDS OUT OF THE SAME BOXES** (`Viewmodel.Make`,
   `PALETTES`, `_dress`) — see house rule 12 for why `metallic` is 0.0 in all six palettes. What
-  separates a UNSC rifle from a Covenant one is COLOUR, PROPORTION and one or two parts nobody
-  else has: Star Wars gunmetal with a red heat cell; UNSC olive drab with a carry handle and a
-  lit ammo counter; Covenant violet with **no straight lines** (canted shell fins round a glowing
-  plasma core, the only family built from round parts); Astartes dark red with a shell box, a
-  purity seal and a muzzle collar; Necron near-black with a lit spine and swept vanes; Ork rust
-  scrap, deliberately asymmetric. Unlisted classes are Star Wars.
-- **A repeated small feature is what gives a surface SCALE** — the same lesson as the Coruscant
+  separates a COALITION rifle from a Hierophany one is COLOUR, PROPORTION and one or two parts nobody
+  else has: The Compact Wars gunmetal with a red heat cell; COALITION olive drab with a carry handle and a
+  lit ammo counter; Hierophany violet with **no straight lines** (canted shell fins round a glowing
+  plasma core, the only family built from round parts); Order dark red with a shell box, a
+  purity seal and a muzzle collar; Unsleeping near-black with a lit spine and swept vanes; Ork rust
+  scrap, deliberately asymmetric. Unlisted classes are The Compact Wars.
+- **A repeated small feature is what gives a surface SCALE** — the same lesson as the Civis
   tower mullions. Viewmodels carry universal furniture sized off the receiver (trigger + guard,
   ejection port and lip, charging handle, top-rail slots, sling loop, barrel heat vents, front
   sight block, stock cheek riser), because a bare extruded box could be any size.
-- The lightsaber viewmodel is built under its own PIVOT (`_build_saber`), because the viewmodel
+- The arc blade viewmodel is built under its own PIVOT (`_build_saber`), because the viewmodel
   root's transform is already driven by recoil, bob and the ADS slide and the whole weapon has to
   swing as one piece. The blade is modelled along -Z like every barrel, so a POSITIVE pitch is
   what stands it upright. `kick()` starts a swing instead of a recoil kick when a blade is in
@@ -1527,12 +1542,12 @@ its animated first-person gun. `viewmodel.gd` rebuilds per class from `SHAPES`.
   bolt in all three universes was one shared burnt-orange material. Resolved per trigger pull
   rather than once at spawn, because it depends on the profile AND the shooter and those are
   assigned in either order by Player, Bot and Turret.
-- **The colour falls through to the SIDE, and that is what makes Star Wars look like Star Wars**
+- **The colour falls through to the SIDE, and that is what makes The Compact Wars look like The Compact Wars**
   (`Loadout.UNIVERSES["bolts"]` → `GameState.bolt_colors`). Stated only for EXCEPTIONS, exactly
   like `VOICES`: a weapon with a colour of its own keeps it, so plasma stays plasma. Everything
-  unlisted is every ordinary blaster row, and those rows are SHARED by all four Star Wars sides.
-  Clone blue against droid red, Imperial green against Alliance orange. A second array rather than
-  reusing `team_colors` because the Empire's chip is grey plate and its bolts are green, and a
+  unlisted is every ordinary blaster row, and those rows are SHARED by all four The Compact Wars sides.
+  Legion blue against droid red, Dominion green against Alliance orange. A second array rather than
+  reusing `team_colors` because the Dominion's chip is grey plate and its bolts are green, and a
   grey tracer is no tracer at all. **A look test that hardcodes a colour photographs a colour the
   game does not fire** — `night_look` had its own copy of the old orange.
 - **A round that lands leaves a mark** (`scripts/impact.gd`): a scorch on the surface, a brief
@@ -1599,7 +1614,7 @@ players, or a class is only fast in human hands.**
   the held movement direction, gravity, shoves, `move_and_slide`, `_watch_for_snag` and the animation.
   **`_throw_lightning_if_in_reach` IS DELIBERATELY EXEMPT**: it is what ticks the CHANNEL, so gating it
   runs the stream at a twelfth of its rate — not a cheaper bot, a broken ability.
-  Measured (`QS_CPU=1`, 42 bodies, Kashyyyk): bot scripts **4.117 ms -> 2.833 ms** a tick (-31%), whole
+  Measured (`QS_CPU=1`, 42 bodies, Silva): bot scripts **4.117 ms -> 2.833 ms** a tick (-31%), whole
   tick 6.279 -> 5.398 ms, and A* searches across the match fell from ~16/s to **1.5/s**. Phase dealing
   matters as much as the rate: all of them thinking on one tick is the same total work arriving as a
   spike five times a second, and a spike is what a player feels where an average is not.
@@ -1678,7 +1693,7 @@ players, or a class is only fast in human hands.**
   CLEARANCE plus cell size is what seals a tight map, so cell size is per map
   (`CELL_MIN`..`CELL_MAX`) and Catwalk's corridors need the fine end.
 - **A\* IS RATE-LIMITED ACROSS THE WHOLE AI** (`NavGrid.PLANS_PER_FRAME`, asked via `may_plan()`).
-  One search costs 2.0 ms on Kashyyyk and 0.10 ms on a small arena, and a loaded match asks for
+  One search costs 2.0 ms on Silva and 0.10 ms on a small arena, and a loaded match asks for
   ~16 a second — so the average was never the problem. Bots re-plan on their OWN timers, so
   nothing stopped eight landing on one frame: ~16 ms of A* in a 16.7 ms budget, a stutter with no
   visible cause. A refused bot keeps its route and asks next frame, so `_repath_cd` is only reset
@@ -1785,8 +1800,8 @@ before Main spawns players).
   those constants plus a tiny `ROLL` and a `LOBE` that varies how far the slope REACHES (varying the
   HEIGHT leaves the flat plateau standing proud of its own flanks, which measured 60°) keep the
   steepest face near 27°.
-- **The big maps are big in three different SHAPES, on purpose**: Geonosis is open ground you
-  navigate by landmark, Kashyyyk (220 m) is groves-and-clearings where trunks block the view and are
+- **The big maps are big in three different SHAPES, on purpose**: Aridis is open ground you
+  navigate by landmark, Silva (220 m) is groves-and-clearings where trunks block the view and are
   real `cover_boxes`, Senate District (240 m) is a grid whose avenues are map-length sight lines,
   Boneyard (260 m) is a scatter of enormous hulls whose GAPS are the map. Two things every one needs,
   both measured: **fog at a FRACTION of a small map's** (0.006 over 220 m was a flat green wash that
@@ -1870,19 +1885,19 @@ before Main spawns players).
 
 #### Vehicles
 
-- **ONLY STAR WARS HAS VEHICLES, and that rule lives in exactly one function**
-  (`Vehicle.spawns_for(universe)`, which returns an empty array for Halo and Warhammer).
+- **ONLY THE COMPACT WARS HAS VEHICLES, and that rule lives in exactly one function**
+  (`Vehicle.spawns_for(universe)`, which returns an empty array for Deep Range and Ironhymn).
   Every caller loops over what it returns rather than testing the universe itself, so the
   loop is simply empty elsewhere and a second setting getting vehicles is a table row here
   and no change anywhere else. It is a deliberate scope line: a speeder is what this
   setting is built out of, where a Warthog and a Trukk are whole vehicle families that
   would each want their own handling model, seat count and gunner.
-- **One speeder per faction, four rows in `Vehicle.VEHICLES`**: Republic BARC SPEEDER,
-  Separatist STAP, Imperial 74-Z SPEEDER BIKE, Rebel T-47 AIRSPEEDER. Everything that
+- **One speeder per faction, four rows in `Vehicle.VEHICLES`**: Concord LANCER SPEEDER,
+  Automata WASP SKIFF, Dominion DK-74 SPEEDER BIKE, Pact T-4 AIRSPEEDER. Everything that
   differs is in the row (health, top speed, accel, turn, hover height, gun, hull, and which
   `_build_*` silhouette); the flying, hovering, shooting, mounting and dying is shared.
 - **They are spread across the handling envelope on purpose, not one speeder in four
-  colours.** A STAP is the fastest thing on the field and dies to a grenade; a T-47 will
+  colours.** A WASP SKIFF is the fastest thing on the field and dies to a grenade; a T-4 will
   survive being shot at and cannot turn. If they all flew the same, the faction it belonged
   to would be the only difference and nobody would ever choose one over walking —
   `tests/vehicles.gd` asserts the spread (fastest/slowest, toughest/flimsiest) as a guard
@@ -1890,27 +1905,27 @@ before Main spawns players).
 - **A SADDLE IS A FOOT POSITION AND A COCKPIT IS AN EYE POSITION, AND A VEHICLE ROW SAYS WHICH**
   (`"eye"` in `Vehicle.VEHICLES`, which sets `Player.seat_is_eye` and moves the `Seat` node). The
   authored seat is a speeder's saddle — you sit on it and the camera ends up at head height over
-  the cowl — and on the AT-ST that put the eye 1.75 m above the hull's origin, which is above the
+  the cowl — and on the MARAUDER that put the eye 1.75 m above the hull's origin, which is above the
   pod's own ROOF: a camera floating in clear air over the machine with none of it in frame, no
   cockpit, no gun, nothing to judge the walker's line by. Reported as an unusable point of view,
   and it is only visible from the driver's own camera (`tests/vehicle_pov.tscn`) — from outside,
   which is all `warmachine_look` ever sees, the machine is perfect.
 - **AND THE COCKPIT IS HIDDEN FROM THE DRIVER** (`Vehicle._hide_shell_from` / `_show_shell`, the
-  same per-player render layer the LAAT's ball and a player's own body already use). Sitting the
+  same per-player render layer the HAMMERHEAD's ball and a player's own body already use). Sitting the
   eye behind the viewports puts the camera inside a steel box with a face plate across its eyeline
   — photographed, untextured grey slabs across the corners of the frame. The pod, its face plate,
   its roof hatch, the hip yoke and the chin block go; the chin GUNS and the LEGS stay, because
   they are what says you are driving something. **It is given back on dismount** or the machine is
   invisible to that player for the rest of the match, including to whoever climbs in next.
 - **A VEHICLE HAS A SIGHT, AND IT IS DRAWN WHERE THE GUN'S ROUND LANDS** (`Vehicle.gunner_readout`
-  → the same `gunner_hud.gd` the LAAT and the orbital station use — a machine with a sight is any
+  → the same `gunner_hud.gd` the HAMMERHEAD and the orbital station use — a machine with a sight is any
   machine that answers that method). **The vehicles had none at all**, and it was a side effect
   rather than a decision: the rifle's bloom crosshair is hidden while mounted (it was drawing the
   cone of a gun that was not firing), which left a driver with a clear screen and nothing marking
   where the cannon pointed. **Centring it would have been a lie**: the gun is nowhere near the eye
   and is clamped to a cone the camera is not, so past the yaw stop the barrel stops turning while
   the view keeps going. `_trace_gun` casts from the weapon in the physics tick and the sight is
-  drawn on what it hits — the LAAT parallax lesson, applied before it could bite again.
+  drawn on what it hits — the HAMMERHEAD parallax lesson, applied before it could bite again.
 - **THE BAR UNDER A SIGHT IS THE RESOURCE THAT RUNS OUT** — seconds for a call-in, HULL for a
   machine you drive. One widget, one slot, whichever the readout carries.
 - **A CharacterBody3D, NOT a VehicleBody3D.** Godot's is a wheeled raycast-suspension car,
@@ -1963,7 +1978,7 @@ before Main spawns players).
 
 ##### The two war machines
 
-The AT-ST and the LAAT are `Vehicle` rows like the speeders — they are just earned rather than
+The MARAUDER and the HAMMERHEAD are `Vehicle` rows like the speeders — they are just earned rather than
 parked (see KILL STREAK REWARDS) and they are the two that stressed the shared code.
 
 - **THE HOVER PROBE MUST OUTREACH THE CLEARANCE IT HOLDS** (`HOVER_PROBE_MARGIN`). Free while
@@ -1971,14 +1986,14 @@ parked (see KILL STREAK REWARDS) and they are the two that stressed the shared c
   could not see the ground from the height it was aiming for, so it sank to the probe length and
   sat there holding a clearance nobody asked for, with no error anywhere.
 - **A WALKER'S LEGS ARE DRAWN, NOT SIMULATED, so the leg length and the row's `hover` are two
-  numbers that must agree and NOTHING enforces it.** The first AT-ST's feet finished THREE METRES
+  numbers that must agree and NOTHING enforces it.** The first MARAUDER's feet finished THREE METRES
   in the air. A screenshot does not reliably catch that — the shadow lands under it either way and
   there is no other body in frame at walker scale — so `tests/vehicles.gd` measures the lowest drawn
   point against the ground. The geometry is laid out from the SOLE UP (`ATST_GROUND`), not from the
   pod down. **That the legs do not WALK is a stated approximation**: `Vehicle` is a CharacterBody3D
   holding a hover height off one downward ray, and a gait needs foot placement over the
   heightfield's own flat triangles and a body that lurches — a system, not a row.
-- **TWO THIRDS OF AN AT-ST IS LEG, and the knees go BACKWARD.** A big pod on short legs is a bunker;
+- **TWO THIRDS OF AN MARAUDER IS LEG, and the knees go BACKWARD.** A big pod on short legs is a bunker;
   what makes the thing unmistakable is a small hunched head carried very high on thin reverse-jointed
   legs, and a walker whose knees bend forward reads as a chicken instantly. The joints are the one
   place a vehicle builder uses a CYLINDER rather than a chamfered box (`_cyl`): a walker's hips, knees
@@ -1988,7 +2003,7 @@ parked (see KILL STREAK REWARDS) and they are the two that stressed the shared c
   against a light shin reads as two objects bolted together, so the contrast goes in a PANEL LINE.
   Side gear is deliberately ASYMMETRIC (cannon one cheek, rangefinder the other), same argument as the
   ork shoulder plate.
-- **A GUNSHIP IS ONLY EVER SEEN FROM BELOW, so it is built for that angle.** The first LAAT was a
+- **A GUNSHIP IS ONLY EVER SEEN FROM BELOW, so it is built for that angle.** The first HAMMERHEAD was a
   1.05 m slab on a 6.4 m body, which from underneath is a rectangle with boxes on it. It needs
   VERTICAL members outboard — high wings with the engine pods hung under them on pylons — or it has no
   silhouette at all from the ground. **`warmachine_look` photographs it from below for that reason**,
@@ -2067,7 +2082,7 @@ parked (see KILL STREAK REWARDS) and they are the two that stressed the shared c
 - **A QUEUE OF MATCHES, NOT A MAP ROTATION** (`scripts/playlist.gd`, `GameState.playlist`).
   `rotate_maps` walks the map roster and keeps every other setting fixed, which answers "we cannot
   be bothered to choose again" and nothing else. What four people at a couch want is what
-  Battlefront's front end is built around: three rounds we picked, in the order we picked them,
+  The Genre's front end is built around: three rounds we picked, in the order we picked them,
   set up once and played without going back to a menu between them.
 - **AN ENTRY IS A WHOLE MATCH CONFIGURATION** (`capture_match` / `apply_match` over `MATCH_KEYS`,
   plus the two side arrays and the mode's own victory threshold). That is exactly the difference
@@ -2125,7 +2140,7 @@ parked (see KILL STREAK REWARDS) and they are the two that stressed the shared c
   every round — the first out of the queue and every one after, via `Main._next_map` — passes
   through the faction screen. It opens FOCUSED ON FIGHT, so "same as last time" is one press.
 - **A FACTION SET IS DERIVED FROM `Loadout.factions()`, NEVER WRITTEN OUT** — the classic pairings in
-  roster order (which in Star Wars is exactly the Clone Wars and then the Galactic Civil War), an
+  roster order (which in The Compact Wars is exactly the Compact Wars and then the Galactic Civil War), an
   ALL-SIDES set per universe, one cross-setting curiosity per pair of settings, and FREE FOR ALL.
   A faction added to a universe turns up here for free and no list can name a side that does not
   exist. **Past a pair the title becomes the COUNT and the names drop to the blurb**: four faction
@@ -2240,7 +2255,7 @@ parked (see KILL STREAK REWARDS) and they are the two that stressed the shared c
   (`GameState.team_color(team)`, passed by Main instead of the per-player colour). Everywhere else
   on a four-way split a player finds their quadrant by their OWN colour — but this is the one
   screen whose answer to "who am I" is the ARMY rather than the seat, and it already names the
-  faction out loud. Two players on the Republic were reading a red screen and a green one while
+  faction out loud. Two players on the Concord were reading a red screen and a green one while
   picking off the same roster, which says the seat matters and the side does not. **The quadrant
   is still called by the P1..P4 tag and the health bar**, both in the player's colour, so nothing
   was lost. `team_color` is bounds-checked for the reason `bolt_color` is (house rule 6).
@@ -2274,7 +2289,7 @@ parked (see KILL STREAK REWARDS) and they are the two that stressed the shared c
   exactly one of four. Sizing is picked off `human_players`: the full-size layout runs off both edges of
   a quarter-screen viewport.
 - **Which box the cursor is over is resolved against the real rects, not by Player**
-  (`BoxScreen.resolve`, called from Main), because hidden boxes REFLOW the grid — a Mandalorian has no
+  (`BoxScreen.resolve`, called from Main), because hidden boxes REFLOW the grid — a Hunter has no
   GRENADES panel — so only the code holding the real
   `PanelContainer` rects knows where a box landed. Player owns the normalised cursor and reads back
   `buy_box`; a headless test sets `buy_box` directly. The reticle and the hit-test both map the cursor
@@ -2371,7 +2386,7 @@ parked (see KILL STREAK REWARDS) and they are the two that stressed the shared c
   all announced WHICH CONTROLLER you were holding, which is the one thing a player already knows. What
   the HUD is read for mid-fight is which side everything belongs to: the contacts on the minimap, the
   posts, the bolts coming past your head and the armour in front of you are all in faction colours, and
-  the frame around them matched none of it — a Republic player and the Separatist they were shooting at
+  the frame around them matched none of it — a Concord player and the Automata they were shooting at
   could be reading the same red HUD. It follows a chosen TINT for free, since `team_color` is already
   "the colour this side was given on the menu".
   **THE COST IS REAL AND IT WAS ACCEPTED**: four players on one team now read four identically coloured
@@ -2413,7 +2428,7 @@ parked (see KILL STREAK REWARDS) and they are the two that stressed the shared c
   gates on `MOVE_EPSILON` (0.35 m), a turn, and the scan/post revisions.
 - **The player tag moved BELOW the minimap, not beside it.** The scoreboard is a centred full-rect label,
   so on a quarter-screen viewport at 13pt it starts far enough left that a tag pushed sideways lands on
-  "REPUBLIC 0". **Layout is a property of the WHOLE SCREEN**, so a look test building one widget against
+  "CONCORD 0". **Layout is a property of the WHOLE SCREEN**, so a look test building one widget against
   a backdrop cannot see it — `tests/hud_frame.tscn` boots `main.tscn` and photographs a real match.
 - **HEALTH IS A NUMBER *AND* A BAR** (`scripts/health_gauge.gd`). It was the number alone, which is exact
   and unreadable: a number has to be *read*, and reading is the one thing nobody is doing mid-fight on a
@@ -2421,7 +2436,7 @@ parked (see KILL STREAK REWARDS) and they are the two that stressed the shared c
   hit. The CHIP (a pale ghost falling to the real value over ~⅓ s) is what makes a hit read as a hit
   rather than as the bar simply being shorter. **Low health cannot be signalled by turning the bar red
   alone: P1's own colour IS red** — it also thickens the outline to white and turns the number red.
-- **AN ABILITY IS A ROUND GAUGE, Battlefront-style** (`scripts/ability_gauge.gd`): white while ready, the
+- **AN ABILITY IS A ROUND GAUGE, The Genre-style** (`scripts/ability_gauge.gd`): white while ready, the
   PLAYER'S OWN COLOUR the moment it is spent, refilling from the bottom, with a one-off flash when it
   comes back. It replaced a line of text per gadget ("CABLE 3s") — accurate, and useless at the edge of
   vision where a HUD is actually read. **Spent takes the player's colour rather than grey** because on a
@@ -2438,7 +2453,7 @@ parked (see KILL STREAK REWARDS) and they are the two that stressed the shared c
     catalogue, against a dozen lines of vector art each that scale to any HUD size. Deliberately crude:
     at 46 px an icon is a silhouette whose only job is to be told apart from the other one you carry.
     `tests/hud_look.tscn` renders a contact sheet of every icon at three charge levels, which is the only
-    way to judge a set drawn blind — it caught FORCE PUSH and FORCE PULL rendering identically (the icon
+    way to judge a set drawn blind — it caught KINETIC SHOVE and KINETIC HAUL rendering identically (the icon
     has to MIRROR, not just change an arc radius nobody can see).
   - **Redraw only when the picture changes.** The value is quantised to 64 steps, so a six-second
     cooldown redraws about ten times a second and a full one never.
@@ -2508,15 +2523,15 @@ parked (see KILL STREAK REWARDS) and they are the two that stressed the shared c
 
 ## Procedural worlds
 
-`map_planet.gd` (`PlanetMap`) generates a map from a PLANET (Geonosis / Kashyyyk / Coruscant /
-Mustafar / Hoth), re-seeded every match from `GameState.planet_seed`. A planet is a table row in
+`map_planet.gd` (`PlanetMap`) generates a map from a PLANET (Aridis / Silva / Civis /
+Cinder / Boreal), re-seeded every match from `GameState.planet_seed`. A planet is a table row in
 `PLANETS`: palette, sky, sun, terrain octaves, weather density and which `_lay_*` function places its
 landmarks. **A sixth world is a row and one function.**
 
 - **A PLANET IS A MAP, NOT A SETTING.** There was ONE row called PROCEDURAL WORLD and a PLANET
   dropdown somewhere else deciding which of the five it built — so five of the game's nineteen maps
   were invisible on the screen where you choose a map, reachable only by picking a row that named
-  none of them and then finding a second control. Somebody choosing between Hoth and Kashyyyk is
+  none of them and then finding a second control. Somebody choosing between Boreal and Silva is
   choosing a MAP by every meaning of the word. Each world is now its own `GameState.MAPS` row
   carrying a `"planet"` key, plus RANDOM WORLD which still rolls.
   **APPENDED, NEVER INSERTED** (house rule 8): `map_index` is stored in a queued playlist and in
@@ -2529,7 +2544,7 @@ landmarks. **A sixth world is a row and one function.**
   them collide with hand-laid maps, and that difference is the point of the row: one is an authored
   220 m forest that is the same every time, the other is a forest rolled fresh at the drop.
   **And `procedural_map_index()` keeps the world already chosen** — MASSIVE needs generated ground,
-  not a rolled one, so locking it must not throw away the fact that somebody picked Hoth.
+  not a rolled one, so locking it must not throw away the fact that somebody picked Boreal.
 
 - **THE TERRAIN MESH IS EMITTED IN ~48 m CHUNKS (`CHUNK_METRES`) SO IT CAN BE FRUSTUM-CULLED**, and what
   makes that possible is taking vertex normals from the ANALYTIC surface rather than from
@@ -2580,16 +2595,16 @@ landmarks. **A sixth world is a row and one function.**
 - **A face-mounted greeble's yaw is `PI/2 - a`, not `-a`.** `Basis(UP, t)` sends +Z to
   `(sin t, 0, cos t)`, so that is the rotation putting a piece's thin axis INTO the facade. Using `-a`
   turns every piece ninety degrees, and the lit window bands stuck out of the towers as glowing shelves.
-- **A Coruscant tower is a GRAMMAR, not a stack**: podium → shaft segments stepping in at setbacks → crown
+- **A Civis tower is a GRAMMAR, not a stack**: podium → shaft segments stepping in at setbacks → crown
   → mast, with vertical mullions, horizontal floor bands and lit window rows on all four faces, plus
   skybridges between neighbours. **Those four masses in the right proportions are what the eye recognises
   as architecture**; no amount of detail rescues the wrong proportions.
-- **Hoth is a snowfield people dug into, not a glacier**: the relief lives in the terrain (its octaves are
+- **Boreal is a snowfield people dug into, not a glacier**: the relief lives in the terrain (its octaves are
   the tallest of the five) and what stands on it is low and built — bunkers with a sloped glacis and an
   embrasure, ice revetments, trenches, caves, dark rock outcrops. **Snow is already the brightest albedo in
   the game**, so it is the one planet that wants LESS exposure (1.02 against 1.4–1.6). The dark outcrops
   are the only value contrast on the map and have to be genuinely dark.
-- **Kashyyyk's underbrush is decoration, deliberately** — a dense low mat plus taller clumps at head height
+- **Silva's underbrush is decoration, deliberately** — a dense low mat plus taller clumps at head height
   that break a sight line, all of which you walk and shoot straight through. A forest floor you cannot
   cross is worse than a bare one, and the AI needs to know nothing about it. Foliage blobs are squashed
   low-poly SPHERES: a prism at that size reads as a tent from every angle.
@@ -2626,15 +2641,15 @@ landmarks. **A sixth world is a row and one function.**
   desert to a readable dark and a forest floor already dark in daylight to pure black, so the two worlds
   with no light of their own were the two the derivation ruined. **`NIGHT_FLOOR` is deliberately the same
   number as `night_palette.gd`'s `MIN_GROUND_V`**, so a derived colour cannot fail the test by construction
-  and only an AUTHORED override ever can — which is where a mistake actually gets made (Hoth's rock did, and
+  and only an AUTHORED override ever can — which is where a mistake actually gets made (Boreal's rock did, and
   the test caught it).
-- **Each world's night is its own, and the authored block is for where the derivation is wrong.** Geonosis
+- **Each world's night is its own, and the authored block is for where the derivation is wrong.** Aridis
   is the darkest and the biggest sky — hard starlight, no cloud, and the moon deliberately HIGH, because a
-  low light over flat hardpan is grazing light and the plain returns nothing. Kashyyyk has no moon worth
+  low light over flat hardpan is grazing light and the plain returns nothing. Silva has no moon worth
   speaking of (the canopy takes it) so its AMBIENT is the highest of the five and is the only thing holding
-  the forest floor up. Coruscant and Mustafar get *brighter* in places: window rows, city glow and lava are
+  the forest floor up. Civis and Cinder get *brighter* in places: window rows, city glow and lava are
   already emissive, so with the sky pulled to nothing they stop being decoration and become the
-  illumination. Hoth is the brightest night for the same reason it was the dimmest day.
+  illumination. Boreal is the brightest night for the same reason it was the dimmest day.
 - **THE GUNS ARE THE LIGHTING, and that is three changes, not a mood.** The muzzle flash reaches ~20 m
   instead of 6.5 and lasts nearly twice as long (`Weapon.NIGHT_FLASH_*`, **resolved once at spawn** — a
   repeater fires 13×/s and this cannot change inside a match). Every round that LANDS lights the ground it
@@ -2696,7 +2711,7 @@ landmarks. **A sixth world is a row and one function.**
   not just in project.godot** — the project setting only reaches the root viewport, and the game never
   renders into that. It is worth more here than in most games: the scene is untextured flat-shaded boxes, so
   essentially all of its aliasing is geometric edges, which is exactly what MSAA fixes and a post-process AA
-  smears. Measured (4 viewports, Kashyyyk, vsync off): **off 12.03 ms, 2x 13.87, 4x 14.32, 8x 16.78.** 2x
+  smears. Measured (4 viewports, Silva, vsync off): **off 12.03 ms, 2x 13.87, 4x 14.32, 8x 16.78.** 2x
   ships as the conservative default; 4x costs almost nothing over 2x, so it is the first dial to turn up.
 - **Four shadow splits cost ~2 ms and two do not.** `Grade.light` ships `SHADOW_PARALLEL_2_SPLITS`. Four was
   chosen because these maps run to 260 m and one split over that distance makes near-ground shadows crawl;
@@ -2809,9 +2824,9 @@ See HOUSE RULES 1–5 and 17 first — those are the rules; this section is the 
 - **THE EXTENDED RIG IS FREE AT SCALE.** 15 animated joints against the old 11, measured as an A/B
   between playing and paused: **0.003 ms for 100 bodies**. Wrists and ankles cost nothing to tick.
 - **THE RASPBERRY PI TARGET HAS BEEN DROPPED.** The renderer is a documented CHOICE in `project.godot`,
-  measured on the dev machine (Intel UHD 620, 4 viewports, Kashyyyk): `gl_compatibility` ~26 ms/frame,
+  measured on the dev machine (Intel UHD 620, 4 viewports, Silva): `gl_compatibility` ~26 ms/frame,
   `forward_plus` ~126 ms. Forward+ buys SSAO, SSIL, volumetric fog and soft shadows and looks dramatically
-  better — Hoth becomes a real blizzard, Mustafar's lava lights the air above it — and is unplayable on
+  better — Boreal becomes a real blizzard, Cinder's lava lights the air above it — and is unplayable on
   integrated graphics. **Even ONE viewport with every screen-space effect disabled measured 68 ms, so the
   cost is the renderer and the geometry, not the effects.** On a discrete GPU that flips.
 - **THE FRAME IS FILL-BOUND, NOT DRAW-CALL BOUND, and three plausible culprits were measured and cleared
@@ -2821,7 +2836,7 @@ See HOUSE RULES 1–5 and 17 first — those are the rules; this section is the 
   merge stayed because it is free at runtime and worth more at a hundred bodies, but nobody should expect a
   millisecond from geometry here.
 - **THE 4-VIEWPORT FRAME WAS ALREADY OVER BUDGET, and that is what a "lag spike" actually is.** Measured
-  (Intel UHD 620, Kashyyyk, 2x MSAA, vsync off): **12 combatants 18.3 ms, 26 combatants 20.7 ms** against a
+  (Intel UHD 620, Silva, 2x MSAA, vsync off): **12 combatants 18.3 ms, 26 combatants 20.7 ms** against a
   16.7 ms budget. Two changes took it back: 2 shadow splits instead of 4, and per-part visibility ranges on
   the small stuff. Together ~20.7 → ~16.5 ms at 26 bodies. **Run-to-run spread is ±1.5 ms, so read these as
   three-run averages.**
@@ -2863,7 +2878,7 @@ See HOUSE RULES 1–5 and 17 first — those are the rules; this section is the 
 - **A LINE TROOPER (`Bot.line`) IS DEFINED BY WHAT IT DOES NOT DO.** `Loadout.line_build()` is a rifle, a
   scope and nothing else — no gadget, no grenades, no squad, no mods. **The scope is the one thing they DO
   get**, because a bot's stand-off is derived from its cone, so without it a hundred of them walk into your
-  face. The gun comes from the universe's own default kit, so a massive battle in 40k is fought with bolters
+  face. The gun comes from the universe's own default kit, so a massive battle in ironhymn is fought with bolters
   and no table says so.
 - **The four things that made a hundred bodies possible, in the order they mattered — every one measured:**
   1. **`_apply_unstick` was O(bodies) PER BODY with three script calls per pair** — `is_alive()` and
@@ -2922,7 +2937,7 @@ See HOUSE RULES 1–5 and 17 first — those are the rules; this section is the 
   another ~3.4 s, so they are delivered separately: a match started briskly would otherwise have no gunfire
   for four seconds. Until a stage lands its calls are no-ops. **Never render PCM on the main thread** — it is
   a per-sample GDScript loop over millions of samples.
-- **A BLASTER IS A STRUCK WIRE, NOT A SWEPT TONE** (`Sfx.pluck`). The real DL-44 is Ben Burtt hitting the guy
+- **A BLASTER IS A STRUCK WIRE, NOT A SWEPT TONE** (`Sfx.pluck`). The real BR-44 is Ben Burtt hitting the guy
   wire of a radio tower, and a guy wire is a STRING: what the ear recognises is not the pitch fall on its own
   but that fall happening to a metallic, inharmonic RING. `_blaster` was a swept saw plus a transient — the
   sweep was right and a swept saw has no ring, so it could only ever be a generic sci-fi zap however well it
@@ -2936,9 +2951,9 @@ See HOUSE RULES 1–5 and 17 first — those are the rules; this section is the 
   the CHARACTER alien. **Weapon voices are keyed by FAMILY, not per gun** (`Weapon.VOICES` + `_voice()`):
   sixty samples nobody could tell apart, against four families that genuinely differ. Only exceptions are
   listed; anything unlisted falls through a damage threshold to blaster or heavy blaster.
-- **THE LIGHTSABER IS FOUR SOUNDS, AND UNTIL RECENTLY IT WAS NONE.** Every blade in every universe shared
-  `melee_swing` and `melee_hit`, so a lightsaber, a chainsword, an ork choppa and an energy sword were one
-  whoosh and a clang, and a Jedi drew a metre of plasma in silence. It is `saber_on` / `saber_hum` /
+- **THE ARC BLADE IS FOUR SOUNDS, AND UNTIL RECENTLY IT WAS NONE.** Every blade in every universe shared
+  `melee_swing` and `melee_hit`, so a arc blade, a chain blade, an scrapkin cleaver and an energy sword were one
+  whoosh and a clang, and a Warden drew a metre of plasma in silence. It is `saber_on` / `saber_hum` /
   `saber_off` / `saber_clash` plus its own `saber_swing`, and **which blades get them is not a new table**:
   `blade_energy` 0 already separates steel from plasma for the GEOMETRY, so `Weapon.blade_is_energy()` asks
   that same key and the thing that hums can never disagree with the thing that glows. Two details are most of
@@ -3055,10 +3070,10 @@ See HOUSE RULES 1–5 and 17 first — those are the rules; this section is the 
   the fact that the carry was being judged from geometry alone. Without `Grade` it photographs a lighting model
   the game does not ship, which is the whole failure mode a look test exists to catch.
 - **The `universe_look` line-ups are the only thing that catches a shared head or a missing accessory**, and
-  until recently not one Star Wars human stood in them — which is exactly how twelve units came to share a
+  until recently not one The Compact Wars human stood in them — which is exactly how twelve units came to share a
   helmet. Its `_heads` shot must be framed on the HEADS (it was a mid-shot of the whole body, at which distance
   every white helmet is the same white helmet).
-- Retired but kept in the repo, unused: the imported Battlefront GLB (`assets/models/rep/`, crude nearest-bone
+- Retired but kept in the repo, unused: the imported The Genre GLB (`assets/models/rep/`, crude nearest-bone
   skinning, junk bone tails), `trooper_parts.gd` and `tools/animate_trooper.py`. Dropped because subtle motion
   on that rigid-chunk mesh looked uncanny.
 - **It took a `git worktree` at HEAD to prove the bolt-material defect was new rather than pre-existing.**
@@ -3085,9 +3100,9 @@ without a renderer, and `--headless` draws nothing.
 | `locomotion.tscn` | Which clip and which HIP ANGLE a direction asks for. It used to drive Player and Bot separately and compare them, which is a check whose whole job was to catch a divergence between two copies of one rule; there is one copy now (`Locomotion`), so what it asserts instead is that neither body has quietly grown its own again. It sweeps a FULL CIRCLE of travel for the 90° hip limit — the eight named cases all sit inside the hysteresis band and every one of them passed while the legs were reaching 107°. Every section signs off at its own end: this test printed HOLDS while a section was aborting on a call that no longer existed (house rule 6) — they are duck-typed against each other and must agree. All of it is sign conventions, which is the part that goes wrong silently: a backpedal playing `strafe_l` is an axis bug wearing an animation bug's clothes. Also that every clip the state machine can name actually EXISTS, since `_update_anim` guards on `has_animation` and a missing clip is invisible rather than loud. |
 | `locomotion_look.tscn` | **WINDOWED.** The ground clips front-on and side by side at two phases of their cycle. The sidesteps are no longer in it: nothing selects them since the hips learned to swivel, and a sheet of clips the game never plays is worse than no sheet. |
 | `swivel_look.tscn` | **WINDOWED.** Five bodies all AIMING AT THE CAMERA and each travelling a different way, so the only thing that differs is what the legs did about it — forward, 45°, the full right angle, and the two backpedals. Frozen on one frame of the stride, because the phase of the cycle is a bigger visual difference than the thing being judged. |
-| `factions.tscn` | Picking a side independently of the setting, and choosing its colour. UNSC against the Republic, with the ROSTERS following and not just the names — the failure mode is a side whose roster, chip and tracer disagree about who it is, and all three are silent when wrong. Also that a chosen tint reaches the BOLT as well as the armour, that BLACK still fires something visible, and that no streak signature shares a name with an ordinary class. And — the one that was actually broken — that for EVERY class on a side, the name the character select prints is the build that stands up: the screen and the deploy resolve a selection separately, and the deploy was passing a TEAM NUMBER to a function that takes a SIDE SLOT and a UNIVERSE, so picking a side its own faction listed one roster and fielded another. |
-| `streaks.tscn` | Kill streak rewards. Mostly GATES, checked from BOTH directions — a reward wrongly available still works perfectly, it is just somebody else's. Plus the transformation on a real Player: that it keeps the streak, that the preset is not silently disarmed, that a BECOME reward cannot re-earn ITSELF and heal to full every kill, and that it does NOT regenerate while an ordinary body still does — the second half is the one that regresses silently, since a rule that leaked onto everybody leaves the game working and no longer the game. Every section signs off at its own end and the run fails if one did not finish, because an aborted check (house rule 6) otherwise reports success having verified nothing. Its THIRD-PERSON section checks all three things that have to move together for the Force Master and are each silent when wrong — the flag, the CAMERA, and the CULL MASK that decides whether the player can see the body the camera is now pointed at — and then that an ordinary respawn puts all three back. |
-| `warmachine_look.tscn` | **WINDOWED.** The LAAT and the AT-ST with a trooper and a speeder for scale, the gunship shot from BELOW. Its first version had no floor COLLIDER, so nothing hovered and it photographed a gunship lying on its skids. |
+| `factions.tscn` | Picking a side independently of the setting, and choosing its colour. COALITION against the Concord, with the ROSTERS following and not just the names — the failure mode is a side whose roster, chip and tracer disagree about who it is, and all three are silent when wrong. Also that a chosen tint reaches the BOLT as well as the armour, that BLACK still fires something visible, and that no streak signature shares a name with an ordinary class. And — the one that was actually broken — that for EVERY class on a side, the name the character select prints is the build that stands up: the screen and the deploy resolve a selection separately, and the deploy was passing a TEAM NUMBER to a function that takes a SIDE SLOT and a UNIVERSE, so picking a side its own faction listed one roster and fielded another. |
+| `streaks.tscn` | Kill streak rewards. Mostly GATES, checked from BOTH directions — a reward wrongly available still works perfectly, it is just somebody else's. Plus the transformation on a real Player: that it keeps the streak, that the preset is not silently disarmed, that a BECOME reward cannot re-earn ITSELF and heal to full every kill, and that it does NOT regenerate while an ordinary body still does — the second half is the one that regresses silently, since a rule that leaked onto everybody leaves the game working and no longer the game. Every section signs off at its own end and the run fails if one did not finish, because an aborted check (house rule 6) otherwise reports success having verified nothing. Its THIRD-PERSON section checks all three things that have to move together for Kinesis Master and are each silent when wrong — the flag, the CAMERA, and the CULL MASK that decides whether the player can see the body the camera is now pointed at — and then that an ordinary respawn puts all three back. |
+| `warmachine_look.tscn` | **WINDOWED.** The HAMMERHEAD and the MARAUDER with a trooper and a speeder for scale, the gunship shot from BELOW. Its first version had no floor COLLIDER, so nothing hovered and it photographed a gunship lying on its skids. |
 | `signature_look.tscn` | **WINDOWED.** All ten faction signatures in one line-up. The point is the LINE-UP and not the individuals — whether ten of them are ten different things is a comparison, and each one alone photographs fine. Also catches a head kind with no `match` case falling through to the bare face. |
 | `kill_record.tscn` | The killfeed's entries and the post-match table: the ring cap, a streak surviving the death that ended it, that a teamkill and a suicide pay nothing, and that a FREED body can still be named. It also asserts it can REACH GameState before checking anything — an earlier version printed success while the autoload was nil and verified nothing at all. |
 | `big_teams.tscn` | 20v20 in the ordinary modes, and specifically the `line`/`thrifty` SPLIT. Half its assertions are that the big match got the savings and half are that it kept the GAME (no line troopers, gadgets carried, a mix of builds) — the second half is the one that silently regresses, because re-merging the flags leaves the mode working and no longer the game. |
@@ -3095,19 +3110,19 @@ without a renderer, and `--headless` draws nothing.
 | `massive.tscn` | The 50v50 mode: the line trooper's kit and the four performance rules that make a hundred bodies possible (every one is an ABSENCE, and an absence is what a later edit silently undoes). **Its LAST assertion (`n of m line troopers found a target`) is known flaky** — a sample of five to eight survivors on a map re-seeded every match — and fails roughly half of all runs. Re-run it. Every other assertion is exact. |
 | `roster_feel.tscn` | **The play-test bench.** Every class in every universe as one table — health, walk, jump, height, TTK out, TTK once the gun is HOT, TTK in, TRADE ratio, rounds-to-kill, reach, ability slots. Asserts outer guard rails only: absurdity checks, not taste. |
 | `conquest.tscn` | Capture, tickets, defeat, spawn transforms, faction rosters (eight per side, every index a real build, no orphans). |
-| `vehicles.tscn` | The speeders. Most of what it protects is an ABSENCE or a RESTORE — that Halo and Warhammer field NONE, that royale and massive field none, that a dismount restores the body but a DEATH at the controls does not, that an enemy cannot take yours. It sets `pickup_in_reach` directly on purpose, which is what caught the team gate living only on the advertisement. Its BOARDING check walks a real Player capsule up to every machine and asks whether the interact prompt fires, which is the only question a vehicle exists to answer and the one nothing else asked: the AT-ST shipped unboardable because `MountArea` is authored once for a speeder riding 0.9 m up, and a walker standing on 4.6 m legs floated that trigger a metre over the tallest point of a trooper. Geometry cannot answer it — whether two physics volumes overlap is a question only physics can answer. Also boots six REAL matches and counts what `_place_vehicles` actually put on the field, since a rule that only holds in a unit test does not ship. |
+| `vehicles.tscn` | The speeders. Most of what it protects is an ABSENCE or a RESTORE — that Deep Range and Ironhymn field NONE, that royale and massive field none, that a dismount restores the body but a DEATH at the controls does not, that an enemy cannot take yours. It sets `pickup_in_reach` directly on purpose, which is what caught the team gate living only on the advertisement. Its BOARDING check walks a real Player capsule up to every machine and asks whether the interact prompt fires, which is the only question a vehicle exists to answer and the one nothing else asked: the MARAUDER shipped unboardable because `MountArea` is authored once for a speeder riding 0.9 m up, and a walker standing on 4.6 m legs floated that trigger a metre over the tallest point of a trooper. Geometry cannot answer it — whether two physics volumes overlap is a question only physics can answer. Also boots six REAL matches and counts what `_place_vehicles` actually put on the field, since a rule that only holds in a unit test does not ship. |
 | `modes_on_maps.tscn` | Do ZONES, CONQUEST and ROYALE actually work on the maps we ship? Each puts something on the ground and then waits for people to walk to it, and nothing checked that the thing landed anywhere reachable. Booted on the ROOFED map and on an outdoor one, asking the two questions that matter — is it on the floor, and can a body stand there. It caught the zone sitting 7.5 m up on the roof, and it caught the fix working: reverting it puts the zone straight back on the roof. Its own harness taught the other half of the lesson — `_drop` was a coroutine nobody awaited, so freed maps were still in the physics world when the next one booted and every placement ray hit the PREVIOUS map's ceiling. The give-away was the number: the same 7.50 on two maps that share no geometry is never a map's own fault. |
 | `outpost.tscn` | The generated base makes what it CLAIMS to, on twelve separate seeds: a big room, a tunnel that is a run rather than a one-cell pit, a ramp that climbs out to a cell you can stand on, massive crates in the halls, and nothing built outside the map. `nav_grid` proves the base is walkable and that its rooms break the sight lines; what it cannot see is whether the interesting parts got BUILT, and a base with no tunnel and no big rooms routes perfectly. Both faults it found were real: an empty tunnel on one seed, and — because an edit had silently not applied — ZERO massive crates on every seed, which two screenshots had already hinted at and neither had proved. **It also floods the walkable cells**, which is what finally explained `nav_grid` reporting between 6 and 24 of 24 journeys routable depending on the seed: that reads as noise, and it was the base coming apart into halves. Doorways sized against a BODY (4.6 m) rather than against the nav grid's 1.4 m of padding per side left one cell of gap, both ramps ran into walls nothing had opened, and single-doorway rooms were one crate away from being stranded. |
 | `outpost_look.tscn` | **WINDOWED.** The three places the generated base differs, found by ASKING THE LEVEL where they came out this run rather than guessing coordinates: inside a hall, standing in the tunnel, and the mouth of the ramp from the deck. The roofed map is the one `map_look`'s wide shot cannot photograph — from outside it is a grey lid. |
-| `vehicle_pov.tscn` | **WINDOWED.** What the DRIVER sees, from inside each machine, forward and looking down. The same argument `gunship_pov` makes: a vehicle photographed from outside — which is all `warmachine_look` does — cannot show whether the seat is in a usable place, and the AT-ST's camera floating over its own roof looked perfect from every other angle. The looking-DOWN shot is the one that matters, because that is how a walker is steered and it is where its own hull is most likely to be in the way. |
+| `vehicle_pov.tscn` | **WINDOWED.** What the DRIVER sees, from inside each machine, forward and looking down. The same argument `gunship_pov` makes: a vehicle photographed from outside — which is all `warmachine_look` does — cannot show whether the seat is in a usable place, and the MARAUDER's camera floating over its own roof looked perfect from every other angle. The looking-DOWN shot is the one that matters, because that is how a walker is steered and it is where its own hull is most likely to be in the way. |
 | `slide_look.tscn` | **WINDOWED.** The slide SIDE ON and beside a crouch and a run. Both halves matter: a slide's silhouette is asymmetry in the SAGITTAL plane, so the front-on angle `locomotion_look` correctly uses for the walk is exactly the one that hides this; and the question is not whether the pose is nice (alone it photographs fine) but whether it reads as a DIFFERENT THING from a crouch, which is what it was before it had a clip. |
 | `guard_pose.tscn` | Hand-to-grip and ankle error on all ELEVEN clips (the directional ones included — add a clip, add it to CLIPS). **0.00 mm is the pass mark**; any pose change shows here first. It is what proved adding the wrist and ankle joints moved nothing. |
 | `death_clip.tscn` | The ANIMATED death. Which way a shove drops you, and then the two things a canned fall gets silently wrong: geometry through the floor, and a body that ends up leaning rather than lying. **It names the lowest PART**, not just the depth — the first three fixes went into the wrong limb because a number alone does not say whose it is. |
 | `rig_cost.tscn` | What the rig costs to build and to tick, the tick as an A/B against the same frame with every clip paused. Two traps recorded in it: timing whole frames measures the engine, not the animation; and building 24 different styles prices the mesh cache missing, not a squad. |
-| `recoil_feel.tscn` | What a gun costs to fire AND what it costs to get into the fight — recoil in DEGREES and handling in SECONDS, both through the real signal path — the per-pull jump and the peak a held trigger settles at. A table column cannot be read on its own: kick, rate and settle only mean anything together. Its own first version reused one body across the catalogue and reported the A280 climbing to 68 degrees, which is what a gun looks like when nothing is decaying — **a measurement that disagrees with arithmetic is a broken measurement**, so each gun gets a FRESH body. Guns under 2 rounds/s are exempt from the STEADY check (a bolt-action has fully settled between shots, so it is the same reading twice) and the rotary is left out entirely rather than measuring 0.00 and passing. The handling half times the SPRINT-OUT by when the trigger starts working again rather than by when the pose looks right — an earlier version stepped `_update_stow` by hand as well as letting physics tick it, and reported every gun at half its real recovery. |
+| `recoil_feel.tscn` | What a gun costs to fire AND what it costs to get into the fight — recoil in DEGREES and handling in SECONDS, both through the real signal path — the per-pull jump and the peak a held trigger settles at. A table column cannot be read on its own: kick, rate and settle only mean anything together. Its own first version reused one body across the catalogue and reported the A-28 climbing to 68 degrees, which is what a gun looks like when nothing is decaying — **a measurement that disagrees with arithmetic is a broken measurement**, so each gun gets a FRESH body. Guns under 2 rounds/s are exempt from the STEADY check (a bolt-action has fully settled between shots, so it is the same reading twice) and the rotary is left out entirely rather than measuring 0.00 and passing. The handling half times the SPRINT-OUT by when the trigger starts working again rather than by when the pose looks right — an earlier version stepped `_update_stow` by hand as well as letting physics tick it, and reported every gun at half its real recovery. |
 | `warmachine_feel.tscn` | The two CALL-IN rewards, measured rather than watched — they happen at a distance, over seconds, to bodies somewhere else, which is exactly what a play session cannot judge. "The gunship is inaccurate" was four separate faults and only numbers tell them apart: the aim point walking on a centred stick, the camera and the barrel pointing different ways, the cone, and the shells. Its BORESIGHT check is the one the angle check could not do: two rays can point exactly the same way and still land two metres apart if they start in different places, so it casts the camera's centre ray and the gun's and compares where they ARRIVE. Also asserts the orbital strike PUNISHES BUNCHING rather than deleting everyone, stated as an experiment where the only difference is how the enemy stood — six bunched lose all 925 with the mark held on them, six spread 18 m apart lose 88 while it is held on one of them. Both of its damage checks HOLD THE MARK, because the reward is player-aimed now and a test that leaves it where it opened measures a barrage falling on ground the targets have run away from. **Its gunner is a STUB for the measurements and a REAL Player for one section**, and that section exists because a stub has no `_physics_process` and therefore none of the rules a real body lives under — the storm burning a seated gunner 210 m up went unnoticed for exactly that reason, with the barrage measured working perfectly for somebody who was already dying. |
 | `ads_look.tscn` | **WINDOWED.** Every silhouette family aimed, on IRON sights, with bodies at fighting range. Whether a shape blocks the view depends on how far down the barrel it is and how wide it is at that distance, so this cannot be computed off geometry — the question each shot answers is whether you could take that shot. It is what caught the receiver filling the bottom 45% of the screen with the heat cell blooming under the reticle. |
-| `guard_block.tscn`, `force_lightning.tscn`, `gadgets.tscn`, `trandoshan.tscn`, `wookiee.tscn` | Individual mechanics. |
+| `guard_block.tscn`, `force_lightning.tscn`, `gadgets.tscn`, `saurian.tscn`, `ursan.tscn` | Individual mechanics. |
 | `buy_screen.tscn`, `character_select.tscn`, `settings_overlay.tscn` | The screens' state machines. `buy_screen` shoves the stick eight ways on the death frame and asserts the build is byte-identical. |
 | `match_exit.tscn` | The three ways a match ends that are not winning it: LEAVING, PAUSING and losing a CONTROLLER. All three fail silently when they break — a quit row that stops doing anything, a pause that is taken and never released, and a disconnect nobody is told about are each indistinguishable from the feature not existing — so nothing but an assertion can tell them apart. Most of what it really tests is the hold SET: that the match resumes when the LAST holder lets go and not the first, which is the property you would only find by unplugging a controller while a menu was open. It also caught a player who had just been handed a working pad being moved onto the next one to arrive. |
 | `pause_look.tscn` | **WINDOWED.** The pause screen and the leave-confirm, over a REAL match — this screen is transparent over the game and the whole question is whether it stays readable there. It caught the disconnect banner printing straight through "GET READY 3": nothing was wrong with either widget, and the fault only existed BETWEEN them. |

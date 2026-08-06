@@ -17,7 +17,7 @@ extends Node
 ## machine, not as an absolute: the Pi 5 is the target and its tile-based GPU
 ## does not have to scale the same way a desktop one does.
 ##
-## Measured on an Intel UHD 620, 4 viewports, 12 combatants, Kashyyyk:
+## Measured on an Intel UHD 620, 4 viewports, 12 combatants, Silva:
 ##   off 12.03 ms | 2x 13.87 | 4x 14.32 | 8x 16.78   (budget is 16.7)
 ## 2x ships at MEDIUM (see `Quality`). 4x costs almost nothing over it here.
 
@@ -32,7 +32,7 @@ const BUDGET_MS := 1000.0 / 60.0
 
 ## The heaviest thing the game can be asked to draw: a full couch on the biggest
 ## forest map. If this fits, everything else does.
-const MAP := "KASHYYYK"
+const MAP := "SILVA"
 
 
 func _ready() -> void:
@@ -53,8 +53,8 @@ func _ready() -> void:
 	GameState.mode = GameState.Mode.DEATHMATCH
 	GameState.map_index = _map_index(MAP)
 	# QS_UNIVERSE picks the setting, because they are not the same scene to draw:
-	# an Astartes carries pauldrons, a power pack, an aquila, gauntlets, greaves
-	# and thigh plates that a clone trooper does not, and every one of those is a
+	# an Order carries pauldrons, a power pack, an aquila, gauntlets, greaves
+	# and thigh plates that a legionary trooper does not, and every one of those is a
 	# draw call twelve bodies and four viewports deep.
 	# ...and QS_TEAM / QS_TEAMS pick the ROSTER, because a 4-team match with six
 	# AI a side is two dozen bodies rather than twelve, and that is a question
@@ -310,7 +310,7 @@ func _measure_ablations(main: Node, views: Array) -> void:
 
 const SMOKE_SCENE := preload("res://scenes/fx/smoke_cloud.tscn")
 const BOLT_SCENE := preload("res://scenes/fx/blaster_bolt.tscn")
-## A HEAVY BUT REACHABLE fight: a Trandoshan's smoke on the position, a couple of
+## A HEAVY BUT REACHABLE fight: a Saurian's smoke on the position, a couple of
 ## grenades and a rocket going off, and four people firing. Deliberately not a
 ## pathological number — the question is what a bad moment in a real match costs,
 ## not what a thousand spheres cost.
@@ -1035,7 +1035,7 @@ func _measure_vehicle_hulls(main: Node, views: Array) -> void:
 			hulls.append(h)
 	print("\n== what the hulls cost: %d live vehicle(s) on the map ==" % hulls.size())
 	if hulls.is_empty():
-		# Not a failure. Only STAR WARS fields vehicles, and royale and massive
+		# Not a failure. Only THE COMPACT WARS fields vehicles, and royale and massive
 		# field none in any universe — an empty run here is those rules holding.
 		print("  none placed (universe %d, mode %d) — nothing to price."
 			% [Loadout.active_universe, GameState.mode])

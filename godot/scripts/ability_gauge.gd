@@ -1,6 +1,6 @@
 class_name AbilityGauge
 extends Control
-## AN ABILITY, THE WAY BATTLEFRONT DRAWS ONE: a round icon that is WHITE while it
+## AN ABILITY, THE WAY THE GENRE DRAWS ONE: a round icon that is WHITE while it
 ## is ready, flips to the SIDE'S colour the moment it is spent, and then refills
 ## from the bottom until it comes back.
 ##
@@ -264,14 +264,14 @@ func _draw_icon(mid: Vector2, s: float, ink: Color) -> void:
 				draw_line(fin, fin + Vector2(side * s * 0.34, -side * s * 0.34) * 0.9,
 					ink, 2.0)
 			_flame(tail + Vector2(-s * 0.12, s * 0.12), s * 0.9, ink)
-		Loadout.Gadget.FORCE_PUSH, Loadout.Gadget.FORCE_PULL:
+		Loadout.Gadget.KINETIC_PUSH, Loadout.Gadget.KINETIC_PULL:
 			# THE WHOLE ICON IS MIRRORED, not just the arcs. Drawn as "a hand with
 			# waves coming off it", push and pull came out identical — the arcs
 			# were centred on the hand either way, so the only difference was a
 			# radius nobody can see. The palm faces the way the force goes: push
 			# from the left with the waves leaving to the right, pull from the
 			# right with the waves arriving from the left.
-			var m := 1.0 if _icon == Loadout.Gadget.FORCE_PUSH else -1.0
+			var m := 1.0 if _icon == Loadout.Gadget.KINETIC_PUSH else -1.0
 			var palm := Vector2(mid.x - s * 0.7 * m, mid.y)
 			draw_line(palm + Vector2(0.0, -s * 0.55), palm + Vector2(0.0, s * 0.55),
 				ink, 4.0)
@@ -280,13 +280,13 @@ func _draw_icon(mid: Vector2, s: float, ink: Color) -> void:
 				var centre := 0.0 if m > 0.0 else PI
 				draw_arc(palm, s * (0.42 + k * 0.34), centre - span, centre + span,
 					12, Color(ink, 0.9 - k * 0.24), 2.5)
-		Loadout.Gadget.FORCE_LEAP:
+		Loadout.Gadget.KINETIC_LEAP:
 			draw_line(mid + Vector2(0, s * 0.85), mid + Vector2(0, -s * 0.7), ink, 3.0)
 			draw_line(mid + Vector2(-s * 0.5, -s * 0.2), mid + Vector2(0, -s * 0.8),
 				ink, 3.0)
 			draw_line(mid + Vector2(s * 0.5, -s * 0.2), mid + Vector2(0, -s * 0.8),
 				ink, 3.0)
-		Loadout.Gadget.FORCE_LIGHTNING:
+		Loadout.Gadget.ARC_STORM:
 			draw_polyline(PackedVector2Array([
 				mid + Vector2(s * 0.35, -s * 0.9), mid + Vector2(-s * 0.25, -s * 0.05),
 				mid + Vector2(s * 0.2, -s * 0.05), mid + Vector2(-s * 0.35, s * 0.9)]),

@@ -55,7 +55,7 @@ func _check_feed_shape() -> void:
 	print("\n-- an entry carries what a feed draws --")
 	_fresh()
 	GameState.log_kill({
-		"killer": "PLAYER 1", "killer_team": 0, "victim": "B1 BATTLE DROID",
+		"killer": "PLAYER 1", "killer_team": 0, "victim": "light automaton BATTLE DROID",
 		"victim_team": 1, "headshot": true, "suicide": false, "killer_index": 0,
 	})
 	_ok(GameState.kill_feed.size() == 1, "an entry did not reach the feed")

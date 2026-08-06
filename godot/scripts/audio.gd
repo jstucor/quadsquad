@@ -40,7 +40,7 @@ const MIX := {
 	"blaster":       {"db": -11.0, "spread": 0.07},
 	"blaster_heavy": {"db": -9.0, "spread": 0.06},
 	"plasma":        {"db": -11.0, "spread": 0.06},
-	"bolter":        {"db": -9.0, "spread": 0.05},
+	"shellgun":        {"db": -9.0, "spread": 0.05},
 	"gauss":         {"db": -11.0, "spread": 0.05},
 	"melee_swing":   {"db": -12.0, "spread": 0.08},
 	"melee_hit":     {"db": -8.0, "spread": 0.06},
@@ -241,7 +241,7 @@ func _nearest_human(at: Vector3) -> float:
 # A LOOP HAS AN OWNER, and that is what makes it unlike everything above. The
 # pool at the top of this file is round-robin ONE-SHOTS: nothing can stop a voice
 # because nothing ever needs to, and a new sound simply takes the oldest slot. A
-# lightsaber hum is the first sound in this game that starts when something
+# arc blade hum is the first sound in this game that starts when something
 # happens, runs for as long as that thing stays true, and has to be SILENCED when
 # it stops being true.
 #

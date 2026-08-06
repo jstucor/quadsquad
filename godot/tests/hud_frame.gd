@@ -39,7 +39,7 @@ func _ready() -> void:
 	# On an AUTHORED CLASS rather than the bare starter build, because the point
 	# of this shot is the HUD and the starter carries no gadgets at all — so the
 	# ability gauges, which are most of the bottom right, would not be in the
-	# picture. A clone trooper has all three slots filled.
+	# picture. A legionary trooper has all three slots filled.
 	for c in GameState.combatants:
 		if c is Player and not c.is_alive():
 			c.pending = Loadout.faction_build(c.team * 4)

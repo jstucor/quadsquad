@@ -1,6 +1,6 @@
-class_name ForcePowers
+class_name Kinesis
 extends RefCounted
-## The Force adept's gadgets, as static functions shared by Player and Bot.
+## Kinesis adept's gadgets, as static functions shared by Player and Bot.
 ##
 ## They live outside both because a bot uses PUSH for exactly the reason a
 ## player does — something got too close to a melee fighter — and duplicating

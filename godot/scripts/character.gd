@@ -109,12 +109,12 @@ const GUN_ROT := Vector3(0.0, deg_to_rad(20.0), deg_to_rad(-6.0))
 const RUN_GUN_POS := Vector3(0.05, 0.235, -0.135)
 const RUN_GUN_ROT := Vector3(deg_to_rad(-6.0), deg_to_rad(62.0), deg_to_rad(-14.0))
 
-# The third-person lightsaber. Longer than the first-person blade (0.78 m): that
+# The third-person arc blade. Longer than the first-person blade (0.78 m): that
 # one is foreshortened by a camera 30 cm from the hilt, while this one is judged
 # from across the map, where the blade IS the silhouette.
 const BLADE_LENGTH := 1.25
 const BLADE_WIDTH := 0.05
-## What viewmodel.gd draws for the LIGHTSABER, in its own first-person scale.
+## What viewmodel.gd draws for the ARC BLADE, in its own first-person scale.
 ## A weapon states its blade in those numbers (Weapon.melee_look), and this pair
 ## is what converts them to the third-person size above — one source of truth for
 ## how long a blade is, two viewing distances.
@@ -228,7 +228,7 @@ const CROUCH_SWING_DEG := 26.0  # hip swing either side of the fold, when shuffl
 const CROUCH_LIFT_DEG := 20.0   # extra knee tuck on the leg swinging through
 
 # The saber guard, seen from outside: a bladed stance with the weapon brought up
-# across the body. This is the only tell an opponent gets that a Force adept has
+# across the body. This is the only tell an opponent gets that a Kinesis adept has
 # their guard up — the exhaustion pool and the first-person pose are both private
 # to the player holding the blade — so the silhouette has to change enough to
 # read at range, not just tilt the wrists.
@@ -512,18 +512,18 @@ func _arm_correction(sn: String) -> Basis:
 	return Basis(Vector3.BACK, PI * 0.5) if sn == "L" else Basis(Vector3.BACK, -PI * 0.5)
 
 
-## Swap the held blaster for a lit lightsaber, or back. Everything about a Force
+## Swap the held blaster for a lit arc blade, or back. Everything about a Force
 ## adept that other players can read is on this model — the exhaustion pool, the
 ## first-person guard pose and the swing are all private to the owner — and with
 ## a blaster in its hands the guard stance was a trooper standing oddly. A metre
 ## of glowing blade held across the chest is the tell.
-## `staff` picks the electrostaff over the lightsaber; both are "melee" and both
+## `staff` picks the electrostaff over the arc blade; both are "melee" and both
 ## get the guard, so a Magna Guard reads as a staff-carrier from across the map
-## while a Force adept reads as a blade-carrier.
+## while a Kinesis adept reads as a blade-carrier.
 ##
 ## `look` is Weapon.melee_look() — the colour and size of THIS weapon's blade,
 ## read off the same profile keys the first-person viewmodel reads, so a
-## chainsword is dull steel and a warscythe is green in both views without the
+## chain blade is dull steel and a warscythe is green in both views without the
 ## two ever agreeing by hand. It only rebuilds when the look actually changes,
 ## which is a weapon swap and nothing else.
 func set_melee(on: bool, staff := false, look := {}) -> void:
@@ -822,7 +822,7 @@ func _rebuild_melee() -> void:
 	_apply_layers()
 
 
-## Fade the whole model to `alpha` (1.0 = solid) for the Trandoshan's cloak.
+## Fade the whole model to `alpha` (1.0 = solid) for the Saurian's cloak.
 ## Walks every mesh and dials its material's transparency; safe to call with 1.0
 ## to restore, which is what a respawn does. Each character owns its own
 ## materials (every _mat() news a fresh one), so fading this one never touches
@@ -845,104 +845,104 @@ func set_cloak(alpha: float) -> void:
 # team. A style is a colour scheme + a HEAD shape + a bulk multiplier + a set of
 # accessories; the skeleton (joint layout, from the same offsets) and every
 # animation are shared, so a new look costs a table row, not a rig. The class
-# `armor`/`dark` colours are the BODY (so a clone is white plate, a droid bronze),
+# `armor`/`dark` colours are the BODY (so a legionary is white plate, a droid bronze),
 # and the TEAM colour rides the ACCENTS (`_suit_mat`: shoulder bells, chest vest,
 # belt, knee pads, helmet crest) — the way real armour markings read, and still a
 # clear team call at a glance.
 ## Styles from EVERY universe live in one enum, for the same reason Weapon.Class
-## does: STYLES is a dictionary keyed by it, so a Spartan costs a row and shifts
+## does: STYLES is a dictionary keyed by it, so a Paladin costs a row and shifts
 ## nothing, and which universe a body belongs to is stated once in Loadout (the
 ## kit that wears it) rather than repeated here.
 enum Style {
-	GENERIC, CLONE, CLONE_ENGINEER, CLONE_HEAVY, CLONE_ARC,
-	B1, B2, MAGNAGUARD, TACTICAL, MANDALORIAN, JEDI, WOOKIEE, TRANDOSHAN,
-	# The Galactic Civil War: the Empire's white plate is the clone's armour
+	GENERIC, LEGION, LEGION_TECH, LEGION_HEAVY, LEGION_VANGUARD,
+	AUTOMATON, AUTOMATON_HEAVY, GLAIVE_DRONE, TACTICAL, HUNTER, WARDEN, URSAN, SAURIAN,
+	# The Galactic Civil War: the Dominion's white plate is the legionary's armour
 	# twenty years on, so these are the same builder with a colder palette and
 	# different heads — which is the whole argument for the STYLES table.
-	STORMTROOPER, STORMTROOPER_HEAVY, SCOUT_TROOPER, DEATH_TROOPER,
-	IMPERIAL_OFFICER, IMPERIAL_ROYAL,
-	REBEL_TROOPER, REBEL_VANGUARD, REBEL_PILOT, REBEL_COMMANDO, REBEL_OFFICER,
+	DOMINION_TROOPER, DOMINION_HEAVY, DOMINION_SCOUT, REAPER_TROOPER,
+	DOMINION_OFFICER, DOMINION_GUARD,
+	PACT_TROOPER, PACT_VANGUARD, PACT_PILOT, PACT_COMMANDO, PACT_OFFICER,
 	# The reinforcements the fanbase actually names. Each is a silhouette before
-	# it is a colour: a Droideka is a hunched pod, an Ewok is knee-high, a Jackal
+	# it is a colour: a Aegis Drone is a hunched pod, an Kobb is knee-high, a Skiri
 	# carries its shield in front of it.
-	DROIDEKA, COMMANDO_DROID, GEONOSIAN, CLONE_COMMANDO, FLAMETROOPER,
-	SHORETROOPER, EWOK, JACKAL, ELITE_ULTRA,
-	# Halo
-	SPARTAN, ODST, MARINE, ELITE, GRUNT, BRUTE,
-	# Warhammer 40,000
-	ULTRAMARINE, BLOOD_ANGEL, NECRON, NECRON_LORD, ORK, ORK_NOB,
+	AEGIS_DRONE, INFILTRATOR_DRONE, VESPID, LEGION_COMMANDO, INCINERATOR_TROOPER,
+	GARRISON_TROOPER, KOBB, SKIRI, ZHAAL_ULTRA,
+	# Deep Range
+	PALADIN, DROPTROOPER, COALITION_MARINE, ZHAAL, KOPA, URSID,
+	# Ironhymn
+	SENTINEL, CHORISTER, UNSLEEPING, UNSLEEPING_LORD, SCRAPKIN, SCRAPKIN_BOSS,
 }
 
 const STYLES := {
 	# --- REINFORCEMENTS -------------------------------------------------------
-	Style.DROIDEKA:       {"armor": Color(0.52, 0.44, 0.30), "dark": Color(0.20, 0.17, 0.12), "accent": Color(0.95, 0.35, 0.20), "body": "droideka"},
-	Style.COMMANDO_DROID: {"armor": Color(0.30, 0.30, 0.33), "dark": Color(0.12, 0.12, 0.14), "accent": Color(0.90, 0.25, 0.20), "head": "b1", "bulk": 0.97, "acc": ["collar"]},
-	Style.GEONOSIAN:      {"armor": Color(0.46, 0.34, 0.24), "dark": Color(0.22, 0.16, 0.11), "accent": Color(0.72, 0.58, 0.34), "head": "geonosian", "bulk": 0.92, "acc": ["wings"]},
-	Style.CLONE_COMMANDO: {"armor": Color(0.86, 0.87, 0.90), "dark": Color(0.14, 0.15, 0.18), "accent": Color(0.95, 0.72, 0.18), "head": "commando", "bulk": 1.10, "acc": ["pauldron", "backpack", "gauntlet"]},
-	Style.FLAMETROOPER:   {"armor": Color(0.92, 0.93, 0.95), "dark": Color(0.08, 0.08, 0.09), "accent": Color(0.95, 0.42, 0.12), "head": "flametrooper", "bulk": 1.08, "acc": ["tank"]},
-	Style.SHORETROOPER:   {"armor": Color(0.80, 0.72, 0.48), "dark": Color(0.16, 0.15, 0.12), "accent": Color(0.38, 0.34, 0.24), "head": "shoretrooper", "acc": ["pauldron", "kama"]},
-	Style.EWOK:           {"armor": Color(0.42, 0.30, 0.20), "dark": Color(0.24, 0.17, 0.11), "accent": Color(0.62, 0.48, 0.30), "head": "ewok", "bulk": 0.62, "acc": ["fur"]},
-	Style.JACKAL:         {"armor": Color(0.55, 0.45, 0.28), "dark": Color(0.24, 0.20, 0.14), "accent": Color(0.35, 0.70, 0.95), "head": "jackal", "bulk": 0.88, "acc": ["shoulderplate"]},
-	Style.ELITE_ULTRA:    {"armor": Color(0.88, 0.86, 0.74), "dark": Color(0.24, 0.22, 0.18), "accent": Color(0.95, 0.85, 0.35), "head": "mask", "bulk": 1.12, "acc": ["bigpauldron", "collar"]},
-	# --- EMPIRE ---------------------------------------------------------------
-	Style.STORMTROOPER:   {"armor": Color(0.93, 0.94, 0.96), "dark": Color(0.07, 0.07, 0.08), "accent": Color(0.10, 0.10, 0.12), "head": "stormtrooper"},
-	Style.STORMTROOPER_HEAVY: {"armor": Color(0.93, 0.94, 0.96), "dark": Color(0.07, 0.07, 0.08), "accent": Color(0.10, 0.10, 0.12), "head": "stormtrooper", "bulk": 1.20, "acc": ["pauldron", "gauntlet", "greaves"]},
-	Style.SCOUT_TROOPER:  {"armor": Color(0.88, 0.89, 0.91), "dark": Color(0.10, 0.10, 0.12), "accent": Color(0.22, 0.22, 0.25), "head": "scout", "bulk": 0.94, "acc": ["thighplate", "greaves"]},
-	Style.DEATH_TROOPER:  {"armor": Color(0.13, 0.14, 0.16), "dark": Color(0.05, 0.05, 0.06), "accent": Color(0.75, 0.12, 0.10), "head": "deathtrooper", "bulk": 1.04, "acc": ["gauntlet", "backpack"]},
-	Style.IMPERIAL_OFFICER: {"armor": Color(0.22, 0.23, 0.26), "dark": Color(0.10, 0.10, 0.12), "accent": Color(0.55, 0.56, 0.60), "head": "cap", "bulk": 0.96},
-	Style.IMPERIAL_ROYAL: {"armor": Color(0.72, 0.10, 0.10), "dark": Color(0.42, 0.06, 0.06), "accent": Color(0.90, 0.30, 0.25), "head": "royalguard", "acc": ["robe", "collar"]},
-	# --- REBEL ALLIANCE -------------------------------------------------------
-	Style.REBEL_TROOPER:  {"armor": Color(0.46, 0.42, 0.30), "dark": Color(0.18, 0.16, 0.12), "accent": Color(0.70, 0.66, 0.50), "head": "rebel", "acc": ["pauldron"]},
-	Style.REBEL_VANGUARD: {"armor": Color(0.42, 0.38, 0.27), "dark": Color(0.16, 0.14, 0.11), "accent": Color(0.72, 0.62, 0.40), "head": "rebel", "bulk": 1.14, "acc": ["pauldron", "bandolier", "greaves"]},
-	Style.REBEL_PILOT:    {"armor": Color(0.80, 0.72, 0.24), "dark": Color(0.16, 0.16, 0.18), "accent": Color(0.92, 0.86, 0.40), "head": "pilot", "bulk": 0.98, "acc": ["bandolier", "backpack"]},
-	Style.REBEL_COMMANDO: {"armor": Color(0.26, 0.34, 0.22), "dark": Color(0.12, 0.15, 0.10), "accent": Color(0.45, 0.55, 0.35), "head": "hood", "bulk": 0.97, "acc": ["backpack", "kama"]},
-	Style.REBEL_OFFICER:  {"armor": Color(0.36, 0.30, 0.24), "dark": Color(0.14, 0.12, 0.10), "accent": Color(0.62, 0.54, 0.40), "head": "cap", "bulk": 0.96},
+	Style.AEGIS_DRONE:       {"armor": Color(0.52, 0.44, 0.30), "dark": Color(0.20, 0.17, 0.12), "accent": Color(0.95, 0.35, 0.20), "body": "aegis drone"},
+	Style.INFILTRATOR_DRONE: {"armor": Color(0.30, 0.30, 0.33), "dark": Color(0.12, 0.12, 0.14), "accent": Color(0.90, 0.25, 0.20), "head": "b1", "bulk": 0.97, "acc": ["collar"]},
+	Style.VESPID:      {"armor": Color(0.46, 0.34, 0.24), "dark": Color(0.22, 0.16, 0.11), "accent": Color(0.72, 0.58, 0.34), "head": "vespid", "bulk": 0.92, "acc": ["wings"]},
+	Style.LEGION_COMMANDO: {"armor": Color(0.86, 0.87, 0.90), "dark": Color(0.14, 0.15, 0.18), "accent": Color(0.95, 0.72, 0.18), "head": "commando", "bulk": 1.10, "acc": ["pauldron", "backpack", "gauntlet"]},
+	Style.INCINERATOR_TROOPER:   {"armor": Color(0.92, 0.93, 0.95), "dark": Color(0.08, 0.08, 0.09), "accent": Color(0.95, 0.42, 0.12), "head": "incinerator trooper", "bulk": 1.08, "acc": ["tank"]},
+	Style.GARRISON_TROOPER:   {"armor": Color(0.80, 0.72, 0.48), "dark": Color(0.16, 0.15, 0.12), "accent": Color(0.38, 0.34, 0.24), "head": "garrison trooper", "acc": ["pauldron", "kama"]},
+	Style.KOBB:           {"armor": Color(0.42, 0.30, 0.20), "dark": Color(0.24, 0.17, 0.11), "accent": Color(0.62, 0.48, 0.30), "head": "kobb", "bulk": 0.62, "acc": ["fur"]},
+	Style.SKIRI:         {"armor": Color(0.55, 0.45, 0.28), "dark": Color(0.24, 0.20, 0.14), "accent": Color(0.35, 0.70, 0.95), "head": "skiri", "bulk": 0.88, "acc": ["shoulderplate"]},
+	Style.ZHAAL_ULTRA:    {"armor": Color(0.88, 0.86, 0.74), "dark": Color(0.24, 0.22, 0.18), "accent": Color(0.95, 0.85, 0.35), "head": "mask", "bulk": 1.12, "acc": ["bigpauldron", "collar"]},
+	# --- DOMINION ---------------------------------------------------------------
+	Style.DOMINION_TROOPER:   {"armor": Color(0.93, 0.94, 0.96), "dark": Color(0.07, 0.07, 0.08), "accent": Color(0.10, 0.10, 0.12), "head": "dominion trooper"},
+	Style.DOMINION_HEAVY: {"armor": Color(0.93, 0.94, 0.96), "dark": Color(0.07, 0.07, 0.08), "accent": Color(0.10, 0.10, 0.12), "head": "dominion trooper", "bulk": 1.20, "acc": ["pauldron", "gauntlet", "greaves"]},
+	Style.DOMINION_SCOUT:  {"armor": Color(0.88, 0.89, 0.91), "dark": Color(0.10, 0.10, 0.12), "accent": Color(0.22, 0.22, 0.25), "head": "scout", "bulk": 0.94, "acc": ["thighplate", "greaves"]},
+	Style.REAPER_TROOPER:  {"armor": Color(0.13, 0.14, 0.16), "dark": Color(0.05, 0.05, 0.06), "accent": Color(0.75, 0.12, 0.10), "head": "deathtrooper", "bulk": 1.04, "acc": ["gauntlet", "backpack"]},
+	Style.DOMINION_OFFICER: {"armor": Color(0.22, 0.23, 0.26), "dark": Color(0.10, 0.10, 0.12), "accent": Color(0.55, 0.56, 0.60), "head": "cap", "bulk": 0.96},
+	Style.DOMINION_GUARD: {"armor": Color(0.72, 0.10, 0.10), "dark": Color(0.42, 0.06, 0.06), "accent": Color(0.90, 0.30, 0.25), "head": "royalguard", "acc": ["robe", "collar"]},
+	# --- PACT ALLIANCE -------------------------------------------------------
+	Style.PACT_TROOPER:  {"armor": Color(0.46, 0.42, 0.30), "dark": Color(0.18, 0.16, 0.12), "accent": Color(0.70, 0.66, 0.50), "head": "rebel", "acc": ["pauldron"]},
+	Style.PACT_VANGUARD: {"armor": Color(0.42, 0.38, 0.27), "dark": Color(0.16, 0.14, 0.11), "accent": Color(0.72, 0.62, 0.40), "head": "rebel", "bulk": 1.14, "acc": ["pauldron", "bandolier", "greaves"]},
+	Style.PACT_PILOT:    {"armor": Color(0.80, 0.72, 0.24), "dark": Color(0.16, 0.16, 0.18), "accent": Color(0.92, 0.86, 0.40), "head": "pilot", "bulk": 0.98, "acc": ["bandolier", "backpack"]},
+	Style.PACT_COMMANDO: {"armor": Color(0.26, 0.34, 0.22), "dark": Color(0.12, 0.15, 0.10), "accent": Color(0.45, 0.55, 0.35), "head": "hood", "bulk": 0.97, "acc": ["backpack", "kama"]},
+	Style.PACT_OFFICER:  {"armor": Color(0.36, 0.30, 0.24), "dark": Color(0.14, 0.12, 0.10), "accent": Color(0.62, 0.54, 0.40), "head": "cap", "bulk": 0.96},
 
 	Style.GENERIC:        {"armor": Color(0.70, 0.72, 0.76), "dark": Color(0.16, 0.17, 0.20), "head": "bare"},
-	# Republic — white clone plate, team colour on the body suit, a helmet crest.
-	Style.CLONE:          {"armor": Color(0.86, 0.87, 0.90), "dark": Color(0.15, 0.16, 0.19), "head": "clone"},
-	Style.CLONE_ENGINEER: {"armor": Color(0.86, 0.87, 0.90), "dark": Color(0.15, 0.16, 0.19), "head": "clone", "acc": ["backpack"]},
-	Style.CLONE_HEAVY:    {"armor": Color(0.88, 0.89, 0.92), "dark": Color(0.15, 0.16, 0.19), "head": "clone", "bulk": 1.28, "acc": ["pauldron", "greaves"]},
-	Style.CLONE_ARC:      {"armor": Color(0.84, 0.85, 0.88), "dark": Color(0.14, 0.15, 0.18), "head": "clone", "acc": ["antenna", "kama", "pauldron"]},
-	# Separatist — thin bronze B1, hulking B2, cloaked MagnaGuard, slim tactical.
-	# The B1's BACKPLATE is the flared slab behind its neck: at range that shape
+	# Concord — white legionary plate, team colour on the body suit, a helmet crest.
+	Style.LEGION:          {"armor": Color(0.86, 0.87, 0.90), "dark": Color(0.15, 0.16, 0.19), "head": "legionary"},
+	Style.LEGION_TECH: {"armor": Color(0.86, 0.87, 0.90), "dark": Color(0.15, 0.16, 0.19), "head": "legionary", "acc": ["backpack"]},
+	Style.LEGION_HEAVY:    {"armor": Color(0.88, 0.89, 0.92), "dark": Color(0.15, 0.16, 0.19), "head": "legionary", "bulk": 1.28, "acc": ["pauldron", "greaves"]},
+	Style.LEGION_VANGUARD:      {"armor": Color(0.84, 0.85, 0.88), "dark": Color(0.14, 0.15, 0.18), "head": "legionary", "acc": ["antenna", "kama", "pauldron"]},
+	# Automata — thin bronze light automaton, hulking heavy automaton, cloaked glaive drone, slim tactical.
+	# The light automaton's BACKPLATE is the flared slab behind its neck: at range that shape
 	# is what says "battle droid" well before the skull is readable.
-	Style.B1:             {"armor": Color(0.62, 0.50, 0.30), "dark": Color(0.30, 0.24, 0.14), "head": "b1", "bulk": 0.78, "acc": ["b1back"]},
-	Style.B2:             {"armor": Color(0.34, 0.36, 0.42), "dark": Color(0.14, 0.15, 0.18), "head": "b2", "bulk": 1.40, "acc": ["bigpauldron"]},
-	Style.MAGNAGUARD:     {"armor": Color(0.30, 0.31, 0.34), "dark": Color(0.12, 0.13, 0.15), "head": "mask", "bulk": 0.96, "acc": ["cape"]},
+	Style.AUTOMATON:             {"armor": Color(0.62, 0.50, 0.30), "dark": Color(0.30, 0.24, 0.14), "head": "b1", "bulk": 0.78, "acc": ["b1back"]},
+	Style.AUTOMATON_HEAVY:             {"armor": Color(0.34, 0.36, 0.42), "dark": Color(0.14, 0.15, 0.18), "head": "b2", "bulk": 1.40, "acc": ["bigpauldron"]},
+	Style.GLAIVE_DRONE:     {"armor": Color(0.30, 0.31, 0.34), "dark": Color(0.12, 0.13, 0.15), "head": "mask", "bulk": 0.96, "acc": ["cape"]},
 	Style.TACTICAL:       {"armor": Color(0.40, 0.46, 0.54), "dark": Color(0.16, 0.18, 0.22), "head": "b1", "bulk": 0.86, "acc": ["b1back", "collar"]},
 	# Base kits.
-	Style.MANDALORIAN:    {"armor": Color(0.55, 0.57, 0.62), "dark": Color(0.16, 0.17, 0.20), "head": "visor", "acc": ["jetpack"]},
-	Style.JEDI:           {"armor": Color(0.40, 0.31, 0.20), "dark": Color(0.22, 0.17, 0.11), "head": "hood", "acc": ["robe"]},
-	Style.WOOKIEE:        {"armor": Color(0.34, 0.23, 0.13), "dark": Color(0.22, 0.15, 0.09), "head": "furry", "bulk": 1.45, "acc": ["fur", "bandolier"]},
-	Style.TRANDOSHAN:     {"armor": Color(0.42, 0.47, 0.30), "dark": Color(0.24, 0.28, 0.18), "head": "bare", "bulk": 1.08, "acc": ["scales"]},
-	# HALO — UNSC. A Spartan is a head taller than the marines it fights beside,
-	# which is the only thing anyone needs to read at a glance; the ODST is the
-	# same soldier in black with the pod-visor helmet. The Spartan carries plate
+	Style.HUNTER:    {"armor": Color(0.55, 0.57, 0.62), "dark": Color(0.16, 0.17, 0.20), "head": "visor", "acc": ["jetpack"]},
+	Style.WARDEN:           {"armor": Color(0.40, 0.31, 0.20), "dark": Color(0.22, 0.17, 0.11), "head": "hood", "acc": ["robe"]},
+	Style.URSAN:        {"armor": Color(0.34, 0.23, 0.13), "dark": Color(0.22, 0.15, 0.09), "head": "furry", "bulk": 1.45, "acc": ["fur", "bandolier"]},
+	Style.SAURIAN:     {"armor": Color(0.42, 0.47, 0.30), "dark": Color(0.24, 0.28, 0.18), "head": "bare", "bulk": 1.08, "acc": ["scales"]},
+	# HALO — COALITION. A Paladin is a head taller than the marines it fights beside,
+	# which is the only thing anyone needs to read at a glance; the DROPTROOPER is the
+	# same soldier in black with the pod-visor helmet. The Paladin carries plate
 	# on every limb — without the greaves and gauntlets a slab of a chest sat on
 	# bare pipe-cleaner legs and read top-heavy.
-	Style.SPARTAN:        {"armor": Color(0.30, 0.40, 0.29), "dark": Color(0.11, 0.13, 0.12), "accent": Color(0.86, 0.66, 0.20), "head": "spartan", "bulk": 1.24, "acc": ["pauldron", "gauntlet", "greaves", "thighplate"]},
-	Style.ODST:           {"armor": Color(0.17, 0.19, 0.22), "dark": Color(0.07, 0.08, 0.10), "accent": Color(0.45, 0.48, 0.54), "head": "odst", "bulk": 1.02, "acc": ["backpack", "gauntlet", "greaves"]},
-	Style.MARINE:         {"armor": Color(0.36, 0.38, 0.28), "dark": Color(0.14, 0.15, 0.12), "accent": Color(0.52, 0.48, 0.34), "head": "odst", "bulk": 0.96, "acc": ["greaves"]},
-	# HALO — Covenant. The Elite is tall and armoured over a dark bodysuit, the
+	Style.PALADIN:        {"armor": Color(0.30, 0.40, 0.29), "dark": Color(0.11, 0.13, 0.12), "accent": Color(0.86, 0.66, 0.20), "head": "paladin", "bulk": 1.24, "acc": ["pauldron", "gauntlet", "greaves", "thighplate"]},
+	Style.DROPTROOPER:           {"armor": Color(0.17, 0.19, 0.22), "dark": Color(0.07, 0.08, 0.10), "accent": Color(0.45, 0.48, 0.54), "head": "droptrooper", "bulk": 1.02, "acc": ["backpack", "gauntlet", "greaves"]},
+	Style.COALITION_MARINE:         {"armor": Color(0.36, 0.38, 0.28), "dark": Color(0.14, 0.15, 0.12), "accent": Color(0.52, 0.48, 0.34), "head": "droptrooper", "bulk": 0.96, "acc": ["greaves"]},
+	# HALO — Hierophany. The Elite is tall and armoured over a dark bodysuit, the
 	# Grunt is tiny behind a methane tank bigger than it is, the Brute is the
 	# widest thing in the game and wears half a set of plate.
-	Style.ELITE:          {"armor": Color(0.36, 0.31, 0.56), "dark": Color(0.13, 0.11, 0.19), "accent": Color(0.72, 0.66, 0.95), "head": "elite", "bulk": 1.22, "acc": ["bigpauldron", "gauntlet", "greaves"]},
-	Style.GRUNT:          {"armor": Color(0.76, 0.44, 0.16), "dark": Color(0.22, 0.15, 0.09), "accent": Color(0.30, 0.34, 0.38), "head": "grunt", "bulk": 0.88, "acc": ["tank"]},
-	Style.BRUTE:          {"armor": Color(0.46, 0.36, 0.28), "dark": Color(0.27, 0.21, 0.16), "accent": Color(0.58, 0.53, 0.47), "head": "brute", "bulk": 1.52, "acc": ["fur", "spikes", "shoulderplate", "greaves"]},
-	# WARHAMMER — Astartes. Both chapters are the same power armour in different
+	Style.ZHAAL:          {"armor": Color(0.36, 0.31, 0.56), "dark": Color(0.13, 0.11, 0.19), "accent": Color(0.72, 0.66, 0.95), "head": "elite", "bulk": 1.22, "acc": ["bigpauldron", "gauntlet", "greaves"]},
+	Style.KOPA:          {"armor": Color(0.76, 0.44, 0.16), "dark": Color(0.22, 0.15, 0.09), "accent": Color(0.30, 0.34, 0.38), "head": "grunt", "bulk": 0.88, "acc": ["tank"]},
+	Style.URSID:          {"armor": Color(0.46, 0.36, 0.28), "dark": Color(0.27, 0.21, 0.16), "accent": Color(0.58, 0.53, 0.47), "head": "brute", "bulk": 1.52, "acc": ["fur", "spikes", "shoulderplate", "greaves"]},
+	# IRONHYMN — Order. Both chapters are the same power armour in different
 	# heraldry, which is exactly how the setting works. The pack and the enormous
 	# pauldrons ARE the silhouette: without them a marine is a coloured rectangle.
-	Style.ULTRAMARINE:    {"armor": Color(0.13, 0.26, 0.60), "dark": Color(0.08, 0.09, 0.12), "accent": Color(0.80, 0.68, 0.26), "head": "astartes", "bulk": 1.38, "acc": ["bigpauldron", "powerpack", "aquila", "gauntlet", "greaves", "thighplate"]},
-	Style.BLOOD_ANGEL:    {"armor": Color(0.62, 0.10, 0.10), "dark": Color(0.12, 0.07, 0.07), "accent": Color(0.85, 0.75, 0.32), "head": "astartes", "bulk": 1.38, "acc": ["bigpauldron", "jetpack", "aquila", "gauntlet", "greaves", "thighplate"]},
-	# WARHAMMER — Necrons. Bare metal skeletons: no undersuit, no soft parts, an
+	Style.SENTINEL:    {"armor": Color(0.13, 0.26, 0.60), "dark": Color(0.08, 0.09, 0.12), "accent": Color(0.80, 0.68, 0.26), "head": "order", "bulk": 1.38, "acc": ["bigpauldron", "powerpack", "aquila", "gauntlet", "greaves", "thighplate"]},
+	Style.CHORISTER:    {"armor": Color(0.62, 0.10, 0.10), "dark": Color(0.12, 0.07, 0.07), "accent": Color(0.85, 0.75, 0.32), "head": "order", "bulk": 1.38, "acc": ["bigpauldron", "jetpack", "aquila", "gauntlet", "greaves", "thighplate"]},
+	# IRONHYMN — Necrons. Bare metal skeletons: no undersuit, no soft parts, an
 	# exposed ribcage over a lit core, and the eyes are the only colour on them.
-	Style.NECRON:         {"armor": Color(0.50, 0.52, 0.54), "dark": Color(0.13, 0.15, 0.15), "accent": Color(0.35, 1.0, 0.40), "head": "necron", "bulk": 0.86, "acc": ["ribs"]},
-	Style.NECRON_LORD:    {"armor": Color(0.40, 0.38, 0.30), "dark": Color(0.12, 0.14, 0.14), "accent": Color(0.40, 1.0, 0.45), "head": "necron", "bulk": 1.12, "acc": ["ribs", "cape", "collar", "crest"]},
-	# WARHAMMER — Orks. Green, wide, and wearing whatever they found, bolted on
+	Style.UNSLEEPING:         {"armor": Color(0.50, 0.52, 0.54), "dark": Color(0.13, 0.15, 0.15), "accent": Color(0.35, 1.0, 0.40), "head": "unsleeping", "bulk": 0.86, "acc": ["ribs"]},
+	Style.UNSLEEPING_LORD:    {"armor": Color(0.40, 0.38, 0.30), "dark": Color(0.12, 0.14, 0.14), "accent": Color(0.40, 1.0, 0.45), "head": "unsleeping", "bulk": 1.12, "acc": ["ribs", "cape", "collar", "crest"]},
+	# IRONHYMN — Orks. Green, wide, and wearing whatever they found, bolted on
 	# crooked: the ASYMMETRY is the read.
-	Style.ORK:            {"armor": Color(0.29, 0.47, 0.21), "dark": Color(0.22, 0.18, 0.12), "accent": Color(0.42, 0.36, 0.28), "head": "ork", "bulk": 1.34, "acc": ["spikes", "bandolier", "shoulderplate", "scrap"]},
-	Style.ORK_NOB:        {"armor": Color(0.25, 0.43, 0.19), "dark": Color(0.19, 0.16, 0.11), "accent": Color(0.46, 0.40, 0.30), "head": "ork", "bulk": 1.62, "acc": ["spikes", "shoulderplate", "scrap", "gauntlet", "greaves"]},
+	Style.SCRAPKIN:            {"armor": Color(0.29, 0.47, 0.21), "dark": Color(0.22, 0.18, 0.12), "accent": Color(0.42, 0.36, 0.28), "head": "ork", "bulk": 1.34, "acc": ["spikes", "bandolier", "shoulderplate", "scrap"]},
+	Style.SCRAPKIN_BOSS:        {"armor": Color(0.25, 0.43, 0.19), "dark": Color(0.19, 0.16, 0.11), "accent": Color(0.46, 0.40, 0.30), "head": "ork", "bulk": 1.62, "acc": ["spikes", "shoulderplate", "scrap", "gauntlet", "greaves"]},
 }
 
 var _style_id := Style.GENERIC
@@ -975,7 +975,7 @@ func _build_body() -> void:
 	var at := _joint_offsets()   # our own skeleton math — the GLB is gone
 
 	# TEAM colour rides the ACCENTS (shoulder bells, chest vest, belt, helmet crest)
-	# rather than the whole body — so a clone reads as white plate with team markings
+	# rather than the whole body — so a legionary reads as white plate with team markings
 	# the way real armour does, and the accents still call the side at a glance.
 	_suit_mat = _mat(_team_color, Finish.PLATE)
 	var armor := _mat(style["armor"], Finish.PLATE)   # the class's main plate colour
@@ -997,7 +997,7 @@ func _build_body() -> void:
 	var dark := _mat(style["dark"], Finish.CLOTH)     # undersuit, joints, hands, boots
 	# A THIRD colour, and the reason these units stopped reading as coloured
 	# blocks. Two tones plus the team accent is enough for a trooper in one
-	# palette, but a Spartan's gold visor, a Necron's green light and an ork's
+	# palette, but a Paladin's gold visor, a Unsleeping's green light and an ork's
 	# bare scrap metal are none of those three — every one of them was being
 	# painted in the body colour and vanishing into it. Defaults to `dark`, so a
 	# style that has nothing to say says nothing.
@@ -1005,7 +1005,7 @@ func _build_body() -> void:
 		style.get("accent_finish", Finish.METAL))
 	var furry: bool = acc.has("fur")
 
-	if style.get("body", "") == "droideka":
+	if style.get("body", "") == "aegis drone":
 		_build_droideka_body(style, at, armor, armor_hi, armor_lo, dark, accent)
 		_merge_parts()
 		_apply_layers()
@@ -1019,7 +1019,7 @@ func _build_body() -> void:
 	if acc.has("kama"):   # ARC skirt: plated flaps hanging front and back
 		for kz in [0.11, -0.11]:
 			_box(hips, Vector3(0.30, 0.26, 0.04), Vector3(0, -0.17, kz * bulk), armor_lo)
-	if acc.has("robe"):   # Jedi tabard hanging from the waist, at the front
+	if acc.has("robe"):   # Warden tabard hanging from the waist, at the front
 		_box(hips, Vector3(0.24, 0.36, 0.05), Vector3(0, -0.20, -0.10), armor_lo)
 
 	# Torso pivots at the hips so run/idle can lean from the waist. The model faces
@@ -1045,20 +1045,20 @@ func _build_body() -> void:
 			_box(spine, Vector3(0.05, 0.07, 0.05), Vector3(jx, 0.14, 0.18), dark)      # nozzles
 	if acc.has("cape") or acc.has("robe"):    # cloth down the back (+z)
 		_box(spine, Vector3(0.32, 0.66, 0.03), Vector3(0, 0.15, 0.13 * bulk), armor_lo)
-	if acc.has("bandolier"):                  # a team sash across a Wookiee's fur (front)
+	if acc.has("bandolier"):                  # a team sash across a Ursan's fur (front)
 		_box(spine, Vector3(0.085, 0.56, 0.04), Vector3(0.0, 0.24, -0.13 * bulk), _suit_mat).rotation.z = 0.34
 	if acc.has("antenna"):                    # ARC trooper's rangefinder stalk
 		_box(spine, Vector3(0.018, 0.22, 0.018), Vector3(0.10, 0.52, 0.0), dark)
 	if acc.has("b1back"):
 		# The battle droid's BACK PLATE: a flared slab standing behind the neck.
-		# It is what a B1 is recognised by at the range where its head is two
+		# It is what a light automaton is recognised by at the range where its head is two
 		# pixels, and it is also what stops a thin droid reading as an
 		# underfed trooper.
 		_box(spine, Vector3(0.21, 0.24, 0.055), Vector3(0, 0.42, 0.10 * bulk), armor)
 		_box(spine, Vector3(0.25, 0.05, 0.05), Vector3(0, 0.535, 0.095 * bulk), armor_lo)
 		_box(spine, Vector3(0.055, 0.16, 0.042), Vector3(0, 0.44, 0.132 * bulk), _suit_mat)
 	if acc.has("wings"):
-		# Geonosian wings. The class flies (Gadget.WINGS), so the body has to
+		# Vespid wings. The class flies (Gadget.WINGS), so the body has to
 		# say so while it is standing still — and a winged insect is the one
 		# silhouette in this roster nothing else can be mistaken for.
 		#
@@ -1078,7 +1078,7 @@ func _build_body() -> void:
 			_box(spine, Vector3(0.06, 0.11, 0.08),
 				Vector3(wx * 0.10, 0.44, 0.13 * bulk), dark)   # wing root
 	if acc.has("powerpack"):
-		# The Astartes power pack: the single most recognisable thing about the
+		# The Order power pack: the single most recognisable thing about the
 		# silhouette after the pauldrons, and it was missing entirely. A slab on
 		# the back with two exhaust stacks standing proud of the shoulders.
 		_box(spine, Vector3(0.30 * bulk, 0.34, 0.14), Vector3(0, 0.30, 0.15 * bulk), dark)
@@ -1093,14 +1093,14 @@ func _build_body() -> void:
 		_box(spine, Vector3(0.15 * bulk, 0.055, 0.04), Vector3(0, 0.37, -0.128 * bulk), accent)
 		_box(spine, Vector3(0.045, 0.20, 0.04), Vector3(0, 0.31, -0.128 * bulk), accent)
 	if acc.has("tank"):
-		# The Unggoy methane tank, which is most of a Grunt's silhouette: it is
+		# The Kopa methane tank, which is most of a Grunt's silhouette: it is
 		# bigger than the torso carrying it, and the hose to the mask is what
 		# makes it read as breathing gear rather than as a rucksack.
 		_box(spine, Vector3(0.26, 0.34, 0.20), Vector3(0, 0.26, 0.19 * bulk), accent)
 		_box(spine, Vector3(0.05, 0.05, 0.05), Vector3(0.09, 0.44, 0.19 * bulk), dark)
 		_box(spine, Vector3(0.035, 0.22, 0.035), Vector3(0.10, 0.50, 0.13 * bulk), dark)
 	if acc.has("collar"):
-		# A standing collar behind the skull: what a Necron lord has instead of
+		# A standing collar behind the skull: what a Unsleeping lord has instead of
 		# pauldrons, which on a skeleton read as borrowed power armour.
 		_box(spine, Vector3(0.30 * bulk, 0.26, 0.04), Vector3(0, 0.50, 0.10 * bulk), armor)
 		# ...and it WRAPS, so there is something either side of the head from the
@@ -1113,7 +1113,7 @@ func _build_body() -> void:
 			_box(spine, Vector3(0.04, 0.20, 0.10),
 				Vector3(cx * 0.14 * bulk, 0.52, 0.06 * bulk), accent)
 	if acc.has("ribs"):
-		# A Necron has no flesh on it: the chest is an exposed cage over a lit
+		# A Unsleeping has no flesh on it: the chest is an exposed cage over a lit
 		# core. Three ribs and a spine, with the body colour showing between.
 		for ry in [0.16, 0.26, 0.36]:
 			_box(spine, Vector3(0.26 * bulk, 0.035, 0.21 * bulk), Vector3(0, ry, 0), armor)
@@ -1150,7 +1150,7 @@ func _build_body() -> void:
 		if acc.has("pauldron"):                                                         # heavy's big plate
 			_box(sh, Vector3(0.20, 0.14, 0.22), Vector3(-0.05 * side, 0.05, 0), _suit_mat)
 		if acc.has("bigpauldron"):
-			# The Astartes shoulder: enormous, standing well clear of the arm and
+			# The Order shoulder: enormous, standing well clear of the arm and
 			# ABOVE the collar line. The generic pauldron above sits flush and
 			# merges into the torso, which is why a marine read as a rectangle.
 			_box(sh, Vector3(0.22, 0.17, 0.24), Vector3(0.042 * side, 0.075, 0), _suit_mat)
@@ -1164,8 +1164,8 @@ func _build_body() -> void:
 				for gx in [-0.05, 0.05]:
 					_box(sh, Vector3(0.028, 0.10, 0.028), Vector3(0.05 + gx, 0.17, 0), dark)
 		if acc.has("crest"):
-			# THE NECRON LORD'S SHOULDER: a bladed crest raked up and back, well
-			# clear of the arm. It is NOT `bigpauldron` — an Astartes shoulder is
+			# THE UNSLEEPING LORD'S SHOULDER: a bladed crest raked up and back, well
+			# clear of the arm. It is NOT `bigpauldron` — an Order shoulder is
 			# a slab of ceramite and a lord's is a thin standing FIN, and a
 			# skeleton wearing a marine's pauldron reads as borrowed armour
 			# (which is the note already on `collar`).
@@ -1232,7 +1232,7 @@ func _build_body() -> void:
 		if acc.has("greaves"):
 			# Shin plate on the front of the lower leg. Cheap, and it stops a
 			# heavily armoured unit having bare pipe-cleaner legs under a slab
-			# of a chest — which is what made the Spartan read top-heavy.
+			# of a chest — which is what made the Paladin read top-heavy.
 			_box(knee, Vector3(0.15 * bulk, 0.26, 0.06),
 				footv * 0.45 + Vector3(0, 0, -0.07 * bulk), armor_hi)
 		_limb(knee, footv, 0.105 * bulk, 0.11 * bulk, armor)                            # shin
@@ -1247,7 +1247,7 @@ func _build_body() -> void:
 	_built = true
 
 
-## The Droideka cannot share the humanoid body and still read as a destroyer
+## The Aegis Drone cannot share the humanoid body and still read as a destroyer
 ## droid: the silhouette is the wheel shell, tripod legs and paired arm cannons.
 ## It still builds the SAME joint names, so the existing animation tracks, held
 ## weapon hook, corpses and render-layer restamping all keep their contracts.
@@ -1285,7 +1285,7 @@ func _build_droideka_body(style: Dictionary, at: Dictionary, armor: Material,
 			_bar(spine, pts[i], pts[(i + 1) % pts.size()], 0.035, armor_lo)
 		_box(spine, Vector3(0.035, 0.22, 0.08), Vector3(x, 0.22, 0.02), dark)
 
-	# Small forward sensor head, not a B1 skull. It rides the normal head joint so
+	# Small forward sensor head, not a light automaton skull. It rides the normal head joint so
 	# looking/aiming still gives the droid a visible facing.
 	var head := _joint(spine, "Head", at["head"])
 	_box(head, Vector3(0.13, 0.08, 0.12), Vector3(0, 0.06, -0.08), armor_hi)
@@ -1307,7 +1307,7 @@ func _build_droideka_body(style: Dictionary, at: Dictionary, armor: Material,
 		# separate rifle or a pair of tubes bolted to the wrist.
 		_bar(el, handv * 0.70, handv * 1.38, 0.052, dark)
 		_box(el, Vector3(0.070, 0.070, 0.070), handv * 1.43, accent)
-		# EMPTY, AND THAT IS THE POINT. A Droideka has no wrist and no boot, but it
+		# EMPTY, AND THAT IS THE POINT. A Aegis Drone has no wrist and no boot, but it
 		# builds every joint name the humanoid does — the comment above this builder
 		# says so, and it is what keeps the shared clips, the corpse segments and
 		# the render-layer restamp working without a single test for "is this the
@@ -1326,7 +1326,7 @@ func _build_droideka_body(style: Dictionary, at: Dictionary, armor: Material,
 		var knee := _joint(hip, "Knee" + ln, at["k" + ln])
 		_joint(knee, "Ankle" + ln, at["a" + ln])   # empty; see the note on Hand above
 
-	# Tripod legs, fixed to the pelvis. A Droideka rolls and braces more than it
+	# Tripod legs, fixed to the pelvis. A Aegis Drone rolls and braces more than it
 	# walks, so the readable shape beats trying to reuse the humanoid leg swing.
 	for side: float in [-1.0, 1.0]:
 		var hip_plate := Vector3(0.16 * side, -0.02, -0.02)
@@ -1402,7 +1402,7 @@ func _merge_parts() -> void:
 				mi.queue_free()
 
 
-## The third-person lightsaber, on the same HeldGun joint as the blaster so the
+## The third-person arc blade, on the same HeldGun joint as the blaster so the
 ## solved carry/guard hold puts the hands on it unchanged — the IK reaches for
 ## grip points derived from GUN_POS, and the hilt sits exactly where the
 ## receiver did.
@@ -1431,7 +1431,7 @@ func _build_held_saber(held: Node3D, hilt_mat: Material) -> void:
 	_saber_parts.append(_box(held, Vector3(0.05, 0.05, 0.03),
 		Vector3(0, 0, -hilt * 0.42), band))
 
-	# `blade_energy` 0 is a STEEL weapon — a chainsword, a choppa, a hammer — and
+	# `blade_energy` 0 is a STEEL weapon — a chain blade, a choppa, a hammer — and
 	# steel is LIT, not emitting. Unshaded bypasses lighting but not the tonemap,
 	# so a mid-grey albedo came out of AgX as a flat near-white slab at one value
 	# on every face, which reads as frosted glass rather than as metal. Only
@@ -1460,7 +1460,7 @@ func _build_held_saber(held: Node3D, hilt_mat: Material) -> void:
 	# splits it on the same rule and for the same reason: a sleeve only ever goes
 	# round a blade that IS light, a boxed HEAD (grav hammer, thunder hammer,
 	# power klaw — every one of them a power weapon) gets a cap on its striking
-	# face, and a steel cylinder (chainsword, choppa) gets nothing at all.
+	# face, and a steel cylinder (chain blade, choppa) gets nothing at all.
 	if energy > 0.0:
 		_saber_parts.append(_box(held,
 			Vector3(width * 2.2, width * 2.2, length * 0.99), at, glow))
@@ -1484,7 +1484,7 @@ func _build_held_staff(held: Node3D, pole_mat: Material) -> void:
 	_staff_parts.append(_box(held, Vector3(0.035, 0.035, 1.7),
 		Vector3(0, 0, -0.25), pole_mat))
 	# Violet electro-charge by default, not the saber's blue — the IG-100 look —
-	# but a pole weapon that states its own colour (a Necron warscythe's green)
+	# but a pole weapon that states its own colour (a Unsleeping warscythe's green)
 	# gets that instead, from the same profile keys the viewmodel reads.
 	var core_col: Color = _melee_look.get("blade_core", STAFF_CORE)
 	var glow_col: Color = _melee_look.get("blade_glow", STAFF_GLOW)
@@ -1528,8 +1528,8 @@ func _limb(parent: Node3D, to: Vector3, tx: float, tz: float, mat: Material) -> 
 
 
 ## The per-unit head. The shape is the loudest part of the silhouette, so each
-## archetype gets its own — a crested clone helmet, a B1's photoreceptor stalk, a
-## B2's sunken block, the MagnaGuard's masked cowl, a Wookiee's muzzle, a hood.
+## archetype gets its own — a crested legionary helmet, a light automaton's photoreceptor stalk, a
+## heavy automaton's sunken block, the glaive drone's masked cowl, a Ursan's muzzle, a hood.
 func _build_head(style: Dictionary, joint: Node3D, armor: Material, dark: Material) -> void:
 	# The model FACES -Z (the blaster points -Z), so all face detail sits at
 	# NEGATIVE z (the front) and anything on the back at positive z.
@@ -1550,10 +1550,10 @@ func _build_head(style: Dictionary, joint: Node3D, armor: Material, dark: Materi
 			else:
 				_box(joint, Vector3(0.13, 0.045, 0.03), Vector3(0, 0.14, -0.115), dark)  # visor slit
 				_box(joint, Vector3(0.03, 0.055, 0.20), Vector3(0, 0.255, 0.01), _suit_mat)  # team crest fin
-		"clone":
+		"legionary":
 			# PHASE II. The tell is the T: a wide brow bar with a stem down the
 			# nose, under a crown that sweeps to a point at the front and carries
-			# a keel ridge front to back. Everything else on a clone is paint.
+			# a keel ridge front to back. Everything else on a legionary is paint.
 			_box(joint, Vector3(0.175, 0.145, 0.185), Vector3(0, 0.175, 0), armor)       # crown
 			_box(joint, Vector3(0.155, 0.095, 0.085), Vector3(0, 0.115, -0.065), armor)  # faceplate
 			_box(joint, Vector3(0.19, 0.05, 0.07), Vector3(0, 0.215, -0.075), armor)     # swept brow
@@ -1564,9 +1564,9 @@ func _build_head(style: Dictionary, joint: Node3D, armor: Material, dark: Materi
 			_box(joint, Vector3(0.035, 0.05, 0.20), Vector3(0, 0.255, 0.005), _suit_mat)    # unit crest
 			_box(joint, Vector3(0.16, 0.055, 0.05), Vector3(0, 0.10, 0.085), armor)      # rear neck flare
 		"commando":
-			# Katarn-class. A heavier clone helmet with ONE wide lit visor band
+			# Katarn-class. A heavier legionary helmet with ONE wide lit visor band
 			# instead of the T, and the rangefinder stalk on the left — which is
-			# what stops Delta Squad reading as a clone in slightly thicker plate.
+			# what stops Delta Squad reading as a legionary in slightly thicker plate.
 			_box(joint, Vector3(0.195, 0.16, 0.195), Vector3(0, 0.175, 0), armor)
 			_box(joint, Vector3(0.175, 0.10, 0.10), Vector3(0, 0.10, -0.06), armor)      # heavy chin
 			_box(joint, Vector3(0.17, 0.06, 0.04), Vector3(0, 0.175, -0.115), dark)      # visor band
@@ -1576,10 +1576,10 @@ func _build_head(style: Dictionary, joint: Node3D, armor: Material, dark: Materi
 			_box(joint, Vector3(0.024, 0.024, 0.10), Vector3(-0.10, 0.215, -0.115), dark)
 			_box(joint, Vector3(0.09, 0.035, 0.035), Vector3(0, 0.105, -0.11), dark)     # chin vent
 			_box(joint, Vector3(0.045, 0.05, 0.19), Vector3(0, 0.26, 0.005), _suit_mat)  # squad crest
-		"stormtrooper":
+		"dominion trooper":
 			# The one helmet everybody can draw from memory: brow band, two
 			# lenses, the raised trapezoid nose, and the FROWN — a black vent
-			# with vertical teeth. Without the frown it is just a white clone.
+			# with vertical teeth. Without the frown it is just a white legionary.
 			_box(joint, Vector3(0.185, 0.15, 0.185), Vector3(0, 0.175, 0), armor)        # dome
 			_box(joint, Vector3(0.175, 0.085, 0.115), Vector3(0, 0.105, -0.05), armor)   # cheeks
 			_box(joint, Vector3(0.17, 0.055, 0.045), Vector3(0, 0.185, -0.10), dark)     # brow band
@@ -1592,10 +1592,10 @@ func _build_head(style: Dictionary, joint: Node3D, armor: Material, dark: Materi
 			for sx in [-0.075, 0.075]:
 				_box(joint, Vector3(0.028, 0.05, 0.022), Vector3(sx, 0.115, -0.10), _suit_mat)  # tube stripes
 			_box(joint, Vector3(0.165, 0.05, 0.055), Vector3(0, 0.09, 0.08), armor)      # rear flare
-		"shoretrooper":
-			# Scarif. A stormtrooper shell with the tall centre KEEL over the
+		"garrison trooper":
+			# Scarif. A dominion trooper shell with the tall centre KEEL over the
 			# crown and a much wider neck guard — the two things that make a
-			# shoretrooper read as its own unit rather than as a beach repaint.
+			# garrison trooper read as its own unit rather than as a beach repaint.
 			_box(joint, Vector3(0.18, 0.145, 0.19), Vector3(0, 0.175, 0), armor)
 			_box(joint, Vector3(0.165, 0.09, 0.10), Vector3(0, 0.11, -0.06), armor)      # faceplate
 			_box(joint, Vector3(0.055, 0.055, 0.21), Vector3(0, 0.25, 0.0), armor)       # keel
@@ -1608,7 +1608,7 @@ func _build_head(style: Dictionary, joint: Node3D, armor: Material, dark: Materi
 		"scout":
 			# The biker scout: a bulbous crown and one enormous wraparound
 			# goggle band covering the whole upper face, over a small chin cup.
-			# It is the least "helmet-shaped" helmet the Empire fields.
+			# It is the least "helmet-shaped" helmet the Dominion fields.
 			_box(joint, Vector3(0.20, 0.155, 0.20), Vector3(0, 0.19, 0.005), armor)      # crown
 			_box(joint, Vector3(0.205, 0.075, 0.10), Vector3(0, 0.16, -0.075), dark)     # goggle band
 			_box(joint, Vector3(0.11, 0.075, 0.09), Vector3(0, 0.095, -0.065), armor)    # chin cup
@@ -1628,7 +1628,7 @@ func _build_head(style: Dictionary, joint: Node3D, armor: Material, dark: Materi
 			_box(joint, Vector3(0.055, 0.03, 0.05), Vector3(0, 0.095, -0.115), dark)     # respirator
 			_box(joint, Vector3(0.016, 0.14, 0.016), Vector3(0.075, 0.29, 0.03), dark)   # comms antenna
 			_box(joint, Vector3(0.03, 0.04, 0.12), Vector3(0, 0.26, 0.01), _suit_mat)
-		"flametrooper":
+		"incinerator trooper":
 			# The incinerator trooper wears a breather, not a visor: a smooth
 			# dome with a narrow sight slot and a big round filter block where
 			# the face should be, with the hose running back to the fuel pack.
@@ -1662,7 +1662,7 @@ func _build_head(style: Dictionary, joint: Node3D, armor: Material, dark: Materi
 		"rebel":
 			# The Alliance helmet is a BOWL, not a mask: it sits on top of a
 			# face you can see, and the flared rear guard is what tells it from
-			# an Imperial lid at a hundred metres.
+			# an Dominion lid at a hundred metres.
 			var rskin := _mat(Color(0.58, 0.45, 0.35), Finish.HIDE)
 			_box(joint, Vector3(0.155, 0.16, 0.16), Vector3(0, 0.14, -0.01), rskin)      # face
 			_box(joint, Vector3(0.185, 0.09, 0.185), Vector3(0, 0.215, 0.005), armor)    # bowl
@@ -1674,7 +1674,7 @@ func _build_head(style: Dictionary, joint: Node3D, armor: Material, dark: Materi
 		"pilot":
 			# Flight gear: a squared shell with a rectangular visor block, comms
 			# boxes on both sides and an oxygen mask over the mouth with the
-			# hose down to the chest. Nothing else in Star Wars looks like it.
+			# hose down to the chest. Nothing else in The Compact Wars looks like it.
 			_box(joint, Vector3(0.195, 0.15, 0.19), Vector3(0, 0.18, 0), armor)          # shell
 			_box(joint, Vector3(0.155, 0.07, 0.045), Vector3(0, 0.19, -0.105), dark)     # visor block
 			_box(joint, Vector3(0.12, 0.085, 0.085), Vector3(0, 0.11, -0.065), dark)     # oxygen mask
@@ -1682,7 +1682,7 @@ func _build_head(style: Dictionary, joint: Node3D, armor: Material, dark: Materi
 			for ex in [-0.10, 0.10]:
 				_box(joint, Vector3(0.03, 0.09, 0.11), Vector3(ex, 0.175, 0.0), _suit_mat)  # comm boxes
 			_box(joint, Vector3(0.13, 0.045, 0.06), Vector3(0, 0.255, -0.05), _suit_mat) # squadron flash
-		"geonosian":
+		"vespid":
 			# Long horizontal skull on a thin neck, a swept-back cranial crest,
 			# a jutting jaw with mandibles and the big black compound eyes. An
 			# insect, not a man in a mask.
@@ -1695,10 +1695,10 @@ func _build_head(style: Dictionary, joint: Node3D, armor: Material, dark: Materi
 				_box(joint, Vector3(0.022, 0.05, 0.035), Vector3(mx, 0.155, -0.115), chitin)  # mandibles
 			for ex in [-0.05, 0.05]:
 				_box(joint, Vector3(0.045, 0.055, 0.05), Vector3(ex, 0.255, -0.085), dark)    # compound eyes
-		"ewok":
+		"kobb":
 			# Knee-high, so the HEAD carries the whole character: a furry face
 			# with a snout and ears, inside the leather cowl. The head is
-			# deliberately not scaled by bulk — an Ewok's head is too big for it.
+			# deliberately not scaled by bulk — an Kobb's head is too big for it.
 			var pelt := _mat(Color(style["dark"]), Finish.HIDE)
 			_box(joint, Vector3(0.185, 0.175, 0.175), Vector3(0, 0.145, 0), pelt)        # head
 			_box(joint, Vector3(0.10, 0.085, 0.085), Vector3(0, 0.115, -0.11), pelt)     # snout
@@ -1710,9 +1710,9 @@ func _build_head(style: Dictionary, joint: Node3D, armor: Material, dark: Materi
 			_box(joint, Vector3(0.21, 0.115, 0.20), Vector3(0, 0.245, 0.02), armor)      # cowl crown
 			_box(joint, Vector3(0.215, 0.085, 0.06), Vector3(0, 0.205, -0.085), armor)   # cowl brim
 			_box(joint, Vector3(0.045, 0.03, 0.10), Vector3(0, 0.30, 0.02), _suit_mat)   # clan band
-		"jackal":
+		"skiri":
 			# Kig-Yar: a narrow bird skull with a hooked beak and a swept crest
-			# of quills. The head is the only part of a Jackal you can see when
+			# of quills. The head is the only part of a Skiri you can see when
 			# it is behind its gauntlet, so it has to carry the species alone.
 			var jhide := _mat(Color(style["dark"]), Finish.HIDE)
 			_box(joint, Vector3(0.115, 0.13, 0.15), Vector3(0, 0.185, 0.01), jhide)      # skull
@@ -1724,7 +1724,7 @@ func _build_head(style: Dictionary, joint: Node3D, armor: Material, dark: Materi
 			for ex in [-0.045, 0.045]:
 				_box(joint, Vector3(0.026, 0.026, 0.022), Vector3(ex, 0.205, -0.055), jeye)
 		"b1":
-			# The B1's long, tapering skull on a thin neck, with two photoreceptors
+			# The light automaton's long, tapering skull on a thin neck, with two photoreceptors
 			# and a slit mouth.
 			_box(joint, Vector3(0.045, 0.11, 0.045), Vector3(0, 0.10, 0), dark)          # long neck
 			_box(joint, Vector3(0.10, 0.20, 0.12), Vector3(0, 0.25, -0.01), armor)       # elongated head
@@ -1734,14 +1734,14 @@ func _build_head(style: Dictionary, joint: Node3D, armor: Material, dark: Materi
 			for ex in [-0.027, 0.027]:
 				_box(joint, Vector3(0.022, 0.03, 0.02), Vector3(ex, 0.25, -0.065), eye)
 		"b2":
-			# The B2 has no neck: a low blocky head sunk between huge shoulders, one
+			# The heavy automaton has no neck: a low blocky head sunk between huge shoulders, one
 			# glowing photoreceptor visor.
 			_box(joint, Vector3(0.19, 0.14, 0.18), Vector3(0, 0.07, 0), armor)
 			_box(joint, Vector3(0.13, 0.05, 0.03), Vector3(0, 0.09, -0.095), dark)       # visor recess
 			var eye := _emit(Color(1.0, 0.35, 0.18))
 			_box(joint, Vector3(0.11, 0.02, 0.02), Vector3(0, 0.09, -0.10), eye)
 		"mask":
-			# The MagnaGuard's cowled head: a tall block with a raised centre mask
+			# The glaive drone's cowled head: a tall block with a raised centre mask
 			# ridge, side cheek plates and a photoreceptor slit.
 			_box(joint, Vector3(0.14, 0.23, 0.15), Vector3(0, 0.15, 0), armor)
 			_box(joint, Vector3(0.055, 0.25, 0.06), Vector3(0, 0.16, -0.06), dark)       # mask ridge
@@ -1758,7 +1758,7 @@ func _build_head(style: Dictionary, joint: Node3D, armor: Material, dark: Materi
 			var eye := _emit(Color(0.85, 0.7, 0.35))
 			for ex in [-0.055, 0.055]:
 				_box(joint, Vector3(0.028, 0.028, 0.02), Vector3(ex, 0.185, -0.115), eye)
-		"spartan":
+		"paladin":
 			# MJOLNIR: a smooth dome with no ear caps and one big GOLD faceplate,
 			# which is the entire silhouette people know it by.
 			_box(joint, Vector3(0.19, 0.16, 0.19), Vector3(0, 0.17, 0), armor)
@@ -1766,15 +1766,15 @@ func _build_head(style: Dictionary, joint: Node3D, armor: Material, dark: Materi
 			var gold := _emit(Color(0.95, 0.72, 0.20))
 			_box(joint, Vector3(0.145, 0.075, 0.03), Vector3(0, 0.155, -0.105), gold)   # faceplate
 			_box(joint, Vector3(0.055, 0.04, 0.10), Vector3(0, 0.255, -0.03), _suit_mat)  # team crest
-		"odst":
-			# The ODST/marine helmet: a rounded shell with a wide black visor band
+		"droptrooper":
+			# The DROPTROOPER/marine helmet: a rounded shell with a wide black visor band
 			# and a comms pod on the left side.
 			_box(joint, Vector3(0.185, 0.145, 0.19), Vector3(0, 0.165, 0), armor)
 			_box(joint, Vector3(0.155, 0.065, 0.045), Vector3(0, 0.155, -0.10), dark)   # visor band
 			_box(joint, Vector3(0.05, 0.05, 0.06), Vector3(-0.10, 0.145, -0.02), dark)  # comms pod
 			_box(joint, Vector3(0.06, 0.035, 0.14), Vector3(0.06, 0.245, 0.0), _suit_mat)  # team stripe
 		"elite":
-			# Sangheili: a long crested crown over a SPLIT jaw. The four mandibles
+			# Zhaal: a long crested crown over a SPLIT jaw. The four mandibles
 			# are the whole reason an Elite is recognisable from behind cover.
 			_box(joint, Vector3(0.15, 0.17, 0.20), Vector3(0, 0.18, 0.01), armor)       # crown
 			_box(joint, Vector3(0.075, 0.06, 0.22), Vector3(0, 0.27, 0.02), armor)      # swept crest
@@ -1787,7 +1787,7 @@ func _build_head(style: Dictionary, joint: Node3D, armor: Material, dark: Materi
 			for ex in [-0.05, 0.05]:
 				_box(joint, Vector3(0.03, 0.022, 0.02), Vector3(ex, 0.19, -0.095), eeye)
 		"grunt":
-			# Unggoy: a small head almost entirely covered by a methane rebreather,
+			# Kopa: a small head almost entirely covered by a methane rebreather,
 			# with the hose running back to the tank on its pack.
 			_box(joint, Vector3(0.15, 0.13, 0.15), Vector3(0, 0.13, 0), armor)
 			_box(joint, Vector3(0.12, 0.09, 0.06), Vector3(0, 0.115, -0.085), dark)     # mask cup
@@ -1796,7 +1796,7 @@ func _build_head(style: Dictionary, joint: Node3D, armor: Material, dark: Materi
 			for ex in [-0.038, 0.038]:
 				_box(joint, Vector3(0.026, 0.02, 0.02), Vector3(ex, 0.165, -0.075), geye)
 		"brute":
-			# Jiralhanae: a heavy brow over a jutting muzzle, a bone crest along the
+			# Ursid: a heavy brow over a jutting muzzle, a bone crest along the
 			# top, and tusks. Read as an ape in armour rather than a helmeted man.
 			var pelt := _mat(Color(style["dark"]), Finish.HIDE)
 			_box(joint, Vector3(0.22, 0.20, 0.21), Vector3(0, 0.16, 0), pelt)
@@ -1808,10 +1808,10 @@ func _build_head(style: Dictionary, joint: Node3D, armor: Material, dark: Materi
 			var beye := _emit(Color(0.85, 0.25, 0.12))
 			for ex in [-0.055, 0.055]:
 				_box(joint, Vector3(0.026, 0.022, 0.02), Vector3(ex, 0.20, -0.105), beye)
-		"astartes":
+		"order":
 			# A Mk VII helm: domed skull, a RESPIRATOR GRILLE jutting out where a
 			# face would be, and two lenses. The snout is the tell — without it a
-			# power-armoured marine reads as a very large clone trooper.
+			# power-armoured marine reads as a very large legionary trooper.
 			_box(joint, Vector3(0.20, 0.16, 0.20), Vector3(0, 0.175, 0), armor)         # skull
 			_box(joint, Vector3(0.09, 0.09, 0.10), Vector3(0, 0.125, -0.125), armor)    # snout
 			_box(joint, Vector3(0.075, 0.055, 0.03), Vector3(0, 0.125, -0.175), dark)   # grille
@@ -1820,7 +1820,7 @@ func _build_head(style: Dictionary, joint: Node3D, armor: Material, dark: Materi
 			for ex in [-0.062, 0.062]:
 				_box(joint, Vector3(0.042, 0.03, 0.025), Vector3(ex, 0.175, -0.10), aeye)
 			_box(joint, Vector3(0.03, 0.06, 0.20), Vector3(0, 0.265, 0.0), _suit_mat)   # team crest
-		"necron":
+		"unsleeping":
 			# A metal SKULL: narrow, hollow-cheeked, with an exposed grin and two
 			# green points where the eyes were. No helmet, because there is nothing
 			# in there to protect.
@@ -1850,7 +1850,7 @@ func _build_head(style: Dictionary, joint: Node3D, armor: Material, dark: Materi
 			_box(joint, Vector3(0.24, 0.24, 0.22), Vector3(0, 0.18, 0.04), armor)        # hood shell (behind)
 			_box(joint, Vector3(0.20, 0.09, 0.10), Vector3(0, 0.10, -0.09), armor)       # hood brim over the face
 		_:
-			# A bare head with a simple face band (Trandoshan and the generic trooper).
+			# A bare head with a simple face band (Saurian and the generic trooper).
 			_box(joint, Vector3(0.17, 0.19, 0.18), Vector3(0, 0.14, 0), armor)
 			_box(joint, Vector3(0.16, 0.04, 0.03), Vector3(0, 0.145, -0.09), dark)       # eye band
 			if style.get("acc", []).has("scales"):

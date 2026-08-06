@@ -1,7 +1,7 @@
 extends Node3D
 
 ## Renders a weapon in the owner's hands to a PNG, for judging a SILHOUETTE —
-## the one thing no headless test can check. Written for the bowcaster, whose
+## the one thing no headless test can check. Written for the quarrel caster, whose
 ## crossbow limbs are hand-placed geometry, but it takes any class.
 ##
 ## Windowed, because a renderer is the point:
@@ -14,7 +14,7 @@ const PLAYER := preload("res://scenes/actors/player.tscn")
 
 ## Each entry: the label for the file, and the loadout that puts it in hand.
 var _shots := [
-	["bowcaster", Weapon.Class.BOWCASTER, true],
+	["quarrel caster", Weapon.Class.QUARREL_CASTER, true],
 	["hmg", Weapon.Class.HMG, false],
 	["rpg", Weapon.Class.RPG, false],
 ]
@@ -34,7 +34,7 @@ func _ready() -> void:
 
 	for shot in _shots:
 		var build := Loadout.new()
-		build.adopt_kit(Loadout.Kit.WOOKIEE)
+		build.adopt_kit(Loadout.Kit.URSAN)
 		if not shot[2]:
 			build.weapon = Loadout.weapon_index(shot[1])
 		me.pending = build

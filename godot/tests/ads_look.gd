@@ -23,10 +23,10 @@ const MAIN := preload("res://scenes/main.tscn")
 const SHOWN := [
 	Weapon.Class.SOLDIER, Weapon.Class.CARBINE, Weapon.Class.BURST,
 	Weapon.Class.HEAVY, Weapon.Class.HMG, Weapon.Class.SEMI,
-	Weapon.Class.RT97C, Weapon.Class.DLT19D, Weapon.Class.M739_SAW,
+	Weapon.Class.RT9, Weapon.Class.DK19D, Weapon.Class.SAW7,
 	Weapon.Class.GAUSS_CANNON,
-	Weapon.Class.MA5B, Weapon.Class.BR55, Weapon.Class.BOLTER,
-	Weapon.Class.GAUSS_FLAYER, Weapon.Class.SHOOTA,
+	Weapon.Class.AR7, Weapon.Class.BR3, Weapon.Class.SHELLGUN,
+	Weapon.Class.GAUSS_RIFLE, Weapon.Class.SLUGTHROWER,
 ]
 
 
@@ -58,7 +58,7 @@ func _ready() -> void:
 		return
 	for cls in SHOWN:
 		var l := Loadout.new()
-		l.adopt_kit(Loadout.Kit.CLONE)
+		l.adopt_kit(Loadout.Kit.LEGION)
 		l.weapon = Loadout.weapon_index(cls)
 		# IRON SIGHTS ON PURPOSE. A red dot floats its reticle above the receiver
 		# and hides the fault; irons are the case where you are looking THROUGH

@@ -1,8 +1,8 @@
 extends Node
 ## KILL STREAK REWARDS.
 ##
-## Most of what this protects is a GATE holding — that a Spartan cannot call down
-## a LAAT, that a Wookiee is not offered a Force master's saber, that a reward
+## Most of what this protects is a GATE holding — that a Paladin cannot call down
+## a HAMMERHEAD, that a Ursan is not offered a Kinesis master's saber, that a reward
 ## fires ONCE. Gates are the part that fails silently: a reward wrongly available
 ## still works perfectly, it is just somebody else's.
 ##
@@ -99,9 +99,9 @@ func _check_table() -> void:
 func _check_gates() -> void:
 	print("\n-- every faction, and what it alone can earn --")
 	var universes := {
-		Loadout.Universe.STAR_WARS: ["REPUBLIC", "SEPARATIST", "EMPIRE", "REBEL"],
-		Loadout.Universe.HALO: ["UNSC", "COVENANT"],
-		Loadout.Universe.WARHAMMER: ["ULTRAMARINES", "BLOOD ANGELS", "NECRONS", "ORKS"],
+		Loadout.Universe.COMPACT: ["CONCORD LEGION", "AUTOMATA", "IRON DOMINION", "EMBER PACT"],
+		Loadout.Universe.DEEP_RANGE: ["COALITION", "HIEROPHANY"],
+		Loadout.Universe.IRONHYMN: ["AZURE SENTINELS", "CRIMSON CHOIR", "THE UNSLEEPING", "SCRAPKIN"],
 	}
 	# Which faction each signature belongs to, so a reward reachable by two sides
 	# is reported by NAME rather than as a count that does not say what broke.
@@ -128,7 +128,7 @@ func _check_gates() -> void:
 			for name in got:
 				if name in ["RECON SWEEP", "ORBITAL STRIKE"]:
 					continue
-				if str(name) == "FORCE MASTER":
+				if str(name) == "KINESIS MASTER":
 					continue     # deliberately shared, and marked so in the table
 				sig.append(name)
 			_ok(sig.size() == 1,
@@ -142,17 +142,17 @@ func _check_gates() -> void:
 
 	# A SIDE WITH FEWER REWARDS THAN THE ONE ACROSS THE MAP is a balance bug that
 	# nothing else in the project would report.
-	GameState.universe = Loadout.Universe.STAR_WARS
+	GameState.universe = Loadout.Universe.COMPACT
 	for who: String in counts:
-		var want := 4 if who.begins_with("STAR") else 3
+		var want := 4 if who.begins_with("THE COMPACT") else 3
 		_ok(counts[who] == want,
 			"%s has %d rewards, expected %d" % [who, counts[who], want])
 
-	# The Force is ALLEGIANCE: all four Star Wars sides reach a master, and which
+	# Kinesis is ALLEGIANCE: all four The Compact Wars sides reach a master, and which
 	# one they draw is the side's answer.
 	for t in 4:
-		var preset := Streaks.become_preset(_row("FORCE MASTER"), t)
-		var want_name := "JEDI MASTER" if t in [0, 3] else "SITH MASTER"
+		var preset := Streaks.become_preset(_row("KINESIS MASTER"), t)
+		var want_name := "GRAND WARDEN" if t in [0, 3] else "DREAD REAVER"
 		_ok(str(preset["name"]) == want_name,
 			"team %d should draw a %s, got %s" % [t, want_name, preset["name"]])
 
@@ -275,13 +275,13 @@ func _check_become() -> void:
 	var p: Player = PLAYER.instantiate()
 	add_child(p)
 	await get_tree().process_frame
-	# TEAM 3 (the Rebels), because the Juggernaut is a FACTION reward now and the
-	# Republic does not get it — it gets the gunship. Deliberately deployed on an
+	# TEAM 3 (the the Pact), because the Juggernaut is a FACTION reward now and the
+	# Concord does not get it — it gets the gunship. Deliberately deployed on an
 	# ORDINARY kit, which is the point of the rework: what you bought this life
 	# must not decide what you are playing for.
 	p.team = 3
 	p.pending = Loadout.new()
-	p.pending.adopt_kit(Loadout.Kit.CLONE)
+	p.pending.adopt_kit(Loadout.Kit.LEGION)
 	p._apply_loadout()
 	await get_tree().process_frame
 
@@ -292,7 +292,7 @@ func _check_become() -> void:
 
 	# A REWARD IS OFFERED, NOT APPLIED. Nothing may have happened yet.
 	_ok(not p.pending_reward().is_empty(), "the signature threshold offered nothing")
-	_ok(str(p.pending_reward().get("name", "")) == "WOOKIEE CHIEFTAIN",
+	_ok(str(p.pending_reward().get("name", "")) == "URSAN CHIEFTAIN",
 		"the signature offer was `%s`" % str(p.pending_reward().get("name", "-")))
 	_ok(p.max_health == before_health,
 		"the reward applied itself before it was accepted")
@@ -303,8 +303,8 @@ func _check_become() -> void:
 	_ok(p.kills_this_life == Streaks.KILLS_SIGNATURE,
 		"the streak was reset by the transformation: %d, want %d"
 			% [p.kills_this_life, Streaks.KILLS_SIGNATURE])
-	_ok(p.loadout.build_name == "WOOKIEE CHIEFTAIN",
-		"the Rebel signature did not deploy (got `%s`)"
+	_ok(p.loadout.build_name == "URSAN CHIEFTAIN",
+		"the Pact signature did not deploy (got `%s`)"
 			% p.loadout.build_name)
 	_ok(p.max_health > before_health,
 		"the signature is not tougher than what it replaced (%.0f vs %.0f)"
@@ -345,7 +345,7 @@ func _check_become() -> void:
 	await get_tree().process_frame
 	plain.team = 3
 	plain.pending = Loadout.new()
-	plain.pending.adopt_kit(Loadout.Kit.CLONE)
+	plain.pending.adopt_kit(Loadout.Kit.LEGION)
 	plain._apply_loadout()
 	await get_tree().process_frame
 	plain.health = 10.0
@@ -365,7 +365,7 @@ func _check_become() -> void:
 	await get_tree().process_frame
 	q.team = 3
 	q.pending = Loadout.new()
-	q.pending.adopt_kit(Loadout.Kit.CLONE)
+	q.pending.adopt_kit(Loadout.Kit.LEGION)
 	q._apply_loadout()
 	await get_tree().process_frame
 	var kept := q.max_health
@@ -382,7 +382,7 @@ func _check_become() -> void:
 	_done["become"] = true
 
 
-## THE FORCE MASTER IS WATCHED, NOT LOOKED THROUGH.
+## THE KINESIS MASTER IS WATCHED, NOT LOOKED THROUGH.
 ##
 ## Three things have to move together and each is silent when wrong: the flag,
 ## the CAMERA (which is what the player actually experiences) and the CULL MASK
@@ -396,14 +396,14 @@ func _check_become() -> void:
 ## means dying once as a Force Master and playing the rest of the match over your
 ## own shoulder as a trooper.
 func _check_third_person() -> void:
-	print("\n-- the Force Master is played in third person --")
+	print("\n-- Kinesis Master is played in third person --")
 	GameState.match_live = true
 	var p: Player = PLAYER.instantiate()
 	add_child(p)
 	await get_tree().process_frame
-	p.team = 0                      # Republic: reaches the FORCE MASTER
+	p.team = 0                      # Concord: reaches the KINESIS MASTER
 	p.pending = Loadout.new()
-	p.pending.adopt_kit(Loadout.Kit.CLONE)
+	p.pending.adopt_kit(Loadout.Kit.LEGION)
 	p._apply_loadout()
 	# A camera to actually drive, since the whole point is where it ends up.
 	var cam := Camera3D.new()
@@ -422,7 +422,7 @@ func _check_third_person() -> void:
 	for i in Streaks.KILLS_FORCE:
 		p.credit_kill()
 	await get_tree().process_frame
-	_ok(str(p.pending_reward().get("name", "")) == "FORCE MASTER",
+	_ok(str(p.pending_reward().get("name", "")) == "KINESIS MASTER",
 		"the top rung offered `%s`" % str(p.pending_reward().get("name", "-")))
 	p.accept_reward()
 	# Let the chase camera ease all the way out — it is deliberately NOT a cut.
@@ -431,20 +431,20 @@ func _check_third_person() -> void:
 
 	var back: float = p.remote_cam.position.z
 	print("  camera pulled back %.2f m, signature `%s`" % [back, p.signature_name])
-	_ok(p.third_person, "the Force Master is still in first person")
+	_ok(p.third_person, "Kinesis Master is still in first person")
 	_ok(back > 1.0,
-		"the Force Master's camera never left the head (%.2f m back)" % back)
+		"Kinesis Master's camera never left the head (%.2f m back)" % back)
 	_ok((cam.cull_mask & body_bit) != 0,
-		"the Force Master cannot see its own body — third person looking at nothing")
+		"Kinesis Master cannot see its own body — third person looking at nothing")
 	_ok((cam.cull_mask & gun_bit) == 0,
-		"the Force Master still draws its first-person weapon, inside its own head")
-	_ok(p.signature_name == "FORCE MASTER" or p.signature_name == "JEDI MASTER"
-			or p.signature_name == "SITH MASTER",
+		"Kinesis Master still draws its first-person weapon, inside its own head")
+	_ok(p.signature_name == "KINESIS MASTER" or p.signature_name == "GRAND WARDEN"
+			or p.signature_name == "DREAD REAVER",
 		"the HUD was told the wrong signature name: `%s`" % p.signature_name)
 
 	# AND AN ORDINARY DEPLOY PUTS IT ALL BACK.
 	p.pending = Loadout.new()
-	p.pending.adopt_kit(Loadout.Kit.CLONE)
+	p.pending.adopt_kit(Loadout.Kit.LEGION)
 	p._apply_loadout()
 	for i in 90:
 		await get_tree().physics_frame

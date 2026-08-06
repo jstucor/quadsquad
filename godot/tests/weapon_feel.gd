@@ -110,9 +110,9 @@ func _ready() -> void:
 		"...while hip fire still throws a cone, which is what aiming buys")
 	hipped.queue_free()
 
-	# --- droideka twin repeaters ------------------------------------------
-	print("\n== droideka twin repeaters ==")
-	var twin := _weapon(Weapon.Class.DROIDEKA_TWIN, {})
+	# --- aegis drone twin repeaters ------------------------------------------
+	print("\n== aegis drone twin repeaters ==")
+	var twin := _weapon(Weapon.Class.AEGIS_TWIN, {})
 	twin.position = Vector3(0.0, 1.25, 0.0)
 	await _frames(1)
 	twin.shooter = p
@@ -123,7 +123,7 @@ func _ready() -> void:
 	var second_muzzle: float = twin._muzzle_light.position.x
 	print("  muzzle x %.2f -> %.2f" % [first_muzzle, second_muzzle])
 	_expect(first_muzzle * second_muzzle < 0.0,
-		"the Droideka alternates left and right arm cannons")
+		"the Aegis Drone alternates left and right arm cannons")
 
 	# --- crouch lowers the kick too ---------------------------------------
 	print("\n== crouch lowers kick ==")
@@ -157,25 +157,25 @@ func _ready() -> void:
 	# the TABLE but never that a side's colour reaches a fired round.
 	print("\n== bolt colour ==")
 	var issued := _weapon(Weapon.Class.SOLDIER, {})   # an ordinary blaster: no colour of its own
-	var owned := _weapon(Weapon.Class.GAUSS_FLAYER, {})  # ...and one that states one
+	var owned := _weapon(Weapon.Class.GAUSS_RIFLE, {})  # ...and one that states one
 	issued.shooter = p
 	owned.shooter = p
-	p.team = GameState.Team.REPUBLIC
+	p.team = GameState.Team.CONCORD
 	var republic := issued.bolt_color()
 	var gauss_blue_side := owned.bolt_color()
-	p.team = 2   # the Empire, on the same rifle
+	p.team = 2   # the Dominion, on the same rifle
 	var empire := issued.bolt_color()
 	var gauss_red_side := owned.bolt_color()
-	print("  DC-15 in Republic hands %s, in Imperial hands %s" % [republic, empire])
+	print("  DC-15 in Concord hands %s, in Dominion hands %s" % [republic, empire])
 	print("  Gauss Flayer either way %s / %s" % [gauss_blue_side, gauss_red_side])
 	_expect(republic != empire, "an ordinary blaster takes its own side's colour")
-	_expect(republic == GameState.bolt_color(GameState.Team.REPUBLIC),
+	_expect(republic == GameState.bolt_color(GameState.Team.CONCORD),
 		"...the one the universe table states for that side")
 	_expect(gauss_blue_side == gauss_red_side,
 		"a weapon with a colour of its own ignores whose hands it is in")
 	# The tracer, the muzzle light and the scorch are one colour or the gun is two
 	# guns: a flash that lights the wall green and an orange round arriving in it.
-	p.team = GameState.Team.REPUBLIC
+	p.team = GameState.Team.CONCORD
 	issued._flash_muzzle()
 	_expect(issued._muzzle_light.light_color == issued.bolt_color(),
 		"the muzzle light is the same colour as the round it threw")
@@ -208,13 +208,13 @@ func _ready() -> void:
 	print("\n== the blade's voice ==")
 	var saber := _weapon(Weapon.Class.SABER, {})
 	var chain := _weapon(Weapon.Class.CHAINSWORD, {})
-	print("  saber: energy %s voice %s | chainsword: energy %s voice %s" % [
+	print("  saber: energy %s voice %s | chain blade: energy %s voice %s" % [
 		saber.blade_is_energy(), saber._voice(),
 		chain.blade_is_energy(), chain._voice()])
 	_expect(saber.blade_is_energy() and saber._voice() == "saber_swing",
-		"a lightsaber swings with its own pitched voice")
+		"a arc blade swings with its own pitched voice")
 	_expect(not chain.blade_is_energy() and chain._voice() == "melee_swing",
-		"a chainsword is steel and still just moves air")
+		"a chain blade is steel and still just moves air")
 	# Put it away before the pool is measured below. A lit blade sitting in the
 	# scene is a hum whether or not this test is looking at it, which is right and
 	# is also two voices where the section below counts on one.

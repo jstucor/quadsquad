@@ -10,7 +10,7 @@ extends Node3D
 ## afterwards by the killfeed.
 ##
 ## So the player is lifted into the ship. The body is seated exactly the way the
-## LAAT's gunner is seated — hidden, collision off, transform slaved — and the
+## HAMMERHEAD's gunner is seated — hidden, collision off, transform slaved — and the
 ## camera goes to a fire-control position high enough to see the whole battle.
 ## The stick walks a target across the ground and the trigger brings rounds down
 ## on it, for as long as the window lasts. The fiction and the mechanic finally
@@ -18,7 +18,7 @@ extends Node3D
 ##
 ## WHAT IT REUSES rather than reinvents, all of it already load-bearing elsewhere:
 ## `Player.enter_vehicle`/`exit_vehicle` for the seating, `vehicle_owns_view` +
-## `take_view_delta` + `set_view_angles` for the look interception the LAAT's ball
+## `take_view_delta` + `set_view_angles` for the look interception the HAMMERHEAD's ball
 ## needed (see the note there about why a mount takes the DELTA and not the
 ## angles), `gunner_readout()` for the sight, and `mortar_shell.gd` for the
 ## ballistics. Nothing here solves an arc or drives a camera from scratch.
@@ -73,7 +73,7 @@ const SPLASH_DAMAGE := 95.0
 ## --- aiming -------------------------------------------------------------------
 
 ## How fast the mark crosses the ground, as a share of the look input's own angle
-## — the same model the LAAT's ball uses, and for the same reason: a point that
+## — the same model the HAMMERHEAD's ball uses, and for the same reason: a point that
 ## crawls when you are high and snaps when you are low is unusable at both ends.
 const SLEW_GAIN := 1.0
 ## ...and how far from the middle of the battle it may be pushed. The ship is
@@ -102,7 +102,7 @@ var _firing := false
 
 
 ## `by` is the player who earned it. They go up immediately and come back down
-## where they were standing, exactly like the LAAT's gunner — the position is
+## where they were standing, exactly like the HAMMERHEAD's gunner — the position is
 ## taken NOW, because by the end of the window the ground they were on may have a
 ## firefight on it and their body has been hidden for the whole ride anyway.
 ## A CALL-IN TAKES YOU OFF THE FIELD, and anything that punishes a body for WHERE
@@ -156,13 +156,13 @@ func begin(by: Node, for_team: int, seconds: float) -> void:
 
 
 ## Where the gunner sits. ASKED for by `Player.enter_vehicle` rather than pathed
-## to, the same contract the LAAT's ball answers — this seat is not a direct
+## to, the same contract the HAMMERHEAD's ball answers — this seat is not a direct
 ## child either.
 func seat() -> Node3D:
 	return _seat
 
 
-## What the fire-control sight draws. The same duck-typed readout the LAAT
+## What the fire-control sight draws. The same duck-typed readout the HAMMERHEAD
 ## answers, so `gunner_hud.gd` draws both and neither knows about the other.
 func gunner_readout() -> Dictionary:
 	return {
@@ -323,7 +323,7 @@ func _finish() -> void:
 		# PUT THEM BACK WHERE THEY STOOD, and do NOT run it through
 		# `clear_of_bodies` — that avoids LIVE players and this one is live, so it
 		# would shove them clear of the very spot it is meant to return them to
-		# (measured at 12.8 m on the LAAT, which is where this rule is recorded).
+		# (measured at 12.8 m on the HAMMERHEAD, which is where this rule is recorded).
 		_gunner.exit_vehicle(_return_to + Vector3.UP * 0.4, 0.0, false)
 	_gunner = null
 	queue_free()
@@ -335,7 +335,7 @@ func _finish() -> void:
 ## CAMERA IS TO PUT PART OF IT IN THE FRAME. A camera hanging in clear air 210 m
 ## up is a spectator view; the same camera with a dark hull overhead and a lit
 ## console edge below it is a station on a capital ship. It is three boxes and it
-## does the entire job, which is the same argument the LAAT's barrels make about
+## does the entire job, which is the same argument the HAMMERHEAD's barrels make about
 ## being left visible when the rest of the ball is hidden.
 func _build() -> void:
 	_seat = Node3D.new()

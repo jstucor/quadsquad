@@ -23,7 +23,7 @@ func _ready() -> void:
 		["NT-242 sniper", Weapon.Class.SNIPER, {"sight": Loadout.Sight.SCOPE}],
 		["Z-6 repeater", Weapon.Class.HEAVY, {}],
 		["scattergun", Weapon.Class.SCATTERGUN, {}],
-		["lightsaber", Weapon.Class.SABER, {}],
+		["arc blade", Weapon.Class.SABER, {}],
 	]
 	print("== stand-off by skill tier (metres) ==")
 	print("  weapon             recruit  regular  veteran  elite")
@@ -65,7 +65,7 @@ func _ready() -> void:
 	# A weapon that cannot reach still walks in. This is the cap that keeps a
 	# saber bot from standing at range swinging at the air.
 	var saber := _bot(3, Weapon.Class.SABER, {})
-	print("  elite + lightsaber    holds at %.1f m" % saber._hold_range())
+	print("  elite + arc blade    holds at %.1f m" % saber._hold_range())
 	_expect(saber._hold_range() <= Weapon.PROFILES[Weapon.Class.SABER]["range"],
 		"a saber bot still closes inside the blade's reach")
 

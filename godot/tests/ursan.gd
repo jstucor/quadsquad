@@ -1,12 +1,12 @@
 extends Node3D
 
-## The WOOKIEE, deployed rather than described: what it walks in with, how hard
-## it is to kill, and what one pull of the bowcaster actually does to a body.
+## The URSAN, deployed rather than described: what it walks in with, how hard
+## it is to kill, and what one pull of the quarrel caster actually does to a body.
 ##
 ## kit_rules already proves the ALLOW-LISTS (who may buy what). This is the other
 ## half — that the build those lists produce works when it is standing on a map.
 ##
-##   godot --headless --path godot tests/wookiee.tscn
+##   godot --headless --path godot tests/ursan.tscn
 
 const PLAYER := preload("res://scenes/actors/player.tscn")
 
@@ -32,25 +32,25 @@ func _ready() -> void:
 	print("  %.0f HP (frame %.0f x kit %.2f), speed x%.3f" % [wook.max_health,
 		wook.loadout.armor_stats()["health"], wook.loadout.kit_health(),
 		float(wook.loadout.armor_stats()["speed"]) * wook.loadout.kit_speed()])
-	_expect(wook.loadout.kit == Loadout.Kit.WOOKIEE, "it is a Wookiee")
-	_expect(wook.loadout.secondary_class() == Weapon.Class.BOWCASTER,
-		"...carrying the bowcaster, without having chosen it")
+	_expect(wook.loadout.kit == Loadout.Kit.URSAN, "it is a Ursan")
+	_expect(wook.loadout.secondary_class() == Weapon.Class.QUARREL_CASTER,
+		"...carrying the quarrel caster, without having chosen it")
 	_expect(wook.max_health > 160.0, "and it is the toughest thing on the map")
 	_expect(wook.loadout.kit_speed() < 1.0, "...and the slowest")
 
-	# --- one pull of the bowcaster ---------------------------------------
-	print("\n== the bowcaster ==")
+	# --- one pull of the quarrel caster ---------------------------------------
+	print("\n== the quarrel caster ==")
 	wook._on_secondary = true
 	wook.weapon.set_class(wook.loadout.secondary_class(),
 		wook.loadout.mods_for(true))
 	await _frames(2)
-	var profile: Dictionary = Weapon.PROFILES[Weapon.Class.BOWCASTER]
+	var profile: Dictionary = Weapon.PROFILES[Weapon.Class.QUARREL_CASTER]
 	# Several pulls, because the cone is RANDOM: one pull says nothing about a
 	# spread weapon, and the bloom has to be reset between them or what is being
 	# measured is a saturated cone rather than the gun.
 	#
 	# They are fired at the weapon's OWN cadence, not as fast as the loop can go.
-	# The bowcaster kicks the camera 0.19 rad, which at 4 m is most of a body
+	# The quarrel caster kicks the camera 0.19 rad, which at 4 m is most of a body
 	# height, and a second pull before that has settled sails over the target —
 	# measured as nine misses in ten, which is the gun working exactly as
 	# specified and the harness firing it in a way no player could.
@@ -62,7 +62,7 @@ func _ready() -> void:
 	var heat_after := 0.0
 	for _i in pulls:
 		_hits.clear()
-		# The dummy has to survive being measured: a bowcaster kills a standard
+		# The dummy has to survive being measured: a quarrel caster kills a standard
 		# trooper in two pulls, and a corpse stops reporting damage — which reads
 		# in the results as a weapon that suddenly cannot hit anything.
 		dummy.health = 100000.0
@@ -108,7 +108,7 @@ func _ready() -> void:
 	await _frames(2)
 	print("  %s with the shield up: %s" % [
 		shielded.weapon.display_name(), shielded.shield_up()])
-	_expect(shielded.shield_up(), "a Wookiee can raise the front shield")
+	_expect(shielded.shield_up(), "a Ursan can raise the front shield")
 	_expect(shielded.loadout.cost() <= Loadout.BUDGET,
 		"and a rocket tube plus a barrier still fits the budget (%d)"
 			% shielded.loadout.cost())
@@ -128,7 +128,7 @@ func _ready() -> void:
 		== Weapon.PROFILES[Weapon.Class.RPG]["name"],
 		"a class-free royale trooper still deploys with a scavenged rocket tube")
 
-	print("\n==== %s ====" % ("THE WOOKIEE WORKS" if _fails.is_empty()
+	print("\n==== %s ====" % ("THE URSAN WORKS" if _fails.is_empty()
 		else "%d FAILURE(S):\n  %s" % [_fails.size(), "\n  ".join(_fails)]))
 	get_tree().quit(0 if _fails.is_empty() else 1)
 
@@ -137,7 +137,7 @@ func _ready() -> void:
 ## sidearm and the armour are whatever adopting the kit handed over.
 func _wookiee_build(primary: int, gadget := Loadout.Gadget.NONE) -> Loadout:
 	var l := Loadout.new()
-	l.adopt_kit(Loadout.Kit.WOOKIEE)
+	l.adopt_kit(Loadout.Kit.URSAN)
 	l.weapon = primary
 	l.gadget = gadget
 	return l

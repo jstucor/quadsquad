@@ -168,7 +168,7 @@ func _build_marker() -> void:
 	add_child(_ring)
 
 	# A tall thin beam of the owner's colour, visible clear across the map, so the
-	# front line reads at a glance — the Battlefront command-post pillar.
+	# front line reads at a glance — the The Genre command-post pillar.
 	_beam = MeshInstance3D.new()
 	var beam := CylinderMesh.new()
 	beam.top_radius = 0.5

@@ -65,14 +65,14 @@ func _test_faction_builds() -> void:
 		_expect(ok, "%s deploys a real weapon (%d)" % [Loadout.FACTION_BUILDS[i]["name"], cls])
 	# The two rosters, and the Super Battle Droid's wrist cannon (a gun the shop
 	# does not sell, reached via primary_override).
-	# EIGHT a side now, across four Star Wars factions (the Clone Wars pair and
+	# EIGHT a side now, across four The Compact Wars factions (the Compact Wars pair and
 	# the Galactic Civil War pair). The count is asserted rather than the names,
 	# because which eight is a balance decision and the SIZE is the contract the
 	# character-select grid is laid out from.
 	for side in 4:
 		_expect(Loadout.faction_classes(side).size() == 8,
-			"Star Wars side %d has eight classes" % side)
-	var sbd := Loadout.team_build(1, 1)   # Separatist slot 1 = Super Battle Droid
+			"The Compact Wars side %d has eight classes" % side)
+	var sbd := Loadout.team_build(1, 1)   # Automata slot 1 = Super Battle Droid
 	_expect(sbd.deploy_class() == Weapon.Class.WRIST_CANNON,
 		"the Super Battle Droid carries the wrist cannon, got %s" % sbd.weapon_name())
 	var tac := Loadout.team_build(1, 3)   # Tactical Droid: no primary, revolver sidearm
@@ -143,10 +143,10 @@ func _test_spawn_transform() -> void:
 	# built — an earlier version called `Loadout.team_build(p.team, ...)` here,
 	# which is the exact call the deploy path had wrong, so the test asserted the
 	# bug rather than the behaviour and passed for as long as it existed.
-	p.spawn_class = 2   # Republic slot 2 = Clone Heavy (the T-21 HMG)
+	p.spawn_class = 2   # Concord slot 2 = Legion Heavy (the T-21 HMG)
 	p.pending = p.faction_class_build()
 	_expect(p.pending.weapon_class() == Weapon.Class.HMG,
-		"the selected class is what deploys (Clone Heavy = HMG)")
+		"the selected class is what deploys (Legion Heavy = HMG)")
 
 	# --- Conquest with CUSTOM classes ------------------------------------
 	#

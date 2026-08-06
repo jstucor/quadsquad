@@ -22,11 +22,11 @@ const CORPSE := preload("res://scenes/fx/corpse.tscn")
 const CONFIG := "user://controls.cfg"
 
 const LINEUP := [
-	CharacterModel.Style.CLONE,
-	CharacterModel.Style.B1,
-	CharacterModel.Style.B2,
-	CharacterModel.Style.MAGNAGUARD,
-	CharacterModel.Style.WOOKIEE,
+	CharacterModel.Style.LEGION,
+	CharacterModel.Style.AUTOMATON,
+	CharacterModel.Style.AUTOMATON_HEAVY,
+	CharacterModel.Style.GLAIVE_DRONE,
+	CharacterModel.Style.URSAN,
 ]
 
 var _backup := ""

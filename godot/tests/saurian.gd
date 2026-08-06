@@ -1,10 +1,10 @@
 extends Node3D
 
-## The TRANDOSHAN, deployed. kit_rules proves the allow-lists; this proves the
+## The SAURIAN, deployed. kit_rules proves the allow-lists; this proves the
 ## behaviour those lists unlock: the cloak actually hides you from AI and drops
 ## when you fire, the dash gadget moves you, and the thermal sight raises.
 ##
-##   godot --headless --path godot tests/trandoshan.tscn
+##   godot --headless --path godot tests/saurian.tscn
 
 const PLAYER := preload("res://scenes/actors/player.tscn")
 const BOT := preload("res://scenes/actors/bot.tscn")
@@ -24,7 +24,7 @@ func _ready() -> void:
 	print("  %s, %s + %s, sight %s" % [tran.loadout.kit_name(),
 		tran.weapon.display_name(), tran.loadout.row_value(Loadout.Row.SECONDARY),
 		tran.loadout.row_value(Loadout.Row.SIGHT)])
-	_expect(tran.loadout.kit == Loadout.Kit.TRANDOSHAN, "it is a Trandoshan")
+	_expect(tran.loadout.kit == Loadout.Kit.SAURIAN, "it is a Saurian")
 	_expect(tran.weapon.has_thermal(), "the thermal sight is fitted")
 
 	# --- the cloak hides you from AI -------------------------------------
@@ -37,9 +37,9 @@ func _ready() -> void:
 	var seen_before := bot._can_see(tran)
 	tran._use_gadget(0)               # cloak
 	await _frames(2)
-	print("  bot saw the Trandoshan: %s -> after cloak %s" % [
+	print("  bot saw the Saurian: %s -> after cloak %s" % [
 		seen_before, bot._can_see(tran)])
-	_expect(seen_before, "the bot could see the Trandoshan before it cloaked")
+	_expect(seen_before, "the bot could see the Saurian before it cloaked")
 	_expect(not bot._can_see(tran), "and cannot once it is cloaked")
 	_expect(GameState.is_cloaked(tran), "GameState marks it cloaked")
 	_expect(tran.cloak_left() > 0.0, "the HUD has a cloak timer to show")
@@ -82,25 +82,25 @@ func _ready() -> void:
 	print("  dashed %.1f m forward" % moved)
 	_expect(moved > 2.0, "the dash gadget carries you forward")
 
-	# --- and only the Trandoshan has the smoke grenade (a gadget now) ----
+	# --- and only the Saurian has the smoke grenade (a gadget now) ----
 	print("\n== smoke is theirs alone ==")
-	var clone := Loadout.new()
-	clone.adopt_kit(Loadout.Kit.CLONE)
-	_expect(not clone.allows(Loadout.Row.GADGET, Loadout.Gadget.GRENADE_SMOKE),
-		"a clone cannot fit the smoke grenade")
+	var legionary := Loadout.new()
+	legionary.adopt_kit(Loadout.Kit.LEGION)
+	_expect(not legionary.allows(Loadout.Row.GADGET, Loadout.Gadget.GRENADE_SMOKE),
+		"a legionary cannot fit the smoke grenade")
 	var tload := Loadout.new()
-	tload.adopt_kit(Loadout.Kit.TRANDOSHAN)
+	tload.adopt_kit(Loadout.Kit.SAURIAN)
 	_expect(tload.allows(Loadout.Row.GADGET, Loadout.Gadget.GRENADE_SMOKE),
-		"...but the Trandoshan can")
+		"...but the Saurian can")
 
-	print("\n==== %s ====" % ("THE TRANDOSHAN WORKS" if _fails.is_empty()
+	print("\n==== %s ====" % ("THE SAURIAN WORKS" if _fails.is_empty()
 		else "%d FAILURE(S):\n  %s" % [_fails.size(), "\n  ".join(_fails)]))
 	get_tree().quit(0 if _fails.is_empty() else 1)
 
 
 func _build(gadget: int, primary: int, sight: int) -> Loadout:
 	var l := Loadout.new()
-	l.adopt_kit(Loadout.Kit.TRANDOSHAN)
+	l.adopt_kit(Loadout.Kit.SAURIAN)
 	l.weapon = Loadout.weapon_index(primary)
 	l.gadget = gadget
 	l.sight = sight

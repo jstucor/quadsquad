@@ -395,8 +395,8 @@ func _planet_maps() -> void:
 
 	# MASSIVE needs generated ground, not a ROLLED one — it must not throw away
 	# the world somebody chose.
-	GameState.map_index = int(found[PlanetMap.Planet.HOTH])
-	_ok(GameState.procedural_map_index() == int(found[PlanetMap.Planet.HOTH]),
+	GameState.map_index = int(found[PlanetMap.Planet.BOREAL])
+	_ok(GameState.procedural_map_index() == int(found[PlanetMap.Planet.BOREAL]),
 		"locking a massive battle to generated ground keeps the planet you picked")
 	GameState.map_index = 0
 	_ok(GameState.MAPS[GameState.procedural_map_index()].get("procedural", false),
@@ -618,7 +618,7 @@ func _playlist_screen() -> void:
 		"every map is offered: %d rows for %d maps"
 			% [screen._left_focus.size(), GameState.MAPS.size()])
 
-	# Kashyyyk, Conquest, and the first faction set — the three presses that make
+	# Silva, Conquest, and the first faction set — the three presses that make
 	# a round. Each is the button a player would land on, pressed by its signal.
 	(screen._left_focus[10] as Button).emit_signal("pressed")
 	await get_tree().process_frame
@@ -639,7 +639,7 @@ func _playlist_screen() -> void:
 	_ok(not screen._start.disabled, "with something queued, it can be played")
 	_ok(not GameState.match_sides(entry).is_empty(),
 		"the queue column can name the sides: `%s`" % GameState.match_sides(entry))
-	_ok(GameState.match_label(entry).contains("KASHYYYK"),
+	_ok(GameState.match_label(entry).contains("SILVA"),
 		"...and the round: `%s`" % GameState.match_label(entry))
 
 	# A QUEUE YOU CANNOT TAKE FROM is one wrong press away from being rebuilt.

@@ -21,7 +21,7 @@ extends CharacterBody3D
 ##
 ## THE MODEL IS THE REAL MODEL. A remote player is built from the same
 ## `CharacterModel` and the same `Weapon` as a local one, because the whole
-## roster reads by SILHOUETTE — a Droideka is not a Droideka at a generic 1.0
+## roster reads by SILHOUETTE — a Aegis Drone is not a Aegis Drone at a generic 1.0
 ## stature, and a class you cannot identify across the map is a class you cannot
 ## fight. Style, stature and weapon arrive once at spawn; only motion is per tick.
 
@@ -210,10 +210,10 @@ func credit_kill() -> void:
 		sync.report_credit_kill(net_id)
 
 
-## No-op impulses. Both Player and Bot expose `apply_impulse` so a Force shove can
+## No-op impulses. Both Player and Bot expose `apply_impulse` so a kinetic shove can
 ## move them; a proxy takes the shove on its OWNER'S machine, arriving as ordinary
 ## motion in the next snapshot. Answering the method but doing nothing locally is
-## deliberate — dropping it would make `ForcePowers` skip remote bodies entirely,
+## deliberate — dropping it would make `Kinesis` skip remote bodies entirely,
 ## and the power would look broken rather than merely delayed.
 func apply_impulse(_impulse: Vector3) -> void:
 	pass

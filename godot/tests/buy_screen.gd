@@ -51,8 +51,8 @@ func _ready() -> void:
 	_expect(p.buy_row == Loadout.Row.KIT, "and parks on its first line")
 	# THE CLASS ROW WALKS CHARACTERS, NOT KIT ARCHETYPES (see
 	# Loadout.custom_classes), so what has to change is the CLASS ON SCREEN —
-	# `kit` is derived and two neighbours on the row share one (a Clone Trooper
-	# and a Clone Engineer are both the CLONE kit). Asserting on `kit` was
+	# `kit` is derived and two neighbours on the row share one (a Legionary
+	# and a Legion Engineer are both the LEGION kit). Asserting on `kit` was
 	# asserting on the old meaning of the row and passed for the wrong reason.
 	var class_before := p.pending.class_name_shown()
 	_nudge(p, Vector2i.RIGHT)
@@ -117,7 +117,7 @@ func _ready() -> void:
 
 	# --- every class has the two-slot GADGETS box now --------------------
 	print("\n== the universal second gadget slot ==")
-	for kit in [Loadout.Kit.FORCE, Loadout.Kit.CLONE, Loadout.Kit.WOOKIEE]:
+	for kit in [Loadout.Kit.ADEPT, Loadout.Kit.LEGION, Loadout.Kit.URSAN]:
 		var l := Loadout.new()
 		l.adopt_kit(kit)
 		_expect(l.row_available(Loadout.Row.GADGET2),
@@ -126,13 +126,13 @@ func _ready() -> void:
 	# --- HOW BIG THE POOL IS ------------------------------------------------
 	#
 	# The point of the row is that it reaches every character the universe has.
-	# It used to offer the KIT archetypes — five in Star Wars, four in Warhammer
+	# It used to offer the KIT archetypes — five in The Compact Wars, four in Ironhymn
 	# — while thirty-two authored classes sat one screen away in FACTION mode,
 	# and nothing anywhere reported that as a fault because the row worked
 	# perfectly. A count is the only thing that catches it.
 	print("\n== the size of the pool ==")
-	for u in [Loadout.Universe.STAR_WARS, Loadout.Universe.HALO,
-			Loadout.Universe.WARHAMMER]:
+	for u in [Loadout.Universe.COMPACT, Loadout.Universe.DEEP_RANGE,
+			Loadout.Universe.IRONHYMN]:
 		GameState.universe = u
 		GameState.class_mode = GameState.ClassMode.CUSTOM
 		var pool := Loadout.custom_classes(u)
@@ -156,7 +156,7 @@ func _ready() -> void:
 			"the cursor walks all %d of them (reached %d)" % [pool.size(), walked])
 
 		# ...and each one can reach the universe's ordinary catalogue, which is
-		# what `Loadout.custom_pool` is for. The Wookiee could hold TWO primaries.
+		# what `Loadout.custom_pool` is for. The Ursan could hold TWO primaries.
 		var narrowest := 999
 		var worst := ""
 		for i in pool.size():
@@ -172,7 +172,7 @@ func _ready() -> void:
 		print("    narrowest character is %s with %d primaries" % [worst, narrowest])
 		_expect(narrowest >= 15,
 			"%s can only reach %d primaries in CUSTOM" % [worst, narrowest])
-	GameState.universe = Loadout.Universe.STAR_WARS
+	GameState.universe = Loadout.Universe.COMPACT
 
 	print("\n==== %s ====" % ("BUY SCREEN WORKS" if _fails.is_empty()
 		else "%d FAILURE(S):\n  %s" % [_fails.size(), "\n  ".join(_fails)]))

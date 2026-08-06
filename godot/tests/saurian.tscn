@@ -1,6 +1,6 @@
 [gd_scene load_steps=2 format=3]
 
-[ext_resource type="Script" path="res://tests/trandoshan.gd" id="1"]
+[ext_resource type="Script" path="res://tests/saurian.gd" id="1"]
 
 [node name="TrandoshanCheck" type="Node3D"]
 script = ExtResource("1")

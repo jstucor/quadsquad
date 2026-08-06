@@ -4,10 +4,10 @@ extends Node
 ## The change this protects: a match used to HAVE a universe, and now it has up
 ## to four sides that each name one. The failure mode is a side whose ROSTER, and
 ## whose CHIP, and whose TRACER disagree about who it is — every one of those is
-## resolved from a different place and all three are silent when wrong. UNSC
-## troopers in Republic blue firing Covenant plasma is a legal-looking match.
+## resolved from a different place and all three are silent when wrong. COALITION
+## troopers in Concord blue firing Hierophany plasma is a legal-looking match.
 ##
-## The second half is the tint: purple clones have to fire purple, or it is half
+## The second half is the tint: purple legionaries have to fire purple, or it is half
 ## a setting.
 
 const PLAYER := preload("res://scenes/actors/player.tscn")
@@ -47,7 +47,7 @@ func _ok(cond: bool, msg: String) -> void:
 
 
 ## The flat list is DERIVED from UNIVERSES, so the thing to check is that it
-## derived the right number of them — Halo names four sides and authors two
+## derived the right number of them — Deep Range names four sides and authors two
 ## rosters, and a side you can select but cannot field is worse than absent.
 func _check_flat_list() -> void:
 	print("\n-- every playable side, in one list --")
@@ -71,8 +71,8 @@ func _check_flat_list() -> void:
 ## The UNIVERSE dropdown still has to mean what it always meant.
 func _check_universe_deals_sides() -> void:
 	print("\n-- picking a setting deals its own sides --")
-	for u: int in [Loadout.Universe.STAR_WARS, Loadout.Universe.HALO,
-			Loadout.Universe.WARHAMMER]:
+	for u: int in [Loadout.Universe.COMPACT, Loadout.Universe.DEEP_RANGE,
+			Loadout.Universe.IRONHYMN]:
 		GameState.universe = u
 		GameState.team_count = 2
 		var names: Array = []
@@ -87,45 +87,45 @@ func _check_universe_deals_sides() -> void:
 	_done["deal"] = true
 
 
-## THE ONE THAT WAS ASKED FOR: UNSC against the Republic.
+## THE ONE THAT WAS ASKED FOR: COALITION against the Concord.
 func _check_cross_universe() -> void:
-	print("\n-- UNSC against the Republic --")
-	GameState.universe = Loadout.Universe.STAR_WARS
+	print("\n-- COALITION against the Concord --")
+	GameState.universe = Loadout.Universe.COMPACT
 	GameState.team_count = 2
-	# Side 0 stays Republic; side 1 becomes UNSC.
-	var unsc := -1
+	# Side 0 stays Concord; side 1 becomes COALITION.
+	var coalition := -1
 	for i in Loadout.factions().size():
 		var f := Loadout.faction(i)
-		if str(f["name"]) == "UNSC":
-			unsc = i
-	_ok(unsc >= 0, "there is no UNSC in the flat list")
-	if unsc < 0:
+		if str(f["name"]) == "COALITION":
+			coalition = i
+	_ok(coalition >= 0, "there is no COALITION in the flat list")
+	if coalition < 0:
 		return
-	GameState.team_faction[1] = unsc
+	GameState.team_faction[1] = coalition
 	GameState.refresh_sides()
 
 	_ok(GameState.mixed_universes(), "a cross-setting match did not report as mixed")
-	_ok(str(GameState.team_names[0]) == "REPUBLIC",
-		"side 0 should be REPUBLIC, is %s" % GameState.team_names[0])
-	_ok(str(GameState.team_names[1]) == "UNSC",
-		"side 1 should be UNSC, is %s" % GameState.team_names[1])
-	_ok(GameState.team_universe(1) == Loadout.Universe.HALO,
-		"UNSC is not in the Halo universe")
+	_ok(str(GameState.team_names[0]) == "CONCORD LEGION",
+		"side 0 should be CONCORD, is %s" % GameState.team_names[0])
+	_ok(str(GameState.team_names[1]) == "COALITION",
+		"side 1 should be COALITION, is %s" % GameState.team_names[1])
+	_ok(GameState.team_universe(1) == Loadout.Universe.DEEP_RANGE,
+		"COALITION is not in the Deep Range universe")
 
 	# AND THE ROSTERS FOLLOW. This is the half that would silently break: the
 	# names and colours come from the flat list, but the CLASSES come from
 	# FACTION_ROSTERS keyed by universe AND slot, and the slot is the faction's
-	# own — not the team number. Wrapping team 1 into Halo's two rosters would
-	# quietly field the Covenant.
+	# own — not the team number. Wrapping team 1 into Deep Range's two rosters would
+	# quietly field the Hierophany.
 	var rep := GameState.classes_for(0)
 	var un := GameState.classes_for(1)
 	_ok(rep.size() > 0 and un.size() > 0, "a side in a mixed match fields no classes")
 	_ok(rep != un, "both sides field the same roster")
 	var rep_name := str(Loadout.FACTION_BUILDS[rep[0]]["name"])
 	var un_name := str(Loadout.FACTION_BUILDS[un[0]]["name"])
-	print("  REPUBLIC first class: %s" % rep_name)
-	print("  UNSC     first class: %s" % un_name)
-	# The Republic's roster must still be clones and the UNSC's must not be.
+	print("  CONCORD first class: %s" % rep_name)
+	print("  COALITION     first class: %s" % un_name)
+	# The Concord's roster must still be legionaries and the COALITION's must not be.
 	_ok(rep_name != un_name, "both sides deploy the same first class")
 
 	# A BUILD FROM EACH, because `team_build_for` is the path a bot actually
@@ -147,24 +147,24 @@ func _check_cross_universe() -> void:
 	# So this walks EVERY class on the mixed side and asserts the deployed build
 	# is the row the screen named. Checking one would not do it — slot 0 of two
 	# different rosters can happen to agree.
-	_check_deploy_matches_screen(1, "UNSC")
+	_check_deploy_matches_screen(1, "COALITION")
 	# Both directions: side 0 is still the universe's own first faction, which is
 	# the case that works by coincidence and so must not regress either.
-	_check_deploy_matches_screen(0, "REPUBLIC")
-	# Streak rewards follow the faction too, or a UNSC side is offered a LAAT.
+	_check_deploy_matches_screen(0, "CONCORD LEGION")
+	# Streak rewards follow the faction too, or a COALITION side is offered a HAMMERHEAD.
 	var f1 := Loadout.faction(GameState.team_faction[1])
 	var rewards := Streaks.available(int(f1["side"]), int(f1["universe"]))
 	var names := []
 	for r in rewards:
 		names.append(str(r["name"]))
-	_ok(names.has("SPARTAN HEADHUNTER"),
-		"UNSC in a mixed match cannot earn its own signature: %s" % str(names))
-	_ok(not names.has("LAAT GUNSHIP"),
-		"UNSC in a mixed match was offered the Republic's gunship")
-	print("  UNSC rewards: %s" % str(names))
+	_ok(names.has("PALADIN HEADHUNTER"),
+		"COALITION in a mixed match cannot earn its own signature: %s" % str(names))
+	_ok(not names.has("HAMMERHEAD GUNSHIP"),
+		"COALITION in a mixed match was offered the Concord's gunship")
+	print("  COALITION rewards: %s" % str(names))
 
-	# NO SIGNATURE MAY SHARE A NAME WITH AN ORDINARY CLASS. The UNSC's was
-	# "SPARTAN-II", which is also FACTION_BUILDS index 8 — so the reward for ten
+	# NO SIGNATURE MAY SHARE A NAME WITH AN ORDINARY CLASS. The COALITION's was
+	# "PALADIN-II", which is also FACTION_BUILDS index 8 — so the reward for ten
 	# kills was a thing that side already deploys at zero.
 	var class_names := {}
 	for b in Loadout.FACTION_BUILDS:
@@ -214,7 +214,7 @@ func _check_deploy_matches_screen(team: int, side_name: String) -> void:
 ## tint reaches BOTH and that the tracer stays legible.
 func _check_tints() -> void:
 	print("\n-- choosing a colour moves the armour and the bolt together --")
-	GameState.universe = Loadout.Universe.STAR_WARS
+	GameState.universe = Loadout.Universe.COMPACT
 	GameState.team_count = 2
 	var stock_chip: Color = GameState.team_colors[0]
 	var stock_bolt: Color = GameState.bolt_colors[0]

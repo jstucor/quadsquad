@@ -1,5 +1,5 @@
 extends Node3D
-## THE TWO CALL-INS, MEASURED RATHER THAN WATCHED — the LAAT's ball turret and
+## THE TWO CALL-INS, MEASURED RATHER THAN WATCHED — the HAMMERHEAD's ball turret and
 ## the orbital strike.
 ##
 ##   godot --headless --path godot tests/warmachine_feel.tscn
@@ -161,7 +161,7 @@ func _aim_point(ship: Node3D) -> Vector3:
 ## touching nothing still watches their gun sweep the ground — and every shot has
 ## to be fired through a correction they are making by hand.
 func _gunship_drift() -> void:
-	print("\n-- LAAT: does a centred stick hold its aim? --")
+	print("\n-- HAMMERHEAD: does a centred stick hold its aim? --")
 	var pair := await _launch(30.0)
 	var ship: Node3D = pair[0]
 	var g: Gunner = pair[1]
@@ -190,7 +190,7 @@ func _gunship_drift() -> void:
 	var walked := start_at.distance_to(end_at) if start_at != Vector3.INF \
 		and end_at != Vector3.INF else 999.0
 	_ok(walked < 2.0,
-		"the LAAT's aim point walks %.1f m/s across the ground on a CENTRED stick — the gunner spends the whole ride correcting the hull's own rotation by hand"
+		"the HAMMERHEAD's aim point walks %.1f m/s across the ground on a CENTRED stick — the gunner spends the whole ride correcting the hull's own rotation by hand"
 			% walked)
 	ship.queue_free()
 	g.queue_free()
@@ -205,7 +205,7 @@ func _gunship_drift() -> void:
 ## gunner's camera, permanently. A canted view does not just look odd: it rotates
 ## the frame the stick works in, so "right" moves the crosshair diagonally.
 func _gunship_roll() -> void:
-	print("\n-- LAAT: is the gunner's view level? --")
+	print("\n-- HAMMERHEAD: is the gunner's view level? --")
 	var pair := await _launch(30.0)
 	var ship: Node3D = pair[0]
 	var g: Gunner = pair[1]
@@ -229,7 +229,7 @@ func _gunship_roll() -> void:
 	var off := rad_to_deg(gun.angle_to(view))
 	print("  camera vs barrel: %.2f deg apart" % off)
 	_ok(off < 0.5,
-		"the LAAT's camera and its gun point %.1f deg apart — there is no crosshair, you are aiming one thing and firing another"
+		"the HAMMERHEAD's camera and its gun point %.1f deg apart — there is no crosshair, you are aiming one thing and firing another"
 			% off)
 	ship.queue_free()
 	g.queue_free()
@@ -256,7 +256,7 @@ func _gunship_roll() -> void:
 ## drawn and honestly wrong — you lead the target correctly and miss anyway, which
 ## is unfixable from the player's side and reads as the gun being broken.
 func _gunship_boresight() -> void:
-	print("\n-- LAAT: does the crosshair cover what the gun hits? --")
+	print("\n-- HAMMERHEAD: does the crosshair cover what the gun hits? --")
 	var pair := await _launch(30.0)
 	var ship: Node3D = pair[0]
 	var g: Gunner = pair[1]
@@ -266,13 +266,13 @@ func _gunship_boresight() -> void:
 	var eye_hit := _ground_hit(g.eye(), g.view_dir())
 	var gun_hit := _aim_point(ship)
 	if eye_hit == Vector3.INF or gun_hit == Vector3.INF:
-		_ok(false, "the LAAT's sight line or its gun line missed the ground entirely")
+		_ok(false, "the HAMMERHEAD's sight line or its gun line missed the ground entirely")
 	else:
 		var reach: float = g.eye().distance_to(gun_hit)
 		var miss: float = eye_hit.distance_to(gun_hit)
 		print("  firing %.0f m  ·  crosshair lands %.2f m from the round" % [reach, miss])
 		_ok(miss < 0.5,
-			"the LAAT's crosshair covers a point %.2f m from where the shell lands at %.0f m — you cannot aim it"
+			"the HAMMERHEAD's crosshair covers a point %.2f m from where the shell lands at %.0f m — you cannot aim it"
 				% [miss, reach])
 	ship.queue_free()
 	g.queue_free()
@@ -294,7 +294,7 @@ func _ground_hit(from: Vector3, dir: Vector3) -> Vector3:
 ## only thing left in the number is the weapon's own spread. That is the honest
 ## way to price a cone: everything else is the player.
 func _gunship_cone() -> void:
-	print("\n-- LAAT: how wide is the cone where it shoots? --")
+	print("\n-- HAMMERHEAD: how wide is the cone where it shoots? --")
 	var pair := await _launch(30.0)
 	var ship: Node3D = pair[0]
 	var g: Gunner = pair[1]
@@ -303,7 +303,7 @@ func _gunship_cone() -> void:
 	var muzzle: Node3D = ship.get("_muzzle")
 	var centre := _aim_point(ship)
 	if centre == Vector3.INF:
-		_ok(false, "the LAAT's gun is not pointed at the ground at all")
+		_ok(false, "the HAMMERHEAD's gun is not pointed at the ground at all")
 		ship.queue_free(); g.queue_free()
 		return
 	var reach: float = muzzle.global_position.distance_to(centre)
@@ -332,7 +332,7 @@ func _gunship_cone() -> void:
 	print("  splash reaches %.1f m for %.0f at the centre"
 		% [GUNSHIP.SPLASH, GUNSHIP.SPLASH_DAMAGE])
 	_ok(total / n < 1.0,
-		"the LAAT's average round lands %.2f m off the point it was aimed at, against a body 0.5 m wide"
+		"the HAMMERHEAD's average round lands %.2f m off the point it was aimed at, against a body 0.5 m wide"
 			% (total / n))
 	ship.queue_free()
 	g.queue_free()
@@ -528,7 +528,7 @@ func _orbital_damage() -> void:
 
 
 ## Hold the mark on the middle of a group, as the player at the station would.
-## Writing `_aim` directly is the same shortcut the LAAT's TTK check takes: what
+## Writing `_aim` directly is the same shortcut the HAMMERHEAD's TTK check takes: what
 ## is being measured is the ordnance, not the stick.
 ##
 ## `strike` IS DELIBERATELY UNTYPED, the same rule `GameState.combatant_name`
@@ -563,13 +563,13 @@ func _victim(at: Vector3, team := 1) -> Node3D:
 	return b
 
 
-## 5. WHAT DOES THE LAAT DO TO A MAN IT IS POINTED AT?
+## 5. WHAT DOES THE HAMMERHEAD DO TO A MAN IT IS POINTED AT?
 ##
 ## The cone being tight is only half the answer — a gun that cannot miss and
 ## cannot kill is still not a reward. Held on one body with the turret tracking
 ## the point it is standing on.
 func _gunship_ttk() -> void:
-	print("\n-- LAAT: how long to kill one man under the guns? --")
+	print("\n-- HAMMERHEAD: how long to kill one man under the guns? --")
 	var pair := await _launch(30.0)
 	var ship: Node3D = pair[0]
 	var g: Gunner = pair[1]
@@ -594,9 +594,9 @@ func _gunship_ttk() -> void:
 	var killed: bool = not is_instance_valid(victim) or not victim.is_alive()
 	print("  %.0f hp trooper: %s after %.2f s of fire"
 		% [full, "DOWN" if killed else "still up", t])
-	_ok(killed, "the LAAT could not kill one stationary trooper in six seconds of fire")
+	_ok(killed, "the HAMMERHEAD could not kill one stationary trooper in six seconds of fire")
 	_ok(t > 0.35,
-		"the LAAT kills a trooper in %.2f s — that is a map-wide instant delete, not a gunship" % t)
+		"the HAMMERHEAD kills a trooper in %.2f s — that is a map-wide instant delete, not a gunship" % t)
 	g.firing = false
 	if is_instance_valid(victim):
 		victim.queue_free()
@@ -677,7 +677,7 @@ func _orbital_spread() -> void:
 ## It is one comparison and it needs no rendering: which is closer to the centre
 ## of the circuit, the ball or the hull.
 func _gunship_inside() -> void:
-	print("\n-- LAAT: which side of the turn is the ball on? --")
+	print("\n-- HAMMERHEAD: which side of the turn is the ball on? --")
 	var pair := await _launch(40.0)
 	var ship: Node3D = pair[0]
 	var g: Gunner = pair[1]

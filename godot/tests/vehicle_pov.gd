@@ -5,7 +5,7 @@ extends Node
 ##
 ## The same argument `gunship_pov` makes and for the same reason: a vehicle
 ## photographed from OUTSIDE (which is all `warmachine_look` ever does) cannot
-## show whether the seat is in a usable place. The AT-ST was reported as an
+## show whether the seat is in a usable place. The MARAUDER was reported as an
 ## unusable point of view, and every question in that report — is the camera
 ## inside the pod or floating over it, does the hull fill the frame, can you see
 ## the ground you are walking onto, does the sight agree with the gun — is only

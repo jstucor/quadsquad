@@ -37,15 +37,15 @@ const CHECKED := [
 	Weapon.Class.SOLDIER,      # the rifle everything else is read against
 	Weapon.Class.SEMI,         # semi-automatic
 	Weapon.Class.BURST,        # <- "the burst gun is unusable"
-	Weapon.Class.BR55,         # ...and the other burst rifle
+	Weapon.Class.BR3,         # ...and the other burst rifle
 	Weapon.Class.HMG,          # <- "the heavy machine guns are unstable"
 	Weapon.Class.HEAVY,
 	# NOT the R-90 rotary: it is the rotary GADGET's gun and needs `spinup` held
 	# through a path this harness does not drive, so it measures 0.00 here — a
 	# number that passes every check and means nothing.
-	Weapon.Class.M739_SAW,     # the new LMGs
-	Weapon.Class.DLT19D,
-	Weapon.Class.RT97C,
+	Weapon.Class.SAW7,     # the new LMGs
+	Weapon.Class.DK19D,
+	Weapon.Class.RT9,
 	Weapon.Class.GAUSS_CANNON,
 	Weapon.Class.SNIPER,       # the hardest single shot in the game
 	Weapon.Class.SMG,
@@ -95,7 +95,7 @@ func _fresh(cls: int) -> Player:
 	add_child(p)
 	await get_tree().process_frame
 	p.pending = Loadout.new()
-	p.pending.adopt_kit(Loadout.Kit.CLONE)
+	p.pending.adopt_kit(Loadout.Kit.LEGION)
 	p._apply_loadout()
 	# ALIVE, not merely built: `_apply_loadout` arms the body but only a real
 	# deploy clears `_dead`, and a dead Player runs `_process_dead`, which does
@@ -162,7 +162,7 @@ func _run(p: Player, seconds: float, sustained: bool) -> float:
 ## be two different moments and the gun on screen would have lied about it.
 const HANDLING_SHOWN := [
 	Weapon.Class.HOLDOUT, Weapon.Class.SMG, Weapon.Class.CARBINE,
-	Weapon.Class.SOLDIER, Weapon.Class.SEMI, Weapon.Class.M739_SAW,
+	Weapon.Class.SOLDIER, Weapon.Class.SEMI, Weapon.Class.SAW7,
 	Weapon.Class.HMG, Weapon.Class.GAUSS_CANNON, Weapon.Class.SNIPER,
 ]
 ## A weapon nobody can get into the fight with is not a trade, it is a trap.

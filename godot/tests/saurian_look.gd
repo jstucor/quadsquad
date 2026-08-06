@@ -1,8 +1,8 @@
 extends Node3D
-## Renders the Trandoshan in third person cloaked vs solid, and the thermal
+## Renders the Saurian in third person cloaked vs solid, and the thermal
 ## overlay over an enemy through smoke. Appearance is the thing a headless test
 ## cannot see.
-##   godot --path godot --display-driver x11 --resolution 1280x720 tests/trandoshan_look.tscn
+##   godot --path godot --display-driver x11 --resolution 1280x720 tests/saurian_look.tscn
 
 const MAIN := preload("res://scenes/main.tscn")
 const BOT := preload("res://scenes/actors/bot.tscn")
@@ -18,9 +18,9 @@ func _ready() -> void:
 	var p: Player = _find(main, "Player") as Player
 	if p == null:
 		print("no player"); get_tree().quit(1); return
-	# Force a Trandoshan build with the thermal sight, deploy it.
+	# Force a Saurian build with the thermal sight, deploy it.
 	var l := Loadout.new()
-	l.adopt_kit(Loadout.Kit.TRANDOSHAN)
+	l.adopt_kit(Loadout.Kit.SAURIAN)
 	l.weapon = Loadout.weapon_index(Weapon.Class.SOLDIER)
 	l.sight = Loadout.Sight.THERMAL
 	l.gadget = Loadout.Gadget.CLOAK

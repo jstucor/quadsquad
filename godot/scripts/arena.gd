@@ -195,9 +195,9 @@ func _build_cover() -> void:
 
 func _register_spawns() -> void:
 	for p in republic_spawns:
-		_spawn_marker(p, GameState.Team.REPUBLIC)
+		_spawn_marker(p, GameState.Team.CONCORD)
 	for p in cis_spawns:
-		_spawn_marker(p, GameState.Team.CIS)
+		_spawn_marker(p, GameState.Team.AUTOMATA)
 
 
 func _spawn_marker(pos: Vector3, team: int) -> void:

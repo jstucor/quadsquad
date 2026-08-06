@@ -30,9 +30,9 @@ func _ready() -> void:
 		print("no player spawned")
 		get_tree().quit()
 		return
-	# A build with two gadgets on it, so both slots draw: the Mandalorian carries
+	# A build with two gadgets on it, so both slots draw: the Hunter carries
 	# a jetpack and a cable, which are the two gauges with the most states.
-	_me.pending.adopt_kit(Loadout.Kit.MANDALORIAN)
+	_me.pending.adopt_kit(Loadout.Kit.HUNTER)
 	_me.pending.gadget = Loadout.Gadget.JETPACK
 	_me.pending.gadget2 = Loadout.Gadget.CABLE
 	_me._respawn()
@@ -60,7 +60,7 @@ func _ready() -> void:
 	await _grab("4_spent")
 
 	# ...and a blade in hand, which adds the guard gauge.
-	_me.pending.adopt_kit(Loadout.Kit.FORCE)
+	_me.pending.adopt_kit(Loadout.Kit.ADEPT)
 	_me._respawn()
 	await _frames(20)
 	await _grab("5_saber")
@@ -80,8 +80,8 @@ const SHEET := [
 	Loadout.Gadget.JETPACK, Loadout.Gadget.CABLE, Loadout.Gadget.CLOAK,
 	Loadout.Gadget.SHIELD, Loadout.Gadget.TURRET, Loadout.Gadget.MORTAR,
 	Loadout.Gadget.SCAN_DART, Loadout.Gadget.WRIST_ROCKET,
-	Loadout.Gadget.FORCE_PUSH, Loadout.Gadget.FORCE_PULL,
-	Loadout.Gadget.FORCE_LEAP, Loadout.Gadget.FORCE_LIGHTNING,
+	Loadout.Gadget.KINETIC_PUSH, Loadout.Gadget.KINETIC_PULL,
+	Loadout.Gadget.KINETIC_LEAP, Loadout.Gadget.ARC_STORM,
 	Loadout.Gadget.DASH, Loadout.Gadget.GRENADE_FRAG,
 	Loadout.Gadget.GRENADE_STICKY, Loadout.Gadget.GRENADE_SMOKE,
 ]

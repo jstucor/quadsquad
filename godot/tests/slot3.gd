@@ -52,9 +52,9 @@ func _init() -> void:
 	# 2. THE BUILD. A kit with three slots must actually carry a third gadget
 	#    through to the deployed Loadout, and `gadget3_id` must not swallow it.
 	var build := Loadout.new()
-	build.adopt_kit(Loadout.Kit.CLONE)
+	build.adopt_kit(Loadout.Kit.LEGION)
 	if build.gadget_slots() < 3:
-		fails.append("the clone kit has %d slots" % build.gadget_slots())
+		fails.append("the legionary kit has %d slots" % build.gadget_slots())
 	build.gadget3 = Loadout.Gadget.OVERSHIELD
 	if build.gadget3_id() != Loadout.Gadget.OVERSHIELD:
 		fails.append("gadget3_id dropped the fitted ability")

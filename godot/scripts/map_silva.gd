@@ -1,6 +1,6 @@
 extends "res://scripts/arena.gd"
-## "KASHYYYK" — 220 m of wroshyr forest, and the second of the big maps after
-## Geonosis. Where Geonosis is an open basin you navigate by looking across it,
+## "SILVA" — 220 m of wroshyr forest, and the second of the big maps after
+## Aridis. Where Aridis is an open basin you navigate by looking across it,
 ## this one you navigate by what is BLOCKING the view: the trunks are the map.
 ##
 ## The design problem with a forest at this size is that evenly scattered trees
@@ -41,7 +41,7 @@ const TRUNK_MIN := 2.4     # a wroshyr is wide enough to be real cover
 const TRUNK_MAX := 4.2
 const TRUNK_HEIGHT := 22.0  # tall enough that the canopy reads as a ceiling
 
-## The one piece of built structure: a Wookiee village platform over the centre
+## The one piece of built structure: a Ursan village platform over the centre
 ## clearing, on legs you can fight between.
 const VILLAGE_R := 18.0
 const VILLAGE_LEGS := 6

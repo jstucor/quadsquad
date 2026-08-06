@@ -5,7 +5,7 @@ extends Control
 ## fourteen dropdowns on one grid, every one a real decision, all of them at the
 ## same weight, and the result is ONE match. Four people at a couch do not want
 ## one match — they want three rounds, chosen once, played back to back without
-## anybody having to walk to the machine between them. That is what Battlefront's
+## anybody having to walk to the machine between them. That is what The Genre's
 ## front end is shaped around, and it is why this screen is TWO columns and a
 ## button:
 ##
@@ -297,13 +297,13 @@ func _mode_blurb(mode: int) -> String:
 #
 # WHO FIGHTS WHOM, AS A SET AND NOT AS FOUR DROPDOWNS. The old menu had a row per
 # side, which is the right control for building an odd match and the wrong one
-# for the commonest question in the game: "Clones or Empire?". Every set below is
+# for the commonest question in the game: "Legionaries or Dominion?". Every set below is
 # DERIVED from `Loadout.factions()` rather than written out, so a faction added to
 # a universe turns up here for free and no list can name a side that does not
 # exist.
 #
 # The per-side rows have not been lost — the settings column still carries each
-# side's COLOUR, and a cross-setting curiosity (UNSC against the Republic) is a
+# side's COLOUR, and a cross-setting curiosity (COALITION against the Concord) is a
 # set of its own here rather than something you have to assemble.
 
 func _faction_sets() -> Array[Dictionary]:
@@ -316,7 +316,7 @@ func _faction_sets() -> Array[Dictionary]:
 		var list: Array = by_universe[u]
 		var setting := str(all[int(list[0])]["universe_name"])
 		# The classic pairings, in the order the roster states them: 0 against 1,
-		# then 2 against 3. In Star Wars that is exactly Clone Wars and then Galactic
+		# then 2 against 3. In The Compact Wars that is exactly Compact Wars and then Galactic
 		# Civil War, which is what anybody picking a side is actually choosing.
 		for base in range(0, list.size() - 1, 2):
 			out.append(_set_of(setting, [list[base], list[base + 1]]))

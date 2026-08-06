@@ -1,5 +1,5 @@
 extends Node3D
-## The Clone ARC's scan dart: a small projectile that flies straight, STICKS to
+## The Legion ARC's scan dart: a small projectile that flies straight, STICKS to
 ## the first thing it hits (world or body), and then pulses — every SCAN_INTERVAL
 ## it reveals every enemy within SCAN_RADIUS to the thrower's whole team for a
 ## short tag, THROUGH walls. That team-wide, wall-piercing reveal is the recon

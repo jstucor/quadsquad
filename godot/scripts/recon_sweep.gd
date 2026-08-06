@@ -57,7 +57,7 @@ func _ping() -> void:
 			continue
 		# A CLOAK STILL BEATS IT. The cloak's whole promise is that AI and
 		# trackers cannot see you, and a reward that ignored it would make the
-		# Trandoshan's signature ability worthless to anybody who ever died to a
+		# Saurian's signature ability worthless to anybody who ever died to a
 		# four-kill streak. Same check every AI vision test makes.
 		if GameState.is_cloaked(c):
 			continue

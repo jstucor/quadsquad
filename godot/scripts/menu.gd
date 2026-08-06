@@ -167,7 +167,7 @@ func _build() -> void:
 	#
 	# A row per side, because a side is now picked INDEPENDENTLY of the setting:
 	# the UNIVERSE dropdown above deals its own factions out in order, and these
-	# let you change any of them, which is how UNSC ends up fighting the Republic.
+	# let you change any of them, which is how COALITION ends up fighting the Concord.
 	#
 	# Four rows are always BUILT and the unused ones DISABLED rather than hidden,
 	# the same rule every other row on this screen follows — an option that
@@ -258,7 +258,7 @@ func _build() -> void:
 		time_dd.disabled = not GameState.map_is_procedural()
 		_fill(ttk_dd, _ttk_items(), GameState.ttk)
 		blurb.text = "%s   —   %s" % [GameState.map_blurb(), GameState.mode_blurb()]
-		# CONQUEST is Republic vs Separatist: exactly two sides, never a free-for-all.
+		# CONQUEST is Concord vs Automata: exactly two sides, never a free-for-all.
 		var conquest: bool = GameState.mode == GameState.Mode.CONQUEST
 		if conquest:
 			GameState.free_for_all = false
@@ -550,7 +550,7 @@ func _assist_items() -> PackedStringArray:
 
 
 ## Every faction in the game, labelled with its SETTING as well as its name —
-## "NECRONS" alone does not say which game you are looking at once two settings
+## "THE UNSLEEPING" alone does not say which game you are looking at once two settings
 ## can be on the field at once.
 func _faction_items() -> PackedStringArray:
 	var out := PackedStringArray()

@@ -8,7 +8,7 @@ extends Node3D
 ## and the only thing stopping it reaching a TEAMMATE is the enemy filter. That
 ## is what this checks.
 ##
-##   godot --headless --path godot tests/force_lightning.tscn
+##   godot --headless --path godot tests/arc_storm.tscn
 
 const PLAYER := preload("res://scenes/actors/player.tscn")
 
@@ -20,7 +20,7 @@ func _ready() -> void:
 	_build_floor()
 
 	# The caster faces -Z, so everything in front of it is at negative z.
-	var jedi := await _spawn(_lightning_build(), Vector3.ZERO, 0)
+	var warden := await _spawn(_lightning_build(), Vector3.ZERO, 0)
 	var mark := await _spawn(Loadout.starter(), Vector3(0.0, 0.0, -12.0), 1)
 	var near := await _spawn(Loadout.starter(), Vector3(3.0, 0.0, -14.0), 1)
 	var far_chain := await _spawn(Loadout.starter(), Vector3(6.0, 0.0, -16.0), 1)
@@ -33,9 +33,9 @@ func _ready() -> void:
 
 	print("== the build ==")
 	print("  gadget %s, cooldown %.0fs, %.0f HP" % [
-		Loadout.GADGETS[jedi.gadget]["name"],
-		Loadout.GADGET_COOLDOWNS[Loadout.Gadget.FORCE_LIGHTNING], jedi.max_health])
-	_expect(jedi.gadget == Loadout.Gadget.FORCE_LIGHTNING, "the adept deployed with it")
+		Loadout.GADGETS[warden.gadget]["name"],
+		Loadout.GADGET_COOLDOWNS[Loadout.Gadget.ARC_STORM], warden.max_health])
+	_expect(warden.gadget == Loadout.Gadget.ARC_STORM, "the adept deployed with it")
 
 	var before := {
 		"mark": mark.health, "near": near.health, "far": far_chain.health,
@@ -45,7 +45,7 @@ func _ready() -> void:
 	# holding), so this drives the same static function a single tick calls — the
 	# whole point of this file is the CHAIN it resolves, which the channel did not
 	# change.
-	ForcePowers.lightning(jedi, jedi.team)
+	Kinesis.lightning(warden, warden.team)
 	await _frames(1)
 
 	print("\n== one bite ==")
@@ -53,11 +53,11 @@ func _ready() -> void:
 		var body: Player = {"mark": mark, "near": near, "far": far_chain,
 			"4th": fourth, "out": out_of_reach, "mate": mate}[who]
 		print("  %-5s at %5.1f m took %5.1f" % [who,
-			jedi.global_position.distance_to(body.global_position),
+			warden.global_position.distance_to(body.global_position),
 			before[who] - body.health])
 
 	_expect(before["mark"] - mark.health > 0.0, "the one you are looking at is hit")
-	_expect(is_equal_approx(before["mark"] - mark.health, ForcePowers.BOLT_DAMAGE),
+	_expect(is_equal_approx(before["mark"] - mark.health, Kinesis.BOLT_DAMAGE),
 		"...for a full bite's damage")
 	_expect(before["near"] - near.health > 0.0, "the arc chains to the body beside them")
 	_expect(before["near"] - near.health < before["mark"] - mark.health,
@@ -72,10 +72,10 @@ func _ready() -> void:
 
 	# --- the chain has a limit --------------------------------------------
 	print("\n== the chain stops ==")
-	var caught := ForcePowers.lightning(jedi, jedi.team)
+	var caught := Kinesis.lightning(warden, warden.team)
 	print("  a second bolt struck %d (cap is 1 + %d chains)" % [
-		caught.size(), ForcePowers.BOLT_CHAINS])
-	_expect(caught.size() <= 1 + ForcePowers.BOLT_CHAINS,
+		caught.size(), Kinesis.BOLT_CHAINS])
+	_expect(caught.size() <= 1 + Kinesis.BOLT_CHAINS,
 		"never more than the cap, however many are stood together")
 
 	# --- the cone is WIDE and forgiving, but still has an edge -------------
@@ -88,12 +88,12 @@ func _ready() -> void:
 	var far_away := Vector3(0.0, 0.0, 900.0)
 	for body in [mark, near, far_chain, fourth, out_of_reach, mate]:
 		body.global_position = far_away
-	jedi.rotation.y = 0.0
+	warden.rotation.y = 0.0
 	# 28 deg off the -Z aim line: inside the new 35 deg cone, outside the old 14.
 	var side := await _spawn(Loadout.starter(), Vector3(5.3, 0.0, -10.0), 1)
 	await _frames(2)
 	var side_before := side.health
-	ForcePowers.lightning(jedi, jedi.team)
+	Kinesis.lightning(warden, warden.team)
 	print("  28 deg off took %.0f" % (side_before - side.health))
 	_expect(side_before - side.health > 0.0,
 		"loose aim lands a target the old narrow cone would have missed")
@@ -103,7 +103,7 @@ func _ready() -> void:
 	side.global_position = far_away
 	var beyond := await _spawn(Loadout.starter(), Vector3(12.8, 0.0, -10.0), 1)
 	await _frames(2)
-	var edge := ForcePowers.lightning(jedi, jedi.team)
+	var edge := Kinesis.lightning(warden, warden.team)
 	print("  52 deg off struck %d" % edge.size())
 	_expect(edge.is_empty(), "...but a target past the cone edge is not grabbed")
 	beyond.global_position = far_away
@@ -113,17 +113,17 @@ func _ready() -> void:
 	# `side` stays in front; turning around puts it behind, so a wide cone is
 	# still a FORWARD cone.
 	print("\n== facing away ==")
-	jedi.rotation.y = PI   # turn away from everyone
-	var missed := ForcePowers.lightning(jedi, jedi.team)
+	warden.rotation.y = PI   # turn away from everyone
+	var missed := Kinesis.lightning(warden, warden.team)
 	print("  struck %d" % missed.size())
 	_expect(missed.is_empty(), "nothing behind you is hit")
 
 	# --- the bolt draws itself and cleans itself up ------------------------
 	# `side` is still in front, so facing forward again finds it.
 	print("\n== the arc ==")
-	jedi.rotation.y = 0.0
-	jedi._channel_arc = ForcePowers.channel_bolt(
-		jedi, jedi.team, Player.LIGHTNING_SCENE, jedi.weapon, null)
+	warden.rotation.y = 0.0
+	warden._channel_arc = Kinesis.channel_bolt(
+		warden, warden.team, Player.LIGHTNING_SCENE, warden.weapon, null)
 	await _frames(2)
 	var arcs := _count_arcs()
 	print("  %d arc node(s) alive right after the bolt" % arcs)
@@ -148,9 +148,9 @@ func _count_arcs() -> int:
 
 func _lightning_build() -> Loadout:
 	var l := Loadout.new()
-	l.adopt_kit(Loadout.Kit.FORCE)
+	l.adopt_kit(Loadout.Kit.ADEPT)
 	l.weapon = Loadout.weapon_index(Weapon.Class.SABER)
-	l.gadget = Loadout.Gadget.FORCE_LIGHTNING
+	l.gadget = Loadout.Gadget.ARC_STORM
 	return l
 
 

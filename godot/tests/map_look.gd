@@ -16,7 +16,7 @@ extends Node3D
 ## it is roofed, so from outside it is a grey lid — and therefore the one that has
 ## to be judged from the deck shot below. A map you can only photograph from
 ## inside is a map nothing else in this suite would ever have looked at.
-const WANTED := ["CROSSFIRE", "OVERGROWTH", "FOUNDRY", "KASHYYYK", "OUTPOST"]
+const WANTED := ["CROSSFIRE", "OVERGROWTH", "FOUNDRY", "SILVA", "OUTPOST"]
 
 
 func _ready() -> void:

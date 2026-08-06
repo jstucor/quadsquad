@@ -134,8 +134,8 @@ func _viewmodels() -> void:
 
 func _vehicles() -> void:
 	print("\n== vehicles ==")
-	# One speeder per faction, then the two earned war machines — the AT-ST and
-	# the LAAT are where the vehicle builders stop being boxes (cylinders for the
+	# One speeder per faction, then the two earned war machines — the MARAUDER and
+	# the HAMMERHEAD are where the vehicle builders stop being boxes (cylinders for the
 	# hubs, swept struts for the legs), so they are the ones with something to get
 	# wrong.
 	for team in Vehicle.VEHICLES:
@@ -154,15 +154,15 @@ func _vehicles() -> void:
 		_walk(v, "war machine %s" % str(Vehicle.STREAK_VEHICLES[id]["name"]))
 		v.queue_free()
 		await get_tree().process_frame
-	# ...and the LAAT, built without `begin()` so it does not fly off on a circuit
+	# ...and the HAMMERHEAD, built without `begin()` so it does not fly off on a circuit
 	# while it is being measured — the same way `warmachine_look` photographs it.
-	var laat: Node3D = GUNSHIP.new()
-	add_child(laat)
-	laat.team = 0
-	laat._build()          # the airframe only; `begin()` would seat a player
+	var gunship: Node3D = GUNSHIP.new()
+	add_child(gunship)
+	gunship.team = 0
+	gunship._build()          # the airframe only; `begin()` would seat a player
 	await get_tree().process_frame
-	_walk(laat, "war machine LAAT GUNSHIP")
-	laat.queue_free()
+	_walk(gunship, "war machine HAMMERHEAD GUNSHIP")
+	gunship.queue_free()
 	await get_tree().process_frame
 
 

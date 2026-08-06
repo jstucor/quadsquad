@@ -1,11 +1,11 @@
 extends "res://scripts/arena.gd"
-## "GEONOSIS" — a 300 x 300 m red rock basin, by a wide margin the biggest map
+## "ARIDIS" — a 300 x 300 m red rock basin, by a wide margin the biggest map
 ## in the rotation: about thirty-five times the floor area of Crossfire.
 ##
 ## Being this big changes what the map IS. You cannot hold all of it, and you
 ## will not stumble into a fight by walking forward — the whole thing is built
 ## around LANDMARKS you navigate between: five climbable mesas ringing an open
-## middle, and the Geonosian arena wall at the centre of it. Every one of them
+## middle, and the Vespid arena wall at the centre of it. Every one of them
 ## is tall enough to see from anywhere in the basin, so the map reads as a place
 ## with directions in it rather than a field.
 ##
@@ -49,7 +49,7 @@ const PROP_CLEAR := 12.0      # keep spires and boulders off the spawns
 
 func _configure() -> void:
 	size = 300.0
-	floor_color = Color(0.52, 0.29, 0.18)   # red Geonosian dust
+	floor_color = Color(0.52, 0.29, 0.18)   # red Vespid dust
 	wall_color = Color(0.38, 0.22, 0.15)    # the canyon wall ringing the basin
 	cover_color = Color(0.46, 0.30, 0.21)   # weathered rock and ruin
 	# Spawns sit between the mesas and the arena, not out at the corners: on a
@@ -305,7 +305,7 @@ func _decorate() -> void:
 	_build_boulders(rng)
 
 
-## The Geonosian arena: a ring of wall segments with gaps between them, sitting
+## The Vespid arena: a ring of wall segments with gaps between them, sitting
 ## on the flat middle of the basin. Real cover, so these are colliders rather
 ## than set dressing — it is the one structure people will fight inside.
 func _build_arena() -> void:

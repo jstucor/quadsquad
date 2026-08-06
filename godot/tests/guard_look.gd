@@ -134,9 +134,9 @@ func _spawn(index: int, at: Vector3) -> Player:
 	add_child(p)
 	await get_tree().physics_frame
 	var l := Loadout.new()
-	l.adopt_kit(Loadout.Kit.FORCE)
+	l.adopt_kit(Loadout.Kit.ADEPT)
 	l.weapon = Loadout.weapon_index(Weapon.Class.SABER)
-	l.gadget = Loadout.Gadget.FORCE_LIGHTNING
+	l.gadget = Loadout.Gadget.ARC_STORM
 	p.pending = l
 	p._apply_loadout()
 	await get_tree().physics_frame

@@ -3,10 +3,10 @@ extends CharacterBody3D
 ## A drivable repulsorlift speeder — ONE mechanism and four table rows, the same
 ## deal as `CharacterModel.STYLES` and `Weapon.PROFILES`.
 ##
-## ONLY STAR WARS HAS VEHICLES. That is a deliberate scope line and it is stated
+## ONLY THE COMPACT WARS HAS VEHICLES. That is a deliberate scope line and it is stated
 ## once, in `spawns_for()`: a speeder is the thing this setting is built out of,
 ## where a Warthog and a Trukk are whole vehicle families that would each want
-## their own handling model, seat count and gunner. Halo and Warhammer field
+## their own handling model, seat count and gunner. Deep Range and Ironhymn field
 ## none, and every caller asks the one function rather than testing the universe
 ## itself — so when a second setting does get vehicles it is a table row here and
 ## nothing else in the game changes.
@@ -18,7 +18,7 @@ extends CharacterBody3D
 ## above the curve they approximate, with a seam every cell. A wheeled body
 ## catches on those. A repulsorlift does not care — it solves a hover height off
 ## a single downward ray and rides whatever it actually collides with, which is
-## both the Star Wars answer and the one that survives the terrain this game has.
+## both the The Compact Wars answer and the one that survives the terrain this game has.
 ## It also keeps the vehicle inside `move_and_slide`, so it stops at exactly the
 ## walls, cover boxes and prop hulls everything else stops at, with no second
 ## collision story to maintain.
@@ -27,12 +27,12 @@ extends CharacterBody3D
 ## bots shoot at it, turrets track it and it blocks a spawn marker, all without a
 ## shared base class — the same duck-typed contract Bot and Turret already meet.
 
-const REPUBLIC := 0
-const SEPARATIST := 1
-const EMPIRE := 2
-const REBEL := 3
+const CONCORD := 0
+const AUTOMATA := 1
+const DOMINION := 2
+const PACT := 3
 
-## ONE ROW PER STAR WARS FACTION. Everything that differs between the four is
+## ONE ROW PER THE COMPACT WARS FACTION. Everything that differs between the four is
 ## here; the driving, hovering, shooting, mounting and dying below is shared.
 ##
 ## The four are deliberately spread across the handling envelope rather than
@@ -42,8 +42,8 @@ const REBEL := 3
 ## cannot turn. If they all flew the same, the faction it belonged to would be
 ## the only difference and nobody would ever choose one over walking.
 const VEHICLES := {
-	REPUBLIC: {
-		"name": "BARC SPEEDER",
+	CONCORD: {
+		"name": "LANCER SPEEDER",
 		"build": "barc",
 		"health": 320.0,
 		"top_speed": 22.0,   # m/s. A sprint is ~7, so a speeder is triple pace.
@@ -53,8 +53,8 @@ const VEHICLES := {
 		"gun": Weapon.Class.TURRET,
 		"hull": Vector3(1.15, 0.42, 3.10),
 	},
-	SEPARATIST: {
-		"name": "STAP",
+	AUTOMATA: {
+		"name": "WASP SKIFF",
 		"build": "stap",
 		# The glass cannon: a droid stands on a pole with two guns bolted to it.
 		# Fastest and highest, and the only one a single frag will finish.
@@ -66,8 +66,8 @@ const VEHICLES := {
 		"gun": Weapon.Class.TURRET,
 		"hull": Vector3(0.85, 0.36, 1.90),
 	},
-	EMPIRE: {
-		"name": "74-Z SPEEDER BIKE",
+	DOMINION: {
+		"name": "DK-74 SPEEDER BIKE",
 		"build": "speeder_bike",
 		"health": 250.0,
 		"top_speed": 26.0,   # the fastest in a straight line, and the least armoured
@@ -77,8 +77,8 @@ const VEHICLES := {
 		"gun": Weapon.Class.TURRET,
 		"hull": Vector3(0.80, 0.38, 3.40),
 	},
-	REBEL: {
-		"name": "T-47 AIRSPEEDER",
+	PACT: {
+		"name": "T-4 AIRSPEEDER",
 		"build": "airspeeder",
 		# The gunship of the four: it flies over cover the others have to go
 		# around, takes real punishment, and handles like a barge.
@@ -102,7 +102,7 @@ const VEHICLES := {
 ## at leg height with the acceleration and turn rate of something enormous, and a
 ## GUNSHIP is the same ray held high. Neither animates its legs or its wings.
 ##
-## **THAT IS AN HONEST APPROXIMATION AND NOT A HIDDEN ONE**: an AT-ST that
+## **THAT IS AN HONEST APPROXIMATION AND NOT A HIDDEN ONE**: an MARAUDER that
 ## actually walks needs a gait, foot placement over the heightfield's own flat
 ## triangles, and a body that lurches with each step, which is a system rather
 ## than a row. What the row buys instead is everything that already works —
@@ -111,7 +111,7 @@ const VEHICLES := {
 ## reuses all of that beats a walker that has to answer them again.
 const STREAK_VEHICLES := {
 	"atst": {
-		"name": "AT-ST WALKER",
+		"name": "MARAUDER WALKER",
 		"build": "atst",
 		# The opposite trade: it cannot leave the ground, it is slow, and it is
 		# very hard to kill while it faces you. Its hover height IS its leg
@@ -136,7 +136,7 @@ const STREAK_VEHICLES := {
 		# up at head height over the cowl — and on a walker it put the eye 1.75 m
 		# above the vehicle's own origin, which is above the pod's ROOF. The
 		# result was a camera floating in clear air over the machine: none of the
-		# AT-ST in frame, no cockpit, no gun, no sense of piloting anything, and
+		# MARAUDER in frame, no cockpit, no gun, no sense of piloting anything, and
 		# nothing to judge where the cannon was pointed. Behind the viewports it
 		# is a cockpit — the brow overhead, the chin gun below, the side gear at
 		# the edges — and the pod shell around it is culled from the inside, so
@@ -197,7 +197,7 @@ const WRECK_LINGER := 2.5
 
 signal driver_changed(driver: Node3D)
 
-var team: int = REPUBLIC
+var team: int = CONCORD
 var health := 320.0
 var max_health := 320.0
 var driver: Node3D               # the Player flying it, or null
@@ -228,9 +228,9 @@ var _shell: Array[MeshInstance3D] = []
 ## WHICH TEAMS GET A VEHICLE, and the only place the Star-Wars-only rule lives.
 ## Returns an empty array for every other setting, so a caller never has to know
 ## which universe it is in — `for t in Vehicle.spawns_for(universe)` is simply an
-## empty loop in Halo and Warhammer.
+## empty loop in Deep Range and Ironhymn.
 static func spawns_for(universe: int) -> Array:
-	if universe != Loadout.Universe.STAR_WARS:
+	if universe != Loadout.Universe.COMPACT:
 		return []
 	return VEHICLES.keys()
 
@@ -245,9 +245,9 @@ static func vehicle_name(vehicle_team: int) -> String:
 ## `_ready` has to build something — a vehicle dropped into a look test or a cost
 ## harness must have a body without anybody remembering to ask, the same as the
 ## turret. But both real callers wanted something other than the default, and the
-## only way to say so was to let `_ready` build a Republic BARC and then call
+## only way to say so was to let `_ready` build a Concord BARC and then call
 ## `setup*` to throw it away and build again. A speeder is cheap enough that
-## nobody noticed; an AT-ST is not, and it is built at the exact moment a player
+## nobody noticed; an MARAUDER is not, and it is built at the exact moment a player
 ## has earned it, which is the worst possible frame to spend twice.
 ##
 ## `spawn_row_id` names a STREAK_VEHICLES row; `spawn_hull_side` names the
@@ -266,7 +266,7 @@ func _ready() -> void:
 		else:
 			_setup_row(team, VEHICLES.get(
 				spawn_hull_side if spawn_hull_side >= 0 else team,
-				VEHICLES[REPUBLIC]))
+				VEHICLES[CONCORD]))
 	_mount.body_entered.connect(_on_body_entered)
 	_mount.body_exited.connect(_on_body_exited)
 
@@ -276,14 +276,14 @@ func _exit_tree() -> void:
 
 
 func setup(vehicle_team: int) -> void:
-	_setup_row(vehicle_team, VEHICLES.get(vehicle_team, VEHICLES[REPUBLIC]))
+	_setup_row(vehicle_team, VEHICLES.get(vehicle_team, VEHICLES[CONCORD]))
 
 
 ## Deploy as one of the EARNED machines instead of the faction's speeder. Same
 ## function underneath — a war machine differs from a speeder only in its row.
 func setup_as(row_id: String, vehicle_team: int) -> void:
 	_setup_row(vehicle_team, STREAK_VEHICLES.get(row_id,
-		VEHICLES.get(vehicle_team, VEHICLES[REPUBLIC])))
+		VEHICLES.get(vehicle_team, VEHICLES[CONCORD])))
 
 
 func _setup_row(vehicle_team: int, row: Dictionary) -> void:
@@ -324,7 +324,7 @@ const BOARD_MIN_HEIGHT := 2.4
 
 ## THE MOUNT VOLUME MUST REACH THE GROUND THE MACHINE IS STANDING OVER, and that
 ## is a function of the ROW rather than a constant — which is what the scene file
-## could not express and why the AT-ST could not be boarded at all.
+## could not express and why the MARAUDER could not be boarded at all.
 ##
 ## `MountArea` was authored once, for a speeder: a 2.6 m sphere at local y 0.9.
 ## A speeder's origin rides 0.9 m up, so that sphere reaches from 1.7 m BELOW the
@@ -335,7 +335,7 @@ const BOARD_MIN_HEIGHT := 2.4
 ## out around 1.8. **The area a player has to touch to be offered the seat was a
 ## metre over their head**, `_on_body_entered` never fired for anybody, and
 ## `pickup_in_reach` was therefore never set — no prompt, no press, no error, and
-## nothing anywhere to say the reward could not be used. That is "I got the AT-ST
+## nothing anywhere to say the reward could not be used. That is "I got the MARAUDER
 ## and could not enter it".
 ##
 ## So it is built from the row exactly as the hull is, spanning from the ground
@@ -473,7 +473,7 @@ func _physics_process(delta: float) -> void:
 
 
 ## WHAT THE DRIVER'S SIGHT DRAWS, in the shape `gunner_hud.gd` already asks the
-## LAAT and the orbital station for. Duck-typed, so a machine with a gunner's
+## HAMMERHEAD and the orbital station for. Duck-typed, so a machine with a gunner's
 ## sight is any machine that answers this and the HUD knows about none of them.
 ##
 ## THE VEHICLES HAD NO SIGHT AT ALL, and it was a side effect rather than a
@@ -554,7 +554,7 @@ func _mount_player(p: Node3D) -> void:
 ## across the corners of the frame: not a cockpit, just geometry too close to
 ## read.
 ##
-## The same mechanism the LAAT's ball uses and the same one that hides a player's
+## The same mechanism the HAMMERHEAD's ball uses and the same one that hides a player's
 ## own body from their own camera: each player's camera clears render layer
 ## `2 + player_index`, so a mesh put on that layer is invisible to exactly one
 ## person and unchanged for everybody else. What is deliberately LEFT is
@@ -608,7 +608,7 @@ func _carry_driver() -> void:
 ## is what a speeder wants); a head height for a cockpit, so the eye is the thing
 ## that ends up at the seat.
 ##
-## Asked of the DRIVER rather than assumed, for the reason the LAAT's ball
+## Asked of the DRIVER rather than assumed, for the reason the HAMMERHEAD's ball
 ## records: the offset is read off that body's own head, and bodies are not all
 ## the same height.
 func _seat_anchor() -> Vector3:
@@ -688,11 +688,11 @@ func _apply_attitude(delta: float) -> void:
 ##
 ## The sight is drawn on THIS point rather than at the middle of the screen, and
 ## that is the whole reason it exists rather than a fixed crosshair. A vehicle's
-## gun is not where the driver's eye is — the AT-ST's cannon sits under the
+## gun is not where the driver's eye is — the MARAUDER's cannon sits under the
 ## cockpit, a speeder's is out on the nose — and the gun is clamped to a cone
 ## (`GUN_YAW_LIMIT`) the camera is not, so past the stop the barrel stops turning
 ## while the view keeps going. A centred reticle would be a lie in exactly the
-## situation a driver most needs the truth: it is the LAAT ball turret's parallax
+## situation a driver most needs the truth: it is the HAMMERHEAD ball turret's parallax
 ## fault, which is on record as the thing an angle check cannot see — two rays
 ## can point the same way and land eighty metres apart.
 ##
@@ -817,7 +817,7 @@ func _paint(team_color: Color) -> void:
 	glow.emission = team_color
 
 
-## REPUBLIC — BARC SPEEDER. A fat forward cowl with two outrigger vanes swept out
+## CONCORD — BARC SPEEDER. A fat forward cowl with two outrigger vanes swept out
 ## and down, which is the shape everyone recognises: it is the only one of the
 ## four that is WIDE at the front and narrow at the back.
 func _build_barc(steel: Material, poly: Material, trim: Material, lit: Material) -> void:
@@ -839,7 +839,7 @@ func _build_barc(steel: Material, poly: Material, trim: Material, lit: Material)
 	_ribs(poly, 3, 0.30, 0.55)
 
 
-## SEPARATIST — STAP. A single vertical pole with a footplate, two long gun arms
+## AUTOMATA — STAP. A single vertical pole with a footplate, two long gun arms
 ## reaching forward and almost nothing else. It is the outlier of the four on
 ## purpose: the only one with no hull, so from any angle you can see straight
 ## through it, which is exactly what a droid riding a stick should look like.
@@ -859,7 +859,7 @@ func _build_stap(steel: Material, poly: Material, trim: Material, lit: Material)
 	_ribs(poly, 4, 0.16, 1.20, 0.22)
 
 
-## EMPIRE — 74-Z SPEEDER BIKE. A long thin lance with the steering vanes hinged
+## DOMINION — 74-Z SPEEDER BIKE. A long thin lance with the steering vanes hinged
 ## out at the very front. Nearly all of its length is AHEAD of the rider, which is
 ## what makes it read as fast even parked.
 func _build_speeder_bike(steel: Material, poly: Material, trim: Material, lit: Material) -> void:
@@ -880,7 +880,7 @@ func _build_speeder_bike(steel: Material, poly: Material, trim: Material, lit: M
 	_ribs(poly, 4, 0.24, -0.30)
 
 
-## REBEL — T-47 AIRSPEEDER. Wide, flat and blunt: a two-seat wedge with the laser
+## PACT — T-47 AIRSPEEDER. Wide, flat and blunt: a two-seat wedge with the laser
 ## pods hung outboard. The only one of the four that is wider than it is tall by a
 ## long way, and the only one with a visible canopy.
 func _build_airspeeder(steel: Material, poly: Material, trim: Material, lit: Material) -> void:
@@ -903,12 +903,12 @@ func _build_airspeeder(steel: Material, poly: Material, trim: Material, lit: Mat
 
 
 ## A rider's saddle and grips. Shared by the two bikes, because a saddle is a
-## REPUBLIC — LAAT GUNSHIP. The read is the WINGS: a slab fuselage with two stub
+## CONCORD — HAMMERHEAD GUNSHIP. The read is the WINGS: a slab fuselage with two stub
 ## wings carrying engine pods well outboard, and the door gunner bubbles that are
 ## the only thing about the shape anybody actually remembers. Everything sits
 ## HIGH and WIDE, so from the ground it fills the sky rather than the lane — the
 ## opposite silhouette to every speeder, which is the point of a reward.
-## EMPIRE — AT-ST WALKER. A HEAD ON LEGS, and the whole silhouette is that it has
+## DOMINION — MARAUDER WALKER. A HEAD ON LEGS, and the whole silhouette is that it has
 ## no body: a hunched command pod with a visor slit, two chin guns, and two legs
 ## that hang below it with nothing in between. It is the only thing in the game
 ## that is TALLER than it is long, which is what makes it read at distance.
@@ -922,7 +922,7 @@ func _build_airspeeder(steel: Material, poly: Material, trim: Material, lit: Mat
 ## something a screenshot reliably shows (the shadow is under it either way) and
 ## is why `tests/vehicles.gd` now measures the gap instead.
 ##
-## TWO THIRDS OF AN AT-ST IS LEG. That is the proportion everything else is read
+## TWO THIRDS OF AN MARAUDER IS LEG. That is the proportion everything else is read
 ## against: a big pod on short legs is a bunker, and what makes this thing
 ## unmistakable is a small hunched head carried very high on thin reverse-jointed
 ## legs. Pod 2.0 m on 4.4 m of leg.
@@ -1044,7 +1044,7 @@ func _saddle(poly: Material, trim: Material) -> void:
 
 
 ## A run of small repeated plates along the hull. THIS IS WHAT GIVES A LONG FLAT
-## BODY ITS SCALE — the same lesson as the Coruscant tower mullions and the
+## BODY ITS SCALE — the same lesson as the Civis tower mullions and the
 ## turret's vent slats. Without it a two-metre boom and a five-metre one look
 ## identical, because there is nothing on either to measure against.
 func _ribs(mat: Material, count: int, width: float, from_z: float, step := 0.34) -> void:

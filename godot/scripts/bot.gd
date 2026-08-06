@@ -296,14 +296,14 @@ const RECOIL_YAW_SHARE := 0.5  # sideways lean per shot, as a share of the pitch
 
 enum State { HOLD, ADVANCE, ENGAGE }
 
-var team: int = GameState.Team.REPUBLIC
+var team: int = GameState.Team.CONCORD
 var owner_player: Node3D          # who paid for it; the bot falls in behind them
 var health := 90.0
 var max_health := 90.0
 var loadout: Loadout              # the preset it deployed with
 ## The animation module — the same one a Player uses. See `Locomotion`.
 var _loco: Locomotion
-## Bots act on the FIRST gadget slot only. The Mandalorian preset carries a
+## Bots act on the FIRST gadget slot only. The Hunter preset carries a
 ## second one it never uses, which costs it nothing it would otherwise have.
 var _force_cd := 0.0
 ## The lightning channel: seconds of stream left, time to the next bite, and the
@@ -313,7 +313,7 @@ var _channel_left := 0.0
 var _channel_tick := 0.0
 var _channel_arc: Node3D
 var _tick_delta := 0.0
-var _shove := Vector3.ZERO        # decaying push from someone else's Force power
+var _shove := Vector3.ZERO        # decaying push from someone else's Kinesis power
 var _path := PackedVector2Array()
 var _path_i := 0
 var _path_goal := Vector3.ZERO
@@ -456,7 +456,7 @@ func setup(owner: Node3D, bot_team: int, skill_index: int, build := -1,
 			"speed": 1.0, "turn": 3.0, "ads": true, "lead": false,
 		}
 	# On FACTION classes a bot fields its SIDE's roster rather than the generic
-	# trooper presets: Republic bots are clones, Separatist bots are droids.
+	# trooper presets: Concord bots are legionaries, Automata bots are droids.
 	# `build` is the class slot (team_build wraps it into the team's four), so
 	# Main dealing the counter out in order still fields a mix of the faction's
 	# classes. Keyed to the class SETTING, not to Conquest, so faction bots turn
@@ -478,12 +478,12 @@ func setup(owner: Node3D, bot_team: int, skill_index: int, build := -1,
 	max_health = loadout.max_health() * float(_skill["health"])
 	health = max_health
 	# The class multiplies the frame here exactly as it does on a Player, so an
-	# AI Force adept closes ground as fast as a human one — and an AI Droideka is
+	# AI Kinesis adept closes ground as fast as a human one — and an AI Aegis Drone is
 	# as slow, as tough and as short as one you drive yourself.
 	_speed = BASE_SPEED * loadout.move_speed() * float(_skill["speed"])
 	_apply_stature(loadout.stature())
 	_since_damage = 0.0
-	model.set_style(loadout.character_style())   # clone, droid, Wookiee... per build
+	model.set_style(loadout.character_style())   # legionary, droid, Ursan... per build
 	# The animation module, built with the rig. `set_style` rebuilds the joints,
 	# so this comes after it — the AnimationPlayer survives a style change but
 	# the model reference has to be the one now holding the joints.
@@ -634,7 +634,7 @@ func _physics_process(delta: float) -> void:
 			_cable_wire = null
 		else:
 			velocity = to_anchor.normalized() * CABLE_SPEED
-	# An outside shove (a Force push or pull) rides its own decaying velocity and
+	# An outside shove (a kinetic shove or pull) rides its own decaying velocity and
 	# is added LAST, after everything above has written velocity for the frame.
 	# A bot rewrites velocity.x/z every physics tick, so anything added earlier
 	# is gone before it moves — the same trap as a gun's kick_back on a Player.
@@ -885,7 +885,7 @@ func _hold_range() -> float:
 
 func _can_see(other: Node3D) -> bool:
 	# A cloaked target is invisible to AI outright — the same idea as smoke, one
-	# body instead of an area. This is what the Trandoshan's cloak buys.
+	# body instead of an area. This is what the Saurian's cloak buys.
 	if GameState.is_cloaked(other):
 		return false
 	var from := global_position + Vector3.UP * EYE_HEIGHT * _stature
@@ -910,7 +910,7 @@ func _fight(delta: float) -> void:
 
 	# Where this bot wants to stand: what its own aim and its own gun can hit
 	# from, floored by the tier's stand-off and capped by the weapon's reach —
-	# without that cap a lightsaber bot would stop at twenty metres and swing at
+	# without that cap a arc blade bot would stop at twenty metres and swing at
 	# the air for the rest of the match.
 	var hold := _hold_range()
 	_state = State.ENGAGE if gap <= hold else State.ADVANCE
@@ -1163,7 +1163,7 @@ func _throw_grenade_if_useful(gap: float) -> void:
 	# Grenades are gadgets now, so a bot throws only if it BOUGHT one; the type
 	# comes from whichever slot holds it.
 	# Resolved to the ACTION first: every universe has its own grenade rows
-	# (a plasma grenade, a stikkbomb) and they all throw one of the three types.
+	# (a plasma grenade, a scrap bomb) and they all throw one of the three types.
 	var g := Loadout.gadget_action(loadout.gadget)
 	if not (g in Loadout.GRENADE_GADGETS):
 		g = Loadout.gadget_action(loadout.gadget2)
@@ -1288,52 +1288,52 @@ func _try_cable(goal: Vector3) -> void:
 	_cable_wire.launch(self, weapon, _cable_anchor, 0.12)
 
 
-## A Force adept shoves whatever has closed on it. The gate is the same idea as
+## A Kinesis adept shoves whatever has closed on it. The gate is the same idea as
 ## the bot's grenade: a power it only spends when the situation it is for has
 ## actually arrived, so it is not simply on cooldown forever.
 func _force_push_if_crowded(gap: float) -> void:
-	if loadout == null or not loadout.uses(Loadout.Gadget.FORCE_PUSH):
+	if loadout == null or not loadout.uses(Loadout.Gadget.KINETIC_PUSH):
 		return
-	if _force_cd > 0.0 or gap > ForcePowers.PUSH_RANGE * 0.7:
+	if _force_cd > 0.0 or gap > Kinesis.PUSH_RANGE * 0.7:
 		return
-	if ForcePowers.push(self, team) > 0:
-		_force_cd = float(Loadout.GADGET_COOLDOWNS[Loadout.Gadget.FORCE_PUSH])
+	if Kinesis.push(self, team) > 0:
+		_force_cd = float(Loadout.GADGET_COOLDOWNS[Loadout.Gadget.KINETIC_PUSH])
 
 
-## The other half of a Force adept's answer to distance: when the target is too
+## The other half of a Kinesis adept's answer to distance: when the target is too
 ## far to cut but inside the arc's reach, throw lightning at it. The gate is a
 ## RANGE band rather than a crowd, because unlike push this is what the bot uses
 ## while it is still closing — and it is spent only on a target it can actually
 ## see, which _nearest_in_cone re-checks for itself.
 func _throw_lightning_if_in_reach(gap: float) -> void:
-	if loadout == null or not loadout.uses(Loadout.Gadget.FORCE_LIGHTNING):
+	if loadout == null or not loadout.uses(Loadout.Gadget.ARC_STORM):
 		return
 	# Already pouring: keep it going while the target is still in reach. A bot
 	# has to CHANNEL for the same reason a player does — the power is worth 11 a
 	# tick now, so one bite is a scratch and the whole threat is in holding it.
 	if _channel_left > 0.0:
 		_channel_left -= _tick_delta
-		if gap > ForcePowers.BOLT_RANGE or _channel_left <= 0.0:
+		if gap > Kinesis.BOLT_RANGE or _channel_left <= 0.0:
 			_channel_left = 0.0
-			_force_cd = float(Loadout.GADGET_COOLDOWNS[Loadout.Gadget.FORCE_LIGHTNING])
+			_force_cd = float(Loadout.GADGET_COOLDOWNS[Loadout.Gadget.ARC_STORM])
 			return
 		_channel_tick -= _tick_delta
 		if _channel_tick <= 0.0:
-			_channel_tick = ForcePowers.CHANNEL_TICK
-			_channel_arc = ForcePowers.channel_bolt(
+			_channel_tick = Kinesis.CHANNEL_TICK
+			_channel_arc = Kinesis.channel_bolt(
 				self, team, LIGHTNING_SCENE, weapon, _channel_arc)
 		return
-	if _force_cd > 0.0 or gap > ForcePowers.BOLT_RANGE * 0.9:
+	if _force_cd > 0.0 or gap > Kinesis.BOLT_RANGE * 0.9:
 		return
 	# Open on the FIRST bite: channel_bolt returns null if the cone was empty, so
 	# the channel is committed only when it actually hit — and the cone is
 	# resolved (and damage dealt) exactly once, not once to probe and once to fire.
-	var arc := ForcePowers.channel_bolt(self, team, LIGHTNING_SCENE, weapon, _channel_arc)
+	var arc := Kinesis.channel_bolt(self, team, LIGHTNING_SCENE, weapon, _channel_arc)
 	if arc == null:
 		return
 	_channel_arc = arc
-	_channel_left = ForcePowers.CHANNEL_TIME
-	_channel_tick = ForcePowers.CHANNEL_TICK
+	_channel_left = Kinesis.CHANNEL_TIME
+	_channel_tick = Kinesis.CHANNEL_TICK
 
 
 ## A wrist rocket, on the same "use it when the moment it is for arrives" rule
@@ -1359,7 +1359,7 @@ func _fire_wrist_rocket_if_useful(gap: float) -> void:
 	_force_cd = float(Loadout.GADGET_COOLDOWNS[Loadout.Gadget.WRIST_ROCKET])
 
 
-## Take a shove from someone else's Force power. See _physics_process for why it
+## Take a shove from someone else's Kinesis power. See _physics_process for why it
 ## cannot simply be added to velocity here.
 func apply_impulse(impulse: Vector3) -> void:
 	_shove += impulse

@@ -37,11 +37,11 @@ extends Arena
 const PLANET_GROUND := preload("res://shaders/planet_ground.gdshader")
 const PLANET_SKY := preload("res://shaders/planet_sky.gdshader")
 
-enum Planet { GEONOSIS, KASHYYYK, CORUSCANT, MUSTAFAR, HOTH }
+enum Planet { ARIDIS, SILVA, CIVIS, CINDER, BOREAL }
 const PLANET_NAMES := {
-	Planet.GEONOSIS: "GEONOSIS", Planet.KASHYYYK: "KASHYYYK",
-	Planet.CORUSCANT: "CORUSCANT", Planet.MUSTAFAR: "MUSTAFAR",
-	Planet.HOTH: "HOTH",
+	Planet.ARIDIS: "ARIDIS", Planet.SILVA: "SILVA",
+	Planet.CIVIS: "CIVIS", Planet.CINDER: "CINDER",
+	Planet.BOREAL: "BOREAL",
 }
 
 ## Walkable slope ceiling as a gradient (rise over run). 0.50 is 26.6 degrees,
@@ -65,7 +65,7 @@ const NAV_MIN_WIDTH := 4.0
 ## broad landform, short ones the detail; the generator normalises them against
 ## MAX_GRADIENT so any combination stays walkable.
 const PLANETS := {
-	Planet.GEONOSIS: {
+	Planet.ARIDIS: {
 		"blurb": "Red rock and wind-cut spires over a baked hardpan",
 		"size": 300.0,
 		"octaves": [[110.0, 7.0], [46.0, 2.6], [17.0, 0.8]],
@@ -119,7 +119,7 @@ const PLANETS := {
 			"volumetric": 0.0014,
 		},
 	},
-	Planet.KASHYYYK: {
+	Planet.SILVA: {
 		"blurb": "Wroshyr giants over a shaded forest floor",
 		"size": 280.0,
 		"octaves": [[120.0, 5.0], [52.0, 2.2], [19.0, 0.7]],
@@ -167,7 +167,7 @@ const PLANETS := {
 			"volumetric": 0.0044,
 		},
 	},
-	Planet.CORUSCANT: {
+	Planet.CIVIS: {
 		"blurb": "Rooftops and canyons of an endless city, at dusk",
 		"size": 290.0,
 		# Almost flat: this is a rooftop plain, and its relief comes entirely
@@ -193,7 +193,7 @@ const PLANETS := {
 		"volumetric": 0.0026,
 		"exposure": 1.60,
 		"lay": "city",
-		# THE CITY IS THE LIGHT. Coruscant at night is the one world that gets
+		# THE CITY IS THE LIGHT. Civis at night is the one world that gets
 		# BRIGHTER in places when the sun goes: the window rows and the ground
 		# glow are already emissive, so with the sky pulled down to almost
 		# nothing they become the map's illumination rather than decoration on
@@ -216,7 +216,7 @@ const PLANETS := {
 			"volumetric": 0.0030,
 		},
 	},
-	Planet.MUSTAFAR: {
+	Planet.CINDER: {
 		"blurb": "Obsidian flats split by molten rivers, under an ash sky",
 		"size": 270.0,
 		"octaves": [[100.0, 6.0], [42.0, 2.4], [16.0, 0.9]],
@@ -263,7 +263,7 @@ const PLANETS := {
 			"volumetric": 0.0060,
 		},
 	},
-	Planet.HOTH: {
+	Planet.BOREAL: {
 		"blurb": "Drifts and ice ridges under a thin white sun",
 		"size": 285.0,
 		"octaves": [[125.0, 11.0], [50.0, 4.2], [18.0, 0.9]],
@@ -334,7 +334,7 @@ const PLANETS := {
 ## project has already made once (see the sky-ambient note in THE GRADE). What a
 ## night map actually needs is for the RATIO between things to change, not their
 ## sum — the ground goes down a long way, the ambient goes down less, and the
-## things that are genuinely light sources (Mustafar's lava, Coruscant's windows,
+## things that are genuinely light sources (Cinder's lava, Civis's windows,
 ## and above all the muzzle flashes) go UP, because at night they are the only
 ## illumination and being the brightest thing on the map is their whole job.
 ##
@@ -406,7 +406,7 @@ static func world(planet_id: int, night: bool) -> Dictionary:
 	return out
 
 
-var planet := Planet.GEONOSIS
+var planet := Planet.ARIDIS
 ## This match's resolved palette — see `world()`. Everything reads THIS and not
 ## `PLANETS[planet]`, or it would build half a night map.
 var _world: Dictionary = {}
@@ -432,7 +432,7 @@ var _detail: Array = []
 var _lit: Array = []
 ## ...and a PALE batch, for snow drifted against structures. Its own list rather
 ## than a flag on the others because it needs a different material: drift snow is
-## the brightest thing on Hoth and the structural greebles are the darkest.
+## the brightest thing on Boreal and the structural greebles are the darkest.
 var _pale: Array = []
 
 
@@ -473,8 +473,8 @@ func _spawn_line(x: float) -> Array[Vector3]:
 ## `wall_color` and `cover_color` used to be set to the terrain's own `rock_col`
 ## — literally the same Color object the ground shader paints its cliffs with. So
 ## every spire, tower, bunker and cover box on a planet was, by construction, the
-## same tone as the ground it stood on. On Kashyyyk that happened to work, because
-## its rock is a grey-brown against a green floor; on Geonosis, where the rock is
+## same tone as the ground it stood on. On Silva that happened to work, because
+## its rock is a grey-brown against a green floor; on Aridis, where the rock is
 ## (0.56, 0.31, 0.20) and the low ground is (0.52, 0.28, 0.17), it meant the
 ## spires and the hardpan were the same colour to within two percent. No amount of
 ## relief, greebling or lighting rescues that: **the eye separates objects from
@@ -829,8 +829,8 @@ func _sun_dir() -> Vector3:
 	return -(basis * Vector3.FORWARD).normalized() * -1.0
 
 
-## Weather is a per-planet number: Mustafar's ash and Hoth's blizzard are thick,
-## Geonosis's dust is thin, and volumetric density is sensitive enough that one
+## Weather is a per-planet number: Cinder's ash and Boreal's blizzard are thick,
+## Aridis's dust is thin, and volumetric density is sensitive enough that one
 ## value for all five is one value wrong for four of them.
 func _grade() -> void:
 	Grade.apply_to(self, grade_exposure,
@@ -1103,7 +1103,7 @@ func _stack(at: Vector2, base_w: float, total_h: float, steps: int,
 
 # --- the five layouts ----------------------------------------------------------
 
-## GEONOSIS: wind-cut spires. Tall, thin, heavily tapered — the silhouette is
+## ARIDIS: wind-cut spires. Tall, thin, heavily tapered — the silhouette is
 ## the map, and the gaps between them are the lanes.
 func _lay_spires() -> void:
 	var stone := _shades(Color(0.60, 0.31, 0.19), 0.95)
@@ -1134,9 +1134,9 @@ func _lay_spires() -> void:
 	_low_cover(_shade(stone), 22)
 
 
-## KASHYYYK: wroshyr trunks. Enormous, near-vertical, and close enough together
+## SILVA: wroshyr trunks. Enormous, near-vertical, and close enough together
 ## that the trunks themselves are the cover — the same idea the hand-authored
-## Kashyyyk uses, generated.
+## Silva uses, generated.
 func _lay_forest() -> void:
 	var barks := _shades(Color(0.30, 0.21, 0.13), 0.96)
 	var bark: Material = _shade(barks)
@@ -1244,7 +1244,7 @@ func _canopy() -> void:
 	Props.batch(self, leaf, xf, _mat(Color(0.10, 0.20, 0.08), 0.98), true)
 
 
-## CORUSCANT: a real skyline. Towers are built from a GRAMMAR rather than a
+## CIVIS: a real skyline. Towers are built from a GRAMMAR rather than a
 ## stack of equal boxes, because that grammar is what the eye recognises as
 ## architecture: a wide PODIUM at the foot, a SHAFT that steps in at setbacks, a
 ## narrower CROWN, and a MAST. Get those four in the right proportions and a box
@@ -1265,7 +1265,7 @@ func _lay_city() -> void:
 		placed.append(at)
 		_tower(at, _rng.randf_range(14.0, 24.0), _rng.randf_range(34.0, 96.0),
 			_shade(plates))
-	# SKYBRIDGES between neighbours. Coruscant is a city you cross above the
+	# SKYBRIDGES between neighbours. Civis is a city you cross above the
 	# ground, and a span between two towers is the one element that says these
 	# are inhabited rather than extruded.
 	for a: Vector2 in placed:
@@ -1352,7 +1352,7 @@ func _clad(at: Vector2, base_y: float, seg_h: float, w: float, yaw: float) -> vo
 					Vector3(w * 0.80, 1.0, 0.9), face_yaw)
 
 
-## MUSTAFAR: a refinery on a lava plain. Blocky, industrial, and the only planet
+## CINDER: a refinery on a lava plain. Blocky, industrial, and the only planet
 ## whose ground lights the buildings rather than the other way round.
 func _lay_foundry() -> void:
 	var irons := _shades(Color(0.28, 0.24, 0.23), 0.75, 0.35)
@@ -1376,7 +1376,7 @@ func _lay_foundry() -> void:
 			_stack(at, w, _rng.randf_range(10.0, 20.0), 2, _shade(irons), 0.85, 0.04)
 			_solid(Vector3(at.x, height_at(at.x, at.y) + 0.4, at.y),
 				Vector3(w * 1.25, 0.8, w * 1.25), molten)
-	# Volcanic massifs, and the lava itself: the same sea Kashyyyk floods its
+	# Volcanic massifs, and the lava itself: the same sea Silva floods its
 	# hollows with, lit instead of transparent, so the molten rivers follow the
 	# real low ground and pool where the terrain actually dips.
 	for i in 5:
@@ -1391,7 +1391,7 @@ func _lay_foundry() -> void:
 	_low_cover(rust, 22)
 
 
-## HOTH: a snowfield people have DUG INTO. The relief is all in the terrain (its
+## BOREAL: a snowfield people have DUG INTO. The relief is all in the terrain (its
 ## octaves are the tallest here); what stands on it is low, built, and half
 ## buried — bunkers, revetments, trenches, and the rock the wind has stripped
 ## bare. No ice spires: they read as stalagmites and fight the horizon, which on
@@ -1575,7 +1575,7 @@ func _backdrop_taper() -> float:
 # --- terrain features ----------------------------------------------------------
 
 ## A SEA: one plane at a fixed height, flooding whatever the terrain leaves below
-## it. Kashyyyk's water and Mustafar's lava are the same object with a different
+## it. Silva's water and Cinder's lava are the same object with a different
 ## material — and because the height function is a sum of sines, its hollows are
 ## already a connected network of basins and channels, so a plane through them
 ## comes out as LAKES AND RIVERS rather than as a bathtub. Nothing has to be

@@ -73,7 +73,7 @@ var _scale := 1.0                 # pixels per metre
 ## all of them, and it runs four times over on every frame any player moves — so
 ## the four dictionary lookups per shape were the cost, not the geometry. Same
 ## trick and the same reason as `GameState.sample_combatants`: no hashing in the
-## inner loop. Measured on Kashyyyk at 4 viewports, this took the HUD's share of
+## inner loop. Measured on Silva at 4 viewports, this took the HUD's share of
 ## the frame from ~0.9 ms back down into the noise.
 var _sx := PackedFloat32Array()      # footprint centre, world X
 var _sz := PackedFloat32Array()      # footprint centre, world Z

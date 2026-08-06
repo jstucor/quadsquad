@@ -2,7 +2,7 @@ extends Node3D
 ## The visible bolt for FORCE LIGHTNING: a jagged line from the caster's hand
 ## through everyone the arc struck, flickering for a moment and then gone.
 ##
-## Purely cosmetic, exactly like the cable's wire — ForcePowers has already dealt
+## Purely cosmetic, exactly like the cable's wire — Kinesis has already dealt
 ## the damage and decided the chain by the time this exists. It only has to agree
 ## with it, which is why it is handed the same ordered list of victims.
 ##
@@ -17,7 +17,7 @@ extends Node3D
 
 const LIFE := 0.34            # seconds on screen
 const SEGMENTS := 10          # jagged pieces per link of the chain
-const MAX_LINKS := 5          # caster + every victim ForcePowers can chain
+const MAX_LINKS := 5          # caster + every victim Kinesis can chain
 const THICKNESS := 0.035
 const JITTER := 0.20          # how far a joint kicks off the straight line, in m
 const HAND_FORWARD := 0.75    # the bolt leaves the hand, not the camera origin
@@ -43,7 +43,7 @@ var _points: Array[Vector3] = []
 
 
 ## `source` is the caster's weapon node (the bolt's origin), `chain` the victims
-## in the order ForcePowers struck them.
+## in the order Kinesis struck them.
 func strike(source: Node3D, chain: Array) -> void:
 	_source = source
 	_victims = chain.slice(0, MAX_LINKS - 1)

@@ -1,7 +1,7 @@
 extends Node3D
 
 ## The two gadget changes: lightning that is CHANNELLED while held, and the
-## Mandalorian's wrist rocket.
+## Hunter's wrist rocket.
 ##
 ## The channel is the interesting one to measure. Held on a target it should
 ## bite repeatedly and add up to more than the old one-shot burst; released
@@ -20,61 +20,61 @@ func _ready() -> void:
 	GameState.match_live = true
 	_build_floor()
 
-	var jedi := await _spawn(_build(Loadout.Kit.FORCE, Weapon.Class.SABER,
-		Loadout.Gadget.FORCE_LIGHTNING), Vector3.ZERO, 0)
+	var warden := await _spawn(_build(Loadout.Kit.ADEPT, Weapon.Class.SABER,
+		Loadout.Gadget.ARC_STORM), Vector3.ZERO, 0)
 	var mark := await _spawn(Loadout.starter(), Vector3(0.0, 0.0, -12.0), 1)
 	mark.damaged.connect(func(amount: float) -> void: _hits.append(amount))
 	await _frames(2)
 
 	print("== the channel ==")
 	print("  %.1fs of stream, a bite every %.2fs, %.0f per bite -> %.0f total" % [
-		ForcePowers.CHANNEL_TIME, ForcePowers.CHANNEL_TICK, ForcePowers.BOLT_DAMAGE,
-		ForcePowers.CHANNEL_TIME / ForcePowers.CHANNEL_TICK * ForcePowers.BOLT_DAMAGE])
+		Kinesis.CHANNEL_TIME, Kinesis.CHANNEL_TICK, Kinesis.BOLT_DAMAGE,
+		Kinesis.CHANNEL_TIME / Kinesis.CHANNEL_TICK * Kinesis.BOLT_DAMAGE])
 	mark.health = 100000.0
 	_hits.clear()
-	jedi._use_gadget(0)                       # opens the channel
+	warden._use_gadget(0)                       # opens the channel
 	var held := 0.0
 	for _i in 300:
 		# Hold the button: the channel reads the gadget control every frame.
 		Input.action_press("kb_gadget")
 		await _frames(1)
 		held += get_physics_process_delta_time()
-		if jedi._channel_left <= 0.0:
+		if warden._channel_left <= 0.0:
 			break
 	Input.action_release("kb_gadget")
 	var total := 0.0
 	for h in _hits:
 		total += h
 	print("  held %.2fs -> %d bites, %.0f damage, cooldown now %.1fs" % [
-		held, _hits.size(), total, jedi.gadget_cooldown(0)])
+		held, _hits.size(), total, warden.gadget_cooldown(0)])
 	_expect(_hits.size() > 5, "holding it bites over and over, not once")
 	_expect(total > 90.0, "a full channel is worth more than a rifle magazine")
-	_expect(jedi.gadget_cooldown(0) > 0.0, "and a full channel costs the full cooldown")
+	_expect(warden.gadget_cooldown(0) > 0.0, "and a full channel costs the full cooldown")
 
 	# --- a tap costs almost nothing --------------------------------------
 	print("\n== a tap ==")
-	jedi._force_cd = [0.0, 0.0, 0.0]   # one per gadget slot, and there are three
-	jedi._channel_left = 0.0
+	warden._force_cd = [0.0, 0.0, 0.0]   # one per gadget slot, and there are three
+	warden._channel_left = 0.0
 	await _frames(2)
 	_hits.clear()
-	jedi._use_gadget(0)
+	warden._use_gadget(0)
 	await _frames(2)          # button never held: the channel closes at once
-	var tap_cd := jedi.gadget_cooldown(0)
-	var full: float = Loadout.GADGET_COOLDOWNS[Loadout.Gadget.FORCE_LIGHTNING]
+	var tap_cd := warden.gadget_cooldown(0)
+	var full: float = Loadout.GADGET_COOLDOWNS[Loadout.Gadget.ARC_STORM]
 	print("  tapped -> cooldown %.2fs of a %.1fs maximum" % [tap_cd, full])
 	_expect(tap_cd > 0.0 and tap_cd < full * 0.6,
 		"a tap costs a fraction of the cooldown, not the whole thing")
 
 	# --- the wrist rocket -------------------------------------------------
 	print("\n== the wrist rocket ==")
-	var mando := await _spawn(_build(Loadout.Kit.MANDALORIAN, Weapon.Class.SMG,
+	var mando := await _spawn(_build(Loadout.Kit.HUNTER, Weapon.Class.SMG,
 		Loadout.Gadget.WRIST_ROCKET), Vector3(40.0, 0.0, 0.0), 0)
 	var victim := await _spawn(Loadout.starter(), Vector3(40.0, 0.0, -14.0), 1)
 	await _frames(2)
 	print("  %s carries %s" % [mando.loadout.kit_name(),
 		Loadout.GADGETS[mando.gadget]["name"]])
 	_expect(mando.gadget == Loadout.Gadget.WRIST_ROCKET,
-		"a Mandalorian can buy the wrist rocket")
+		"a Hunter can buy the wrist rocket")
 	var before := victim.health
 	mando._use_gadget(0)
 	print("  fired: %d rocket(s) in the world" % _count("Rocket"))
@@ -86,17 +86,17 @@ func _ready() -> void:
 			break
 	print("  victim %.0f -> %.0f after the flight" % [before, victim.health])
 	_expect(victim.health < before, "and it damages what it flies into")
-	_expect(mando.is_alive(), "without blowing up the Mandalorian who fired it")
+	_expect(mando.is_alive(), "without blowing up the Hunter who fired it")
 
 	# --- nobody else may have it ------------------------------------------
-	var clone := Loadout.new()
-	clone.adopt_kit(Loadout.Kit.CLONE)
-	_expect(not clone.allows(Loadout.Row.GADGET, Loadout.Gadget.WRIST_ROCKET),
-		"a clone cannot buy the wrist rocket")
+	var legionary := Loadout.new()
+	legionary.adopt_kit(Loadout.Kit.LEGION)
+	_expect(not legionary.allows(Loadout.Row.GADGET, Loadout.Gadget.WRIST_ROCKET),
+		"a legionary cannot buy the wrist rocket")
 
 	# --- grenades are gadgets with a cooldown now -------------------------
 	print("\n== the grenade gadget ==")
-	var nader := await _spawn(_build(Loadout.Kit.CLONE, Weapon.Class.SOLDIER,
+	var nader := await _spawn(_build(Loadout.Kit.LEGION, Weapon.Class.SOLDIER,
 		Loadout.Gadget.GRENADE_FRAG), Vector3(-40.0, 0.0, 0.0), 0)
 	# It sits in slot 0 here for the test; a player would fit it in slot 2.
 	await _frames(2)
@@ -148,7 +148,7 @@ func _ready() -> void:
 	# gets the thing, because every step between the buy screen and the body has
 	# to survive, not just the one that was broken.
 	print("\n== the sustained slot ==")
-	var sus := _build(Loadout.Kit.CLONE, Weapon.Class.DC15S, Loadout.Gadget.NONE)
+	var sus := _build(Loadout.Kit.LEGION, Weapon.Class.VL15S, Loadout.Gadget.NONE)
 	sus.gadget3 = Loadout.Gadget.OVERSHIELD
 	var trooper := await _spawn(sus, Vector3(40.0, 0.0, 0.0), 0)
 	await _frames(2)

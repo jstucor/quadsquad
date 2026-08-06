@@ -25,8 +25,8 @@ func _ready() -> void:
 	add_child(cam)
 	cam.current = true
 
-	for u: int in [Loadout.Universe.STAR_WARS, Loadout.Universe.HALO,
-			Loadout.Universe.WARHAMMER]:
+	for u: int in [Loadout.Universe.COMPACT, Loadout.Universe.DEEP_RANGE,
+			Loadout.Universe.IRONHYMN]:
 		GameState.universe = u
 		var sides: int = (Loadout.UNIVERSES[u]["teams"] as Array).size()
 		var rows: Array[Dictionary] = []

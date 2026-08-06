@@ -33,10 +33,10 @@ func _ready() -> void:
 	# ...and one outdoor map, because a fix for a ceiling that broke open ground
 	# would be a worse trade than the bug.
 	await _check_zones("CROSSFIRE")
-	await _check_conquest("GEONOSIS (GENERATED)")
+	await _check_conquest("ARIDIS (GENERATED)")
 
 	for want in ["zones OUTPOST", "conquest OUTPOST", "royale OUTPOST",
-			"zones CROSSFIRE", "conquest GEONOSIS (GENERATED)"]:
+			"zones CROSSFIRE", "conquest ARIDIS (GENERATED)"]:
 		if not _done.has(want):
 			_fails.append("the `%s` section never finished — it aborted part way" % want)
 	print("\n==== %s ====" % ("EVERY MODE PLAYS ON EVERY MAP" if _fails.is_empty()

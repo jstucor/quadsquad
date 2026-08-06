@@ -31,7 +31,7 @@ const MUZZLE_Y := 1.13        # shells leave the top of the tube
 const TRAVERSE_SPEED := 2.4   # radians/sec the tube swings toward a new mark
 const SKY := 60.0             # how far up the ground probe starts
 
-var team: int = GameState.Team.REPUBLIC
+var team: int = GameState.Team.CONCORD
 var owner_player: Node3D
 var health := MAX_HEALTH
 
@@ -215,7 +215,7 @@ func _paint(team_color: Color) -> void:
 ##
 ## A MORTAR IS A BASEPLATE, A BIPOD AND A TUBE, and those three masses in roughly
 ## the right proportions are what the eye recognises — the same lesson as the
-## Coruscant towers, where no amount of detail rescues the wrong shapes. It used
+## Civis towers, where no amount of detail rescues the wrong shapes. It used
 ## to be a cone with a cylinder leaning out of it, which is a signpost.
 ##
 ## The three masses are also what makes it read as ARTILLERY rather than as a

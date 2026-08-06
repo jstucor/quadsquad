@@ -3,7 +3,7 @@ extends Node
 ##
 ##   godot --path godot --display-driver x11 --resolution 1280x720 tests/gunship_pov.tscn
 ##
-## The LAAT was reported as "ninety per cent of the time you cannot see anything
+## The HAMMERHEAD was reported as "ninety per cent of the time you cannot see anything
 ## but the model", and neither of the two causes could be found by looking at the
 ## gunship from outside — which is the only way `warmachine_look` ever saw it.
 ## The ball hung on the OUTSIDE of the turn, so aiming at the battle meant aiming

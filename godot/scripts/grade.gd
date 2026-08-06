@@ -52,7 +52,7 @@ const SSIL_RADIUS := 6.0          # metres a surface throws its colour
 const SSIL_INTENSITY := 1.1
 ## Volumetric density is FAR more sensitive than depth fog: 0.012 turned a 280 m
 ## forest into an opaque green soup with the ground lost in it. Outdoor vistas
-## want thousandths. A map that wants weather (Mustafar's ash, Hoth's blizzard)
+## want thousandths. A map that wants weather (Cinder's ash, Boreal's blizzard)
 ## passes its own.
 const VOLUMETRIC_DENSITY := 0.0022
 const FOG_ANISOTROPY := 0.55      # >0 scatters forward, which is what makes rays

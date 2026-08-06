@@ -14,7 +14,7 @@ func _ready() -> void:
 	var p: Player = _find(main)
 	for shot in [["reddot", Loadout.Sight.RED_DOT], ["scope4x", Loadout.Sight.SCOPE_4X]]:
 		var l := Loadout.new()
-		l.adopt_kit(Loadout.Kit.CLONE)
+		l.adopt_kit(Loadout.Kit.LEGION)
 		l.weapon = Loadout.weapon_index(Weapon.Class.SOLDIER)
 		l.sight = shot[1]
 		p.pending = l

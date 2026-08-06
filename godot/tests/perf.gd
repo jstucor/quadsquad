@@ -57,7 +57,7 @@ func _ready() -> void:
 	GameState.mode = GameState.Mode.CONQUEST
 	GameState.class_mode = GameState.ClassMode.FACTION
 	GameState.ai_skill = 3
-	GameState.map_index = 10   # KASHYYYK: 220 m, heavily decorated
+	GameState.map_index = 10   # SILVA: 220 m, heavily decorated
 	# Knobs for bisecting a regression, off by default:
 	#   QS_PERF_TEAM=1   run with no AI fill, to separate players from bots
 	#   QS_PERF_NONAV=1  make routing fall back to straight lines
@@ -385,7 +385,7 @@ func _report_events() -> void:
 		# FORCED, or the view-range rule in corpse.gd frees them unbuilt and this
 		# measures an early-out rather than the work it is meant to price.
 		c.launch(Transform3D.IDENTITY, Color.RED, Vector3.FORWARD,
-			CharacterModel.Style.CLONE, true)
+			CharacterModel.Style.LEGION, true)
 		made.append(c)
 	var corpse_us := Time.get_ticks_usec() - t
 	for c in made:
@@ -395,8 +395,8 @@ func _report_events() -> void:
 	add_child(model)
 	t = Time.get_ticks_usec()
 	for i in n:
-		model.set_style(CharacterModel.Style.CLONE if i % 2 == 0
-			else CharacterModel.Style.CLONE_ARC)
+		model.set_style(CharacterModel.Style.LEGION if i % 2 == 0
+			else CharacterModel.Style.LEGION_VANGUARD)
 	var style_us := Time.get_ticks_usec() - t
 	model.queue_free()
 

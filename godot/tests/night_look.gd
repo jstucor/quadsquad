@@ -21,7 +21,7 @@ extends Node3D
 ##           and Blast.pop — so it photographs what ships rather than a lamp put
 ##           in the scene by the test.
 ##   _wide   high and wide, to check the world still reads as ITSELF at night:
-##           Mustafar by its lava, Coruscant by its windows, Hoth by its snow.
+##           Cinder by its lava, Civis by its windows, Boreal by its snow.
 const LEVEL := preload("res://scenes/levels/planet.tscn")
 const IMPACT := preload("res://scripts/impact.gd")
 
@@ -37,7 +37,7 @@ const STRIKES := [
 ## Weapon.bolt_color), and a hardcoded one in a look test is a second source of
 ## truth that photographs a colour the game does not fire.
 static func bolt_color() -> Color:
-	return GameState.bolt_color(GameState.Team.REPUBLIC)
+	return GameState.bolt_color(GameState.Team.CONCORD)
 
 
 func _ready() -> void:
@@ -98,8 +98,8 @@ func _bodies(cam: Camera3D, level: Node3D) -> Array:
 	var fwd := -cam.global_transform.basis.z
 	for i in 2:
 		var m := CharacterModel.new()
-		m.set_style(CharacterModel.Style.CLONE if i == 0
-			else CharacterModel.Style.B1)
+		m.set_style(CharacterModel.Style.LEGION if i == 0
+			else CharacterModel.Style.AUTOMATON)
 		m.set_team_color(GameState.team_colors[i])
 		add_child(m)
 		var at := cam.global_position + fwd * (9.0 + i * 7.0) \

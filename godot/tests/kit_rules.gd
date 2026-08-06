@@ -134,8 +134,8 @@ func check_copy_fidelity(L, fails: Array) -> void:
 ## is driven on its OWN fresh build, because walking every row of one build to
 ## the right spends the whole budget and then refuses the last few rows for a
 ## perfectly good reason; and the active universe is set to the KIT'S universe,
-## because the CLASS row is walked within the current setting, so a Spartan
-## examined under Star Wars correctly cannot step anywhere.
+## because the CLASS row is walked within the current setting, so a Paladin
+## examined under The Compact Wars correctly cannot step anywhere.
 func check_rows_move(L, fails: Array) -> void:
 	print("\n-- every row the buy screen shows can be changed --")
 	var was = L.active_universe
@@ -169,7 +169,7 @@ func check_rows_move(L, fails: Array) -> void:
 func _init() -> void:
 	var L = load("res://scripts/loadout.gd")
 	var fails := []
-	var kit_names := ["CLONE", "MANDALORIAN", "FORCE", "WOOKIEE", "TRANDOSHAN"]
+	var kit_names := ["LEGION", "HUNTER", "FORCE", "URSAN", "SAURIAN"]
 	check_enum_tables(L, fails)
 	check_bolt_colors(L, fails)
 	check_copy_fidelity(L, fails)
@@ -206,24 +206,24 @@ func _init() -> void:
 		print("  slots     : %d" % b.gadget_slots())
 
 		# --- the rules the user asked for --------------------------------
-		# The Force adept wields the saber AND ordinary guns, while keeping every
-		# Force power; only IT may reach the saber. It still may not take another
+		# Kinesis adept wields the saber AND ordinary guns, while keeping every
+		# Kinesis power; only IT may reach the saber. It still may not take another
 		# kit's signature heavies.
-		var saber_ok: bool = "Lightsaber" in guns
+		var saber_ok: bool = "Arc Blade" in guns
 		if k == 2:
 			if not saber_ok:
-				fails.append("FORCE ADEPT cannot reach its own lightsaber: %s" % guns)
-			if not ("DC-15 Rifle" in guns):
+				fails.append("FORCE ADEPT cannot reach its own arc blade: %s" % guns)
+			if not ("VL-15 Rifle" in guns):
 				fails.append("FORCE ADEPT can no longer wield ordinary guns: %s" % guns)
-			for heavy in ["T-21 HMG", "PLX-1 RPG"]:
+			for heavy in ["T-90 HMG", "PX-1 RPG"]:
 				if heavy in guns:
-					fails.append("FORCE ADEPT reached %s; that is the Wookiee's" % heavy)
-			for power in ["FORCE PUSH", "FORCE PULL", "FORCE LEAP", "FORCE LIGHTNING"]:
+					fails.append("FORCE ADEPT reached %s; that is the Ursan's" % heavy)
+			for power in ["KINETIC SHOVE", "KINETIC HAUL", "KINETIC LEAP", "ARC STORM"]:
 				if not (power in gads):
 					fails.append("%s: missing %s: %s" % [name, power, gads])
 		else:
 			if saber_ok:
-				fails.append("%s can reach the lightsaber" % name)
+				fails.append("%s can reach the arc blade" % name)
 		if k == 1:
 			if not ("JETPACK" in gads and "WRIST CABLE" in gads):
 				fails.append("%s: needs jetpack AND cable, got %s" % [name, gads])
@@ -236,15 +236,15 @@ func _init() -> void:
 					name, b.row_value(L.Row.ARMOR)])
 		else:
 			if "DUAL WIELD" in mods:
-				fails.append("%s can dual wield; only the Mandalorian may" % name)
+				fails.append("%s can dual wield; only the Hunter may" % name)
 		if k == 0:
 			for need in ["MORTAR", "TURRET", "ROTARY CANNON"]:
 				if not (need in gads):
-					fails.append("CLONE cannot take %s" % need)
+					fails.append("LEGION cannot take %s" % need)
 		else:
 			for banned in ["MORTAR", "TURRET", "ROTARY CANNON"]:
 				if banned in gads:
-					fails.append("%s can take %s; that is the clone's" % [name, banned])
+					fails.append("%s can take %s; that is the legionary's" % [name, banned])
 		var sustains := []
 		for i in L.GADGETS.size():
 			if b.allows(L.Row.GADGET3, i):
@@ -269,55 +269,55 @@ func _init() -> void:
 		if not ("FRAG GRENADE" in gads and "STICKY GRENADE" in gads):
 			fails.append("%s cannot fit a frag/sticky grenade gadget: %s" % [name, gads])
 
-		# --- the Wookiee owns the heavy weapons, the bowcaster and the barrier --
-		var heavies := ["T-21 HMG", "PLX-1 RPG"]
+		# --- the Ursan owns the heavy weapons, the quarrel caster and the barrier --
+		var heavies := ["T-90 HMG", "PX-1 RPG"]
 		if k == 3:
 			if guns != heavies:
-				fails.append("WOOKIEE should hold the heavy guns ALONE, got %s" % str(guns))
-			if sides != ["Bowcaster"]:
-				fails.append("WOOKIEE should carry the bowcaster alone, got %s" % str(sides))
+				fails.append("URSAN should hold the heavy guns ALONE, got %s" % str(guns))
+			if sides != ["Quarrel Caster"]:
+				fails.append("URSAN should carry the quarrel caster alone, got %s" % str(sides))
 			if not ("FRONT SHIELD" in sustains):
-				fails.append("WOOKIEE cannot put up the FRONT SHIELD (slot 3): %s"
+				fails.append("URSAN cannot put up the FRONT SHIELD (slot 3): %s"
 					% str(sustains))
 			if "SCOPE" in mods:
-				fails.append("WOOKIEE can scope a PELLET sidearm: 3 quarrels on one point")
+				fails.append("URSAN can scope a PELLET sidearm: 3 quarrels on one point")
 			if arm != ["PLATED", "HEAVY PLATE"]:
-				fails.append("WOOKIEE should wear plate or better, got %s" % str(arm))
+				fails.append("URSAN should wear plate or better, got %s" % str(arm))
 		else:
 			for heavy in heavies:
 				if heavy in guns:
-					fails.append("%s can reach %s; that is the Wookiee's" % [name, heavy])
-			if "Bowcaster" in sides:
-				fails.append("%s can carry the bowcaster; only the Wookiee may" % name)
+					fails.append("%s can reach %s; that is the Ursan's" % [name, heavy])
+			if "Quarrel Caster" in sides:
+				fails.append("%s can carry the quarrel caster; only the Ursan may" % name)
 			if "FRONT SHIELD" in gads or "FRONT SHIELD" in sustains:
-				fails.append("%s can take the FRONT SHIELD; that is the Wookiee's" % name)
+				fails.append("%s can take the FRONT SHIELD; that is the Ursan's" % name)
 		if not b.row_available(L.Row.GADGET2):
 			fails.append("%s should have a second gadget row" % name)
 
-		# --- the Trandoshan owns SMOKE, the thermal sight, cloak and dash ------
+		# --- the Saurian owns SMOKE, the thermal sight, cloak and dash ------
 		if k == 4:
 			if not ("SMOKE GRENADE" in gads):
-				fails.append("TRANDOSHAN cannot fit SMOKE, its signature grenade")
+				fails.append("SAURIAN cannot fit SMOKE, its signature grenade")
 			if not ("THERMAL HOLO" in sights):
-				fails.append("TRANDOSHAN cannot fit its THERMAL HOLO")
+				fails.append("SAURIAN cannot fit its THERMAL HOLO")
 			if not ("CLOAK" in sustains and "SPRINT DASH" in gads):
-				fails.append("TRANDOSHAN needs CLOAK and DASH, got %s" % str(gads))
-			var want := ["DC-15 Rifle", "A280 Semi", "Westar M5 SMG", "NT-242 Sniper"]
+				fails.append("SAURIAN needs CLOAK and DASH, got %s" % str(gads))
+			var want := ["VL-15 Rifle", "A-28 Semi", "WS-5 SMG", "NX-24 Sniper"]
 			for g in want:
 				if not (g in guns):
-					fails.append("TRANDOSHAN missing %s: %s" % [g, str(guns)])
+					fails.append("SAURIAN missing %s: %s" % [g, str(guns)])
 		else:
 			if "SMOKE GRENADE" in gads:
-				fails.append("%s can fit SMOKE; that is the Trandoshan's" % name)
+				fails.append("%s can fit SMOKE; that is the Saurian's" % name)
 			if "THERMAL HOLO" in sights:
-				fails.append("%s can fit the thermal holo; only the Trandoshan may" % name)
+				fails.append("%s can fit the thermal holo; only the Saurian may" % name)
 			if "CLOAK" in gads:
-				fails.append("%s can cloak; that is the Trandoshan's" % name)
-			# DASH is shared by the Trandoshan and the FORCE adept (k == 2), whose
+				fails.append("%s can cloak; that is the Saurian's" % name)
+			# DASH is shared by the Saurian and the FORCE adept (k == 2), whose
 			# dash is part of the class — it may fit it as an explicit gadget as well
 			# as get it intrinsically from an empty slot. Nobody else may.
 			if k != 2 and "SPRINT DASH" in gads:
-				fails.append("%s can take the dash gadget; that is the Trandoshan's/adept's" % name)
+				fails.append("%s can take the dash gadget; that is the Saurian's/adept's" % name)
 
 		# The cursor must never stop on a row this class does not have.
 		for r in L.Row.size():
@@ -331,7 +331,7 @@ func _init() -> void:
 		m.step(L.Row.GADGET, 1)
 	for i in 20:
 		m.step(L.Row.GADGET2, 1)
-	print("\n== Mandalorian both slots: %s + %s ==" % [
+	print("\n== Hunter both slots: %s + %s ==" % [
 		m.row_value(L.Row.GADGET), m.row_value(L.Row.GADGET2)])
 	if m.row_value(L.Row.GADGET) == m.row_value(L.Row.GADGET2):
 		fails.append("both gadget slots hold the same thing")
@@ -348,23 +348,23 @@ func _init() -> void:
 		gear_names.append(L.GADGETS[i]["name"])
 	print("  guns   : %s" % str(gun_names))
 	print("  gadgets: %s" % str(gear_names))
-	if "Lightsaber" in gun_names:
-		fails.append("royale crates can contain a lightsaber")
-	if "Bowcaster" in gun_names:
-		fails.append("royale crates can contain a bowcaster")
+	if "Arc Blade" in gun_names:
+		fails.append("royale crates can contain a arc blade")
+	if "Quarrel Caster" in gun_names:
+		fails.append("royale crates can contain a quarrel caster")
 	# ...but the heavy guns and the barrier are a class's by BALANCE, not by
 	# mechanism: they work fine for a plain trooper, so kit-locking them in the
 	# shop must not empty them out of a mode that has no classes at all.
-	for keep in ["T-21 HMG", "PLX-1 RPG"]:
+	for keep in ["T-90 HMG", "PX-1 RPG"]:
 		if not (keep in gun_names):
 			fails.append("royale lost %s out of its crates" % keep)
 	if not ("FRONT SHIELD" in gear_names):
 		fails.append("royale lost the FRONT SHIELD out of its crates")
-	for banned in ["FORCE PUSH", "FORCE PULL", "FORCE LEAP", "FORCE LIGHTNING"]:
+	for banned in ["KINETIC SHOVE", "KINETIC HAUL", "KINETIC LEAP", "ARC STORM"]:
 		if banned in gear_names:
 			fails.append("royale crates can contain %s" % banned)
 	var start = L.royale_start()
-	if start.kit != L.Kit.CLONE or start.can_dash():
+	if start.kit != L.Kit.LEGION or start.can_dash():
 		fails.append("royale should drop you in as a plain trooper")
 
 	fails += _universe_rules(L)
@@ -379,7 +379,7 @@ func _init() -> void:
 ##
 ## The rule this is really here to protect is ISOLATION. Weapons, gadgets and
 ## bodies all share one enum each across every setting, which is what makes
-## adding a universe cheap — and also what would let a bolter turn up on a clone
+## adding a universe cheap — and also what would let a shellgun turn up on a legionary
 ## trooper's buy screen if a single allow-list were written wrong. So every walk
 ## is checked against the set of names that universe is allowed to contain, not
 ## against a list of specific mistakes somebody thought of.
@@ -409,10 +409,10 @@ func _universe_rules(L) -> Array:
 		% [L.FACTION_BUILDS.size(), L.BOT_BUILDS.size()])
 
 	# AN AUTHORED CLASS MUST NAME ITS SIDEARM, not index one. `secondary: 0`
-	# means "the cheapest row", which is the DL-44 — so all thirty-two Star Wars
-	# classes drew Han Solo's pistol, B1 battle droids and the Emperor's Royal
+	# means "the cheapest row", which is the DL-44 — so all thirty-two The Compact Wars
+	# classes drew Han Solo's pistol, light automaton battle droids and the Emperor's Royal
 	# Guard included, and no test could see it because index 0 is a perfectly
-	# valid sidearm. Halo and Warhammer never had the bug purely because they
+	# valid sidearm. Deep Range and Ironhymn never had the bug purely because they
 	# were written later and named theirs. Naming is also what makes the
 	# "gets the gun it names" check above able to see the row at all.
 	#

@@ -87,7 +87,7 @@ const PLUCK_DAMP := 0.999
 
 ## A PLUCKED RESONANT STRING WITH A PITCH GLIDE — Karplus-Strong on a swept
 ## fractional delay line. This is the one thing the oscillators above cannot do,
-## and it is the sound of a Star Wars blaster.
+## and it is the sound of a The Compact Wars blaster.
 ##
 ## The real DL-44 is Ben Burtt hitting the guy-wire of a radio tower, and a guy
 ## wire is a string: what your ear recognises is not the pitch fall on its own
@@ -202,7 +202,7 @@ static func bank() -> Dictionary:
 		"blaster": _blaster,
 		"blaster_heavy": _blaster_heavy,
 		"plasma": _plasma,
-		"bolter": _bolter,
+		"shellgun": _bolter,
 		"gauss": _gauss,
 		"melee_swing": _melee_swing,
 		"melee_hit": _melee_hit,
@@ -393,7 +393,7 @@ static func _blaster_heavy() -> AudioStreamWAV:
 	return to_stream(b)
 
 
-## Covenant plasma. It was a hot fizz that swelled and spat — accurate to the
+## Hierophany plasma. It was a hot fizz that swelled and spat — accurate to the
 ## fiction and wrong for the game: with no transient on the front it did not read
 ## as a WEAPON DISCHARGING, it read as an appliance, and in a firefight it
 ## disappeared under everything with a crack in it.
@@ -415,7 +415,7 @@ static func _plasma() -> AudioStreamWAV:
 	return to_stream(b)
 
 
-## A bolter fires a rocket-propelled shell, so it is a BANG and not a beam: a
+## A shellgun fires a rocket-propelled shell, so it is a BANG and not a beam: a
 ## noise-heavy report with a low thump and no pitch sweep to speak of.
 static func _bolter() -> AudioStreamWAV:
 	var b := buffer(0.34)
@@ -428,7 +428,7 @@ static func _bolter() -> AudioStreamWAV:
 	return to_stream(b)
 
 
-## Necron gauss: still the family that sounds like it is doing something to the
+## Unsleeping gauss: still the family that sounds like it is doing something to the
 ## TARGET rather than to the air — the rising whine is the whole idea — but it now
 ## fires on a hard percussive front instead of winding up from nothing. Same
 ## treatment as the plasma and for the same reason: a gun announces itself in the
@@ -460,12 +460,12 @@ static func _melee_swing() -> AudioStreamWAV:
 	return to_stream(b)
 
 
-# --- the lightsaber ------------------------------------------------------------
+# --- the arc blade ------------------------------------------------------------
 #
 # THE MOST RECOGNISABLE SOUND IN CINEMA, and until now this game did not have it:
 # every blade in every universe shared `melee_swing` (filtered noise) and
-# `melee_hit` (a clang), so a lightsaber, a chainsword, an ork choppa and a
-# Covenant energy sword were one whoosh, and a Jedi drew a metre of plasma in
+# `melee_hit` (a clang), so a arc blade, a chain blade, an scrapkin cleaver and a
+# Hierophany energy sword were one whoosh, and a Warden drew a metre of plasma in
 # total silence.
 #
 # It is FOUR sounds and not one, because a saber is a thing that is switched on
@@ -474,7 +474,7 @@ static func _melee_swing() -> AudioStreamWAV:
 #
 # Which blades get it is not a new table: `blade_energy` 0 already separates
 # steel from plasma for the geometry (Weapon.BLADE_LOOK_KEYS), so the audio asks
-# that same key. A chainsword still whooshes and clangs, exactly as it should.
+# that same key. A chain blade still whooshes and clangs, exactly as it should.
 
 ## The hum's fundamental. Everything else here is built against it so the
 ## ignition ARRIVES at the pitch the loop then holds.

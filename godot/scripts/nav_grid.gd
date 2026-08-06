@@ -48,8 +48,8 @@ const OPEN_SEARCH := 6
 ## HOW MANY A* SEARCHES MAY RUN IN ONE PHYSICS FRAME, across every bot on the
 ## map.
 ##
-## What one search costs, timed directly (tests/perf.tscn): 2.0 ms on Kashyyyk,
-## 1.7 ms on Geonosis, 0.10 ms on a small arena. What a loaded match asks for:
+## What one search costs, timed directly (tests/perf.tscn): 2.0 ms on Silva,
+## 1.7 ms on Aridis, 0.10 ms on a small arena. What a loaded match asks for:
 ## about 16 searches a second across the whole AI. On AVERAGE that is half a
 ## millisecond a frame and perfectly affordable — the problem was never the
 ## average.
@@ -92,7 +92,7 @@ func build(center: Vector3, extents: Vector2, shapes: Array) -> void:
 	var size := extents * 2.0
 	if size.x <= 0.0 or size.y <= 0.0:
 		return
-	# Coarsen rather than explode on a huge map: Geonosis is 300 m across.
+	# Coarsen rather than explode on a huge map: Aridis is 300 m across.
 	_cell = clampf(maxf(size.x, size.y) / float(MAX_SIDE), CELL_MIN, CELL_MAX)
 	_cols = maxi(1, ceili(size.x / _cell))
 	_rows = maxi(1, ceili(size.y / _cell))

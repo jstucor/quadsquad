@@ -5,9 +5,9 @@ extends Node3D
 ##   godot --path godot --display-driver x11 --resolution 1600x700 tests/physique_look.tscn
 ##
 ## Windowed, because a size relationship is exactly the thing no headless test
-## can judge — `roster_feel.gd` will happily tell you an Ewok stands at 1.12 m
-## and a Wookiee at 2.09, and neither number tells you whether the two of them
-## standing next to each other reads as Star Wars or as a bug.
+## can judge — `roster_feel.gd` will happily tell you an Kobb stands at 1.12 m
+## and a Ursan at 2.09, and neither number tells you whether the two of them
+## standing next to each other reads as The Compact Wars or as a bug.
 ##
 ## Every OTHER look test builds a bare `CharacterModel` at scale 1, which is what
 ## let the whole roster be the same height for as long as it was: `universe_look`
@@ -41,7 +41,7 @@ func _ready() -> void:
 			# Eight to a side is too many for one legible row, so each roster is
 			# shot as its two halves: the four LINE classes, then the four
 			# REINFORCEMENTS. That split is the roster's own structure (see the
-			# Battlefront note in CLAUDE.md), and the reinforcements are where
+			# The Genre note in CLAUDE.md), and the reinforcements are where
 			# the interesting sizes are.
 			for half in 2:
 				var picks: Array = roster.slice(half * 4, half * 4 + 4)
@@ -61,7 +61,7 @@ func _ready() -> void:
 
 ## One model per build, at its own stature, plus the yardstick trooper. Returns
 ## how tall the tallest body in the row stands, which is what the camera has to
-## frame — a row containing a Wookiee needs backing off further than a row of
+## frame — a row containing a Ursan needs backing off further than a row of
 ## Grunts, and a fixed camera crops the head off one or loses the other in the
 ## middle of the frame.
 func _lay_out(picks: Array) -> float:

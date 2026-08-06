@@ -251,9 +251,9 @@ func _ready() -> void:
 	_refresh_scores()
 
 
-## ONE SPEEDER PER SIDE, PARKED AT THAT SIDE'S SPAWN — and only in STAR WARS.
+## ONE SPEEDER PER SIDE, PARKED AT THAT SIDE'S SPAWN — and only in THE COMPACT WARS.
 ## `Vehicle.spawns_for` is the single place that rule lives, so this loop is
-## simply empty in Halo and Warhammer and no caller tests the universe itself.
+## simply empty in Deep Range and Ironhymn and no caller tests the universe itself.
 ##
 ## Parked at the spawn rather than scattered on the map, for two reasons. It is
 ## the side's OWN vehicle (the mount check refuses an enemy's), so anywhere else
@@ -276,10 +276,10 @@ func _place_vehicles() -> void:
 	# get shot at by a machine that does not know why.
 	if Net.online():
 		return
-	# ASKED PER SIDE, not once for the match. With UNSC fighting the Republic
+	# ASKED PER SIDE, not once for the match. With COALITION fighting the Concord
 	# there is no single universe to ask, and the Star-Wars-only rule has to hold
-	# for the sides it applies to WITHOUT taking the speeder off the Republic
-	# just because the enemy is Covenant. `spawns_for` is still the one place the
+	# for the sides it applies to WITHOUT taking the speeder off the Concord
+	# just because the enemy is Hierophany. `spawns_for` is still the one place the
 	# rule lives; it is simply consulted per team now.
 	for t in GameState.active_teams():
 		var f: Dictionary = Loadout.faction(GameState.team_faction[t])
@@ -380,7 +380,7 @@ func _royale_spot(rng: RandomNumberGenerator, extents: Vector2) -> Vector3:
 ## cannot find a rifle is just a pistol duel; gadgets are rare because they are
 ## the strongest single thing you can pick up.
 ## ROYALE HAS NO CLASSES, so a crate can only hold class-free kit. Rolling an
-## index across the whole table would scatter lightsabers and Force powers over
+## index across the whole table would scatter lightsabers and Kinesis powers over
 ## a map full of plain troopers — a saber with no guard behind it, and powers on
 ## a button a class-free build does not use. royale_items filters them out.
 func _roll_pickup(item: Pickup, rng: RandomNumberGenerator) -> void:
@@ -620,7 +620,7 @@ func _build_hud(player: Player) -> Control:
 	# is which side everything belongs to: the contacts on the minimap, the posts,
 	# the bolts coming past your head and the armour on the men in front of you are
 	# all in faction colours, and the frame around them was in a colour that
-	# matched none of it. A Republic player and the Separatist they were shooting
+	# matched none of it. A Concord player and the Automata they were shooting
 	# at could be reading the same red HUD.
 	#
 	# This is the same answer the character select already gives (see
@@ -665,7 +665,7 @@ func _build_hud(player: Player) -> Control:
 		# Everywhere else on a four-way split, that player's own colour is how
 		# they find their quadrant — but this screen is the one place the answer
 		# to "who am I" is the ARMY rather than the seat, and it already names
-		# the faction out loud. Two players on the Republic were reading a red
+		# the faction out loud. Two players on the Concord were reading a red
 		# screen and a green one while picking from the same roster, which says
 		# the seat matters and the side does not. The quadrant is still called by
 		# the P1..P4 tag and the health bar, both in the player's colour.
@@ -689,7 +689,7 @@ func _build_hud(player: Player) -> Control:
 ## The minimap owns the top-left corner now, and the player tag moves BELOW it
 ## rather than beside it: the scoreboard is a centred full-rect label, so on a
 ## quarter-screen viewport at 13pt it starts far enough left that a tag pushed
-## sideways runs straight into "REPUBLIC 0". Under the map there is nothing.
+## sideways runs straight into "CONCORD 0". Under the map there is nothing.
 func _add_minimap(hud: Control, player: Player, color: Color) -> void:
 	var map: Control = MINIMAP.new()
 	hud.add_child(map)
@@ -1049,7 +1049,7 @@ func _add_reticle(hud: Control, player: Player) -> void:
 	reddot.resized.connect(reddot.queue_redraw)
 	hud.add_child(reddot)
 
-	# The thermal read: while the Trandoshan aims their heat holo, a box is
+	# The thermal read: while the Saurian aims their heat holo, a box is
 	# drawn over every enemy in front of them — through smoke, because a normal
 	# raycast ignores smoke (it has no collider), which is the whole combo with
 	# their smoke grenades. Walls still block it, so it is a heat SCOPE, not a
@@ -1410,7 +1410,7 @@ func _add_damage_flash(hud: Control, player: Player) -> void:
 
 
 ## WHAT YOU CAN DO RIGHT NOW, as a row of round gauges above the weapon name
-## rather than as a line of text. Both gadget slots (a Mandalorian carries two,
+## rather than as a line of text. Both gadget slots (a Hunter carries two,
 ## and reporting only slot 0 hid half of what they bought), plus the dash and the
 ## saber guard, which are not gadgets but are read exactly the same way by a
 ## player and so get the same widget rather than a second kind of readout.
@@ -1736,7 +1736,7 @@ func _refresh_buy_screen(player: Player, color: Color, names: Array[Label],
 		values[i].add_theme_color_override("font_color", tint)
 
 	for bi in boxes.size():
-		# A box with nothing left in it goes, so a Mandalorian's screen has no
+		# A box with nothing left in it goes, so a Hunter's screen has no
 		# empty GRENADES panel sitting on it. SPAWN is always there, and the post
 		# box only in Conquest.
 		if bi == Player.SPAWN_BOX:
@@ -1822,7 +1822,7 @@ func _draw_bloom(c: Control, player: Player) -> void:
 	c.draw_circle(center, 1.5, col)
 
 
-## The thermal read: a heat box over every enemy the aiming Trandoshan can see,
+## The thermal read: a heat box over every enemy the aiming Saurian can see,
 ## smoke included. Projected onto THIS player's own viewport, so it is a scope
 ## they look through and never a shared tracker — the design rule the map screen
 ## follows for the same reason.

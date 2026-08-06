@@ -133,7 +133,7 @@ func _width(s: String) -> float:
 
 
 ## Drawn with a dark shadow under it. The feed sits over open sky on half these
-## maps and over Hoth's snow on one of them, and white text on snow is nothing —
+## maps and over Boreal's snow on one of them, and white text on snow is nothing —
 ## the same reason every other readout in this HUD carries an outline.
 func _text(s: String, at: Vector2, color: Color, alpha: float) -> void:
 	if s == "":

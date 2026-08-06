@@ -2,5 +2,5 @@
 
 [ext_resource type="Script" path="res://scripts/map_dustbowl.gd" id="1_geo"]
 
-[node name="Geonosis" type="Node3D"]
+[node name="Aridis" type="Node3D"]
 script = ExtResource("1_geo")

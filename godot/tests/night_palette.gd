@@ -23,7 +23,7 @@ extends Node
 ##     a flat ambient wash with no form in it at all;
 ##   * every night world has enough ambient to hold the shadow side up, because
 ##     ambient is the only thing lighting anything the moon cannot reach (which
-##     on Kashyyyk is the entire forest floor);
+##     on Silva is the entire forest floor);
 ##   * and night is genuinely DARKER than day, or the mode does nothing. That
 ##     one is measured on the KEY LIGHT and not on the ground albedo, which was
 ##     the first version and was measuring the wrong thing: a world whose
@@ -80,7 +80,7 @@ func _check_deploys() -> void:
 	GameState.reset_match()
 	GameState.map_index = GameState.procedural_map_index()
 	GameState.time_of_day = GameState.TimeOfDay.NIGHT
-	GameState.planet = PlanetMap.Planet.GEONOSIS
+	GameState.planet = PlanetMap.Planet.ARIDIS
 	GameState.human_players = 1
 	GameState.team_size = 2
 	if not GameState.is_night():
@@ -98,7 +98,7 @@ func _check_deploys() -> void:
 	var key := 0.0
 	for l in lights:
 		key = maxf(key, l.light_energy)
-	var want: float = PlanetMap.world(PlanetMap.Planet.GEONOSIS, true)["sun"]["energy"]
+	var want: float = PlanetMap.world(PlanetMap.Planet.ARIDIS, true)["sun"]["energy"]
 	if not is_equal_approx(key, want):
 		_fail("the deployed map's key light is %.2f, not the night table's %.2f"
 			% [key, want])

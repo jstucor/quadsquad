@@ -9,7 +9,7 @@ extends Node
 ## proves the game can actually be played out of them: that Main builds the
 ## viewports, that team fill finds AI presets for the universe, that the faction
 ## rosters resolve to bodies and weapons, and that nothing along the way reaches
-## for a Star Wars default that is no longer there.
+## for a The Compact Wars default that is no longer there.
 
 const MAIN := preload("res://scenes/main.tscn")
 
@@ -72,7 +72,7 @@ func _run(universe: int, faction: bool) -> void:
 ## match at each setting and reads the health the player actually spawned with.
 func _ttk_check() -> void:
 	print("\n== time to kill ==")
-	GameState.universe = Loadout.Universe.STAR_WARS
+	GameState.universe = Loadout.Universe.COMPACT
 	GameState.class_mode = GameState.ClassMode.CUSTOM
 	var base := 0.0
 	for t in GameState.TTK_NAMES.size():

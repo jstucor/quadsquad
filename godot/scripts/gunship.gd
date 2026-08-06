@@ -1,9 +1,9 @@
 extends Node3D
-## THE LAAT GUNSHIP — the AC-130 of this game, and the one reward you do not
+## THE HAMMERHEAD GUNSHIP — the AC-130 of this game, and the one reward you do not
 ## drive.
 ##
 ## IT FLIES ITSELF AND YOU RIDE THE BALL TURRET. That is the whole design and it
-## is why this is not a `Vehicle`. A LAAT is not remembered for being piloted; it
+## is why this is not a `Vehicle`. A HAMMERHEAD is not remembered for being piloted; it
 ## is remembered for the two glass spheres hanging off its flanks with a trooper
 ## sealed inside each one, hosing green fire down at everything below. Handing the
 ## player the stick would make it a slow speeder with good armour — handing them
@@ -90,7 +90,7 @@ const BEAM_LIFE := 0.09
 ## at 124 m the old 0.7 degrees put the AVERAGE round 2.25 m from the point it
 ## was aimed at, against a body half a metre wide. Measured, not guessed
 ## (`tests/warmachine_feel.gd`): that is a gun which cannot hit a man on purpose,
-## and it is most of what "the LAAT is useless" was.
+## and it is most of what "the HAMMERHEAD is useless" was.
 ##
 ## The AREA is what `SPLASH` is for. The cone's job is only to stop the beam
 ## looking like a laser pointer, so it is now the width of the target rather than
@@ -223,7 +223,7 @@ func seat() -> Node3D:
 
 ## THE NAME ON THE SIGHT. The gunner's HUD says what they are riding, and the
 ## airframe is the thing that knows.
-const CALLSIGN := "LAAT/i GUNSHIP"
+const CALLSIGN := "HAMMERHEAD GUNSHIP"
 ## The ride's full length, kept so the clock on the sight has a denominator. It
 ## is set by `begin` and never derived, because the reward row is free to hand
 ## out a different duration and a bar that assumed one would silently lie.
@@ -575,7 +575,7 @@ func _build() -> void:
 
 	for sx: float in [-1.0, 1.0]:
 		# THE WING IS HIGH AND THE NACELLE LIES ON TOP OF IT. That stack is the
-		# LAAT's whole profile from below — a wing with the engine slung UNDER it
+		# HAMMERHEAD's whole profile from below — a wing with the engine slung UNDER it
 		# is every other aircraft ever drawn.
 		var wing := Node3D.new()
 		_body.add_child(wing)

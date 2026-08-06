@@ -105,7 +105,7 @@ func _ready() -> void:
 ## `GameState.team_colors` already folds a faction's own chip and the tint picked
 ## for it into one answer (`refresh_sides`), so this is a WIRING question and not
 ## a colour question: does the deploy screen read that, or does it read the seat?
-## It read the seat — two players on the Republic got a red screen and a green
+## It read the seat — two players on the Concord got a red screen and a green
 ## one while picking off the same roster.
 func _check_colour() -> void:
 	print("\n== the screen wears the side's colour ==")

@@ -1,5 +1,5 @@
 extends "res://scripts/arena.gd"
-## "Foundry" — a working smelting floor, 46 m across, Republic West and CIS East
+## "Foundry" — a working smelting floor, 46 m across, Concord West and Automata East
 ## across a line of casting moulds with lane gaps between them.
 ##
 ## The map is lit by its own furnaces: a dim overhead key and a strong warm

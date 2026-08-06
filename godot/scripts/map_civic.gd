@@ -1,7 +1,7 @@
 extends "res://scripts/arena.gd"
-## "SENATE DISTRICT" — 240 m of city block, and the third of the big maps.
+## "CIVIC DISTRICT" — 240 m of city block, and the third of the big maps.
 ##
-## Geonosis is open ground with landmarks; Kashyyyk is a forest you feel your
+## Aridis is open ground with landmarks; Silva is a forest you feel your
 ## way through. This one is the opposite of both: a REGULAR GRID. Every avenue
 ## is a straight sight line the length of the map, every junction is four ways
 ## at once, and the whole thing is legible from the first second because it is a
@@ -112,7 +112,7 @@ func _build_lights() -> void:
 	key.light_energy = 0.85
 	key.rotation_degrees = Vector3(-58.0, 28.0, 0.0)
 	key.shadow_enabled = true
-	key.directional_shadow_max_distance = 80.0   # see the Kashyyyk note
+	key.directional_shadow_max_distance = 80.0   # see the Silva note
 	add_child(key)
 	var fill := DirectionalLight3D.new()
 	fill.light_color = Color(0.9, 0.55, 0.35)  # warm bounce off the city

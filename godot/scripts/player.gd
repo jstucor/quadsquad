@@ -127,11 +127,11 @@ const BLOCK_COST := 0.009
 const BLOCK_REGEN := 0.28        # pool per second once lowered
 const BLOCK_RECOVER_AT := 0.35   # a broken guard cannot be raised until here
 const BLOCK_ARC := deg_to_rad(105.0)  # half-angle in front that the blade covers
-# The Force adept's double jump. Slightly weaker than the standing jump, so the
+# Kinesis adept's double jump. Slightly weaker than the standing jump, so the
 # second one reads as a Force-assisted correction rather than a free ladder, and
 # it still scales with the armour frame like every other jump.
 const AIR_JUMP_MULT := 0.9
-# The Force dash: a burst of speed on the ground or in the air. Delivered as an
+# Kinesis dash: a burst of speed on the ground or in the air. Delivered as an
 # impulse rather than a held speed, so it is a committed lunge you cannot steer
 # out of. It rides _kick_vel, which bleeds off at KICK_DECAY — 19 m/s therefore
 # carries about 19^2 / (2 * KICK_DECAY), a little over 8 m.
@@ -312,7 +312,7 @@ const BOUNDS_MAX_Y := 60.0
 
 @export var player_index := 0
 @export var input_device := -1
-@export var team: int = GameState.Team.REPUBLIC
+@export var team: int = GameState.Team.CONCORD
 var health := 100.0
 var max_health := 100.0
 ## The build bought on the buy screen. `loadout` is what you deployed with and
@@ -403,12 +403,12 @@ var _rotary_out := false
 var _force_cd := [0.0, 0.0, 0.0]   # seconds left on each gadget slot's cooldown
 ## The lightning channel: seconds of stream left, which slot opened it, and the
 ## time until the next bite. A channel rather than a shot because the power is
-## HELD — see ForcePowers.CHANNEL_TIME.
+## HELD — see Kinesis.CHANNEL_TIME.
 var _channel_left := 0.0
 var _channel_slot := -1
 var _channel_tick := 0.0
 var _channel_arc: Node3D       # the bolt currently on screen, re-aimed per tick
-## The Trandoshan's cloak: seconds of invisibility left. While it is up the
+## The Saurian's cloak: seconds of invisibility left. While it is up the
 ## model is faded and `GameState.cloaked` holds this player, which every AI
 ## vision check skips. Firing or the timer ending drops it.
 var _cloak_left := 0.0
@@ -426,7 +426,7 @@ var _force_shown := [0, 0, 0]   # last whole second pushed to the HUD, per slot
 ## and off every frame under sustained fire.
 var _block := 1.0
 var _block_broken := false
-## Mid-air jumps left this flight. Only the Force adept gets any, and the count
+## Mid-air jumps left this flight. Only Kinesis adept gets any, and the count
 ## is refilled on the floor rather than decremented toward a total, so a jump
 ## spent falling off a ledge cannot be carried into the next hop.
 var _air_jumps := 0
@@ -552,7 +552,7 @@ func bind_camera(cam: Camera3D) -> void:
 ##
 ## THE PARALLAX QUESTION IS WHY THIS IS PER-REWARD AND NOT A SETTING. Moving the
 ## camera off the head puts the crosshair and the gun on two different lines —
-## the same fault that made the LAAT's ball turret unusable, and there it was
+## the same fault that made the HAMMERHEAD's ball turret unusable, and there it was
 ## fatal. Here it is not, and that is a property of THIS BODY rather than of
 ## third person: the shot origin is the weapon (`Weapon._fire_hitscan` traces
 ## from `global_position`, which is on the head), and a Force Master's weapons
@@ -583,7 +583,7 @@ var _chase_t := 0.0        # 0 first person .. 1 fully out
 ## --- SCREEN SHAKE ---------------------------------------------------------------
 ##
 ## THE WORLD HAD NO PHYSICAL EFFECT ON THE VIEW. A rocket could detonate at your
-## feet, a mortar could land beside you, an AT-ST could put a shell into the wall
+## feet, a mortar could land beside you, an MARAUDER could put a shell into the wall
 ## you are behind, and the camera did not acknowledge any of it — the only things
 ## that ever moved it were your own gun and your own legs. That is the difference
 ## between explosions being events and being decals with a damage number on them.
@@ -599,7 +599,7 @@ var _chase_t := 0.0        # 0 first person .. 1 fully out
 ## completely boresight-neutral: rotating about the view axis cannot move where
 ## the centre of the screen points, so the crosshair still covers exactly what
 ## the gun will hit. Yaw and pitch shake would put the reticle and the barrel on
-## different lines, which is the fault that made the LAAT's ball turret unusable
+## different lines, which is the fault that made the HAMMERHEAD's ball turret unusable
 ## and is not worth reintroducing for an effect. Translation is kept small for
 ## the same reason (it is parallax, not angle, so it is far more forgiving).
 ##
@@ -806,14 +806,14 @@ func dash_cooldown() -> float:
 
 
 ## How many mid-air jumps this build gets. A property of the CLASS rather than
-## of the saber, so a Force adept keeps it while holding a sidearm.
+## of the saber, so a Kinesis adept keeps it while holding a sidearm.
 func air_jump_allowance() -> int:
-	return 1 if loadout.kit == Loadout.Kit.FORCE else 0
+	return 1 if loadout.kit == Loadout.Kit.ADEPT else 0
 
 
-## True while the lightsaber guard is actually up: blade in hand, aim held, and
+## True while the arc blade guard is actually up: blade in hand, aim held, and
 ## the exhaustion pool not spent. Nothing else can block — a raised guard is the
-## Force adept's answer to having no gun, not a general-purpose defence.
+## Kinesis adept's answer to having no gun, not a general-purpose defence.
 func guard_up() -> bool:
 	return not _dead and not map_open and not settings_open and weapon.is_melee() \
 		and _ads_held() and not _block_broken and _block > 0.0
@@ -836,7 +836,7 @@ func guard_broken() -> bool:
 ## started.
 ##
 ## This runs whatever is in hand, deliberately. Skipping it for a non-melee
-## weapon froze the pool the moment you swapped: a Force adept who broke their
+## weapon froze the pool the moment you swapped: a Kinesis adept who broke their
 ## guard and drew the sidearm to cover the gap came back to a blade that was
 ## still spent, and stayed spent until they held it out long enough to refill.
 func _update_guard(delta: float) -> void:
@@ -882,7 +882,7 @@ func _absorb_with_guard(amount: float, attacker: Node) -> float:
 	return 0.0
 
 
-## Take an outside shove — a Force push or pull. It rides _kick_vel rather than
+## Take an outside shove — a kinetic shove or pull. It rides _kick_vel rather than
 ## being added to velocity, because movement rewrites velocity.x/z from the
 ## stick every frame and would erase it before it rendered.
 func apply_impulse(impulse: Vector3) -> void:
@@ -1056,7 +1056,7 @@ func _deliver_vehicle(row_id: String) -> void:
 		return
 	var v: Vehicle = VEHICLE_SCENE.instantiate()
 	# Stated before it enters the tree so the walker is built ONCE. It used to be
-	# added first, which built a Republic speeder, then re-setup twice — three
+	# added first, which built a Concord speeder, then re-setup twice — three
 	# full model builds on the single frame a player earns the thing.
 	v.team = team
 	v.spawn_row_id = row_id
@@ -1107,15 +1107,15 @@ func _become(row: Dictionary) -> void:
 		_over_left = float(row.get("overshield_time", 90.0))
 		gear_changed.emit()
 	# WATCHED RATHER THAN LOOKED THROUGH, when the row asks for it. A TABLE KEY
-	# and not a test on the reward's name: the Force Master is the body this was
+	# and not a test on the reward's name: Kinesis Master is the body this was
 	# written for, but nothing about the mechanism is Force-specific and a future
 	# saber signature should get it by stating one word.
 	third_person = bool(row.get("third_person", false))
 	_apply_view_mode()
 	# THE BANNER NAMES THE BODY, NOT THE ROW. They are deliberately different for
-	# the Force Master: one row, two units — `preset_by_team` resolves it to JEDI
-	# MASTER or SITH MASTER — so a HUD reading `row["name"]` would announce
-	# "FORCE MASTER" to a player who is visibly a Sith. `build_name` is what
+	# Kinesis Master: one row, two units — `preset_by_team` resolves it to WARDEN
+	# MASTER or REAVER MASTER — so a HUD reading `row["name"]` would announce
+	# "KINESIS MASTER" to a player who is visibly a Reaver. `build_name` is what
 	# `_build_from` already resolved, so it is the answer that cannot disagree
 	# with the model standing on screen.
 	signature_name = loadout.build_name if loadout.build_name != "" \
@@ -1240,7 +1240,7 @@ func _apply_loadout() -> void:
 	# viewmodel re-stamps itself) or the owner's camera would see its own body.
 	model.set_style(loadout.character_style())
 	_stamp_model_layers()
-	# The class multiplies the frame, rather than replacing it: a Force adept in
+	# The class multiplies the frame, rather than replacing it: a Kinesis adept in
 	# a light frame is quick and tough for both reasons, which is the point of
 	# letting them wear one. All four go through Loadout so the buy screen's HP
 	# line and what you deploy with are the same arithmetic — and so an authored
@@ -1935,7 +1935,7 @@ func _unhandled_input(event: InputEvent) -> void:
 ## body is already holding, which is right for a speeder — its gun follows the
 ## driver's eyes inside a cone — and exactly wrong for a turret bolted to a hull
 ## that turns underneath it. Differencing a free-running world yaw against a
-## rotating hull means a CENTRED stick still sweeps the gun: measured on the LAAT,
+## rotating hull means a CENTRED stick still sweeps the gun: measured on the HAMMERHEAD,
 ## the aim point walked 30.2 m across the ground every second while nobody
 ## touched anything, and the turret sat pinned against its own yaw stop.
 ##
@@ -1955,7 +1955,7 @@ var _view_delta := Vector2.ZERO
 ## body stands on it and the camera ends up at head height over the cowl, looking
 ## out of the machine the way somebody sitting on it would.
 ##
-## In the LAAT's ball turret it was wrong, and it is most of why that reward was
+## In the HAMMERHEAD's ball turret it was wrong, and it is most of why that reward was
 ## unusable. The seat is INSIDE a 0.92 m sphere, so anchoring the feet there put
 ## the camera 1.6 m above the seat — outside the ball, above the glass, floating
 ## in the open air beside the gunship. And because the shell is hidden from the
@@ -2392,7 +2392,7 @@ func _physics_process(delta: float) -> void:
 
 	if not is_on_floor():
 		velocity.y -= _gravity * delta
-		# The Force adept can push off nothing. Setting velocity outright rather
+		# Kinesis adept can push off nothing. Setting velocity outright rather
 		# than adding to it means a double jump saves you just as well on the way
 		# down as at the top of the arc, which is the whole point of having one.
 		if _air_jumps > 0 and _jump_pressed():
@@ -2860,9 +2860,9 @@ func _update_crouch(delta: float) -> void:
 ##
 ## The capsule's RADIUS is deliberately left alone. Height is what the eye
 ## reads and what cover has to clear; width is what the nav grid, the unstick
-## loop and every doorway on every map were tuned against, and a Wookiee that
+## loop and every doorway on every map were tuned against, and a Ursan that
 ## cannot fit through a gap the map says is passable is a worse bug than a
-## Wookiee who is slightly narrower than he looks.
+## Ursan who is slightly narrower than he looks.
 func _apply_stature(scale_to: float) -> void:
 	_stature = maxf(scale_to, 0.2)
 	model.scale = Vector3.ONE * _stature
@@ -3040,7 +3040,7 @@ func _use_gadget(slot: int) -> void:
 			Audio.play("pickup")
 			return
 		Loadout.Gadget.DEFLECTOR:
-			# THE DROIDEKA'S BUBBLE, and the Jackal's gauntlet. It is an
+			# THE AEGIS DRONE'S BUBBLE, and the Skiri's gauntlet. It is an
 			# overshield with a catch that makes it a different decision: while it
 			# is up you cannot fire, so it buys you a REPOSITION or a wait, never
 			# a duel you were losing.
@@ -3089,22 +3089,22 @@ func _use_gadget(slot: int) -> void:
 			_place_turret()
 		Loadout.Gadget.MORTAR:
 			_place_mortar()
-		Loadout.Gadget.FORCE_PUSH:
-			ForcePowers.push(self, team)
+		Loadout.Gadget.KINETIC_PUSH:
+			Kinesis.push(self, team)
 			_start_gadget_cd(slot, cd)
-		Loadout.Gadget.FORCE_PULL:
+		Loadout.Gadget.KINETIC_PULL:
 			# A pull that caught nobody costs a fraction of the cooldown, not the
 			# whole thing: the power needs a target and missing should not take
 			# the class out of the fight for seven seconds.
-			var caught := ForcePowers.pull(self, team)
+			var caught := Kinesis.pull(self, team)
 			_start_gadget_cd(slot, cd if caught != null else cd * 0.3)
-		Loadout.Gadget.FORCE_LIGHTNING:
+		Loadout.Gadget.ARC_STORM:
 			# Opens the CHANNEL; the stream itself is poured in
 			# _update_lightning_channel while the button stays down. The cooldown
 			# is not charged here — it starts when the channel ENDS, so a tap that
 			# found nobody costs almost nothing and a full two seconds of holding
 			# costs the lot.
-			_channel_left = ForcePowers.CHANNEL_TIME
+			_channel_left = Kinesis.CHANNEL_TIME
 			_channel_slot = slot
 			_channel_tick = 0.0
 		Loadout.Gadget.WRIST_ROCKET:
@@ -3117,13 +3117,13 @@ func _use_gadget(slot: int) -> void:
 			_fire_scan_dart()
 			_start_gadget_cd(slot, cd)
 		Loadout.Gadget.DASH:
-			# The same lunge the Force adept has, offered here as a gadget. It runs
+			# The same lunge Kinesis adept has, offered here as a gadget. It runs
 			# on its OWN cooldown timer (_dash_cd) already, so the gadget cooldown
 			# is set to match rather than double-gating it.
 			_dash()
 			_start_gadget_cd(slot, cd)
-		Loadout.Gadget.FORCE_LEAP:
-			var launch := ForcePowers.leap_velocity(self)
+		Loadout.Gadget.KINETIC_LEAP:
+			var launch := Kinesis.leap_velocity(self)
 			velocity.y = launch.y
 			# Horizontal carry rides _kick_vel for the same reason a gun's shove
 			# does: movement rewrites velocity.x/z from the stick every frame.
@@ -3140,7 +3140,7 @@ func gadget_in(slot: int) -> int:
 
 
 ## True if either slot carries this gadget — the jetpack and the cable have to
-## work from whichever hand the Mandalorian bought them into.
+## work from whichever hand the Hunter bought them into.
 ##
 ## Compared on the ACTION, so a caller asks "do I have a jetpack" and gets the
 ## right answer whether the slot holds a jetpack, a jump pack or a rokkit pack.
@@ -3290,7 +3290,7 @@ func _apply_gadget_motion(delta: float) -> void:
 		if left != _force_shown[slot]:
 			_force_shown[slot] = left
 			gear_changed.emit()
-	# Asked of BOTH slots, not of `gadget`: a Mandalorian can buy the jetpack
+	# Asked of BOTH slots, not of `gadget`: a Hunter can buy the jetpack
 	# into either hand, and keying this off slot 0 alone left the pack dead for
 	# anyone who bought it second.
 	var jet_slot := slot_of(Loadout.Gadget.JETPACK)
@@ -3431,7 +3431,7 @@ func _fire_wrist_rocket() -> void:
 	_on_weapon_fired(0.09, 1.6)
 
 
-## The Clone ARC's scan dart: fires from the head like the wrist rocket, so it
+## The Legion ARC's scan dart: fires from the head like the wrist rocket, so it
 ## goes exactly where the crosshair points. It reveals for the whole team, so it
 ## carries the team rather than the body.
 func _fire_scan_dart() -> void:
@@ -3499,16 +3499,16 @@ func _update_lightning_channel(delta: float) -> void:
 	if holding and _channel_left > 0.0:
 		_channel_tick -= delta
 		if _channel_tick <= 0.0:
-			_channel_tick = ForcePowers.CHANNEL_TICK
+			_channel_tick = Kinesis.CHANNEL_TICK
 			# One bite: resolves damage, replaces the drawn bolt, and returns
 			# null on an empty cone — which drops the bolt but keeps the channel
 			# open, so sweeping off a target and back on stays one press.
-			_channel_arc = ForcePowers.channel_bolt(
+			_channel_arc = Kinesis.channel_bolt(
 				self, team, LIGHTNING_SCENE, weapon, _channel_arc)
 		return
 	# Ended: released, out of time, dead, or on the map screen.
-	var spent := 1.0 - clampf(_channel_left / ForcePowers.CHANNEL_TIME, 0.0, 1.0)
-	var cd: float = Loadout.GADGET_COOLDOWNS.get(Loadout.Gadget.FORCE_LIGHTNING, 0.0)
+	var spent := 1.0 - clampf(_channel_left / Kinesis.CHANNEL_TIME, 0.0, 1.0)
+	var cd: float = Loadout.GADGET_COOLDOWNS.get(Loadout.Gadget.ARC_STORM, 0.0)
 	_start_gadget_cd(_channel_slot, maxf(cd * spent, cd * 0.25))
 	_channel_left = 0.0
 	_channel_slot = -1
@@ -3612,7 +3612,7 @@ func _update_gear() -> void:
 		_use_gadget(0)
 	# The GADGET 2 control (keyboard G, pad LB by default) fires the second gadget.
 	# If the slot is empty and the class can dash, that button is the dash — the
-	# Force adept's dash costs no new binding, exactly as before.
+	# Kinesis adept's dash costs no new binding, exactly as before.
 	if _slot1_pressed():
 		if gadget2 != Loadout.Gadget.NONE:
 			_use_gadget(1)
@@ -3720,7 +3720,7 @@ func _is_running() -> bool:
 
 ## Feed the weapons this frame's stance penalty on the spread cone: wider in the
 ## air, wide while moving, tight while crouched (they multiply). Both hands get
-## it so a dual-wielding Mandalorian sprays wider on the move too.
+## it so a dual-wielding Hunter sprays wider on the move too.
 ## --- upper/lower body separation ----------------------------------------------
 ##
 ## A CharacterBody3D yawing under a look input turns the WHOLE body, feet

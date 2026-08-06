@@ -71,7 +71,7 @@ func _lay_out(team: int) -> void:
 	_place(MORTAR, Vector3(1.15, 0.0, 0.0), team)
 	var m := CharacterModel.new()
 	add_child(m)
-	m.set_style(CharacterModel.Style.CLONE)
+	m.set_style(CharacterModel.Style.LEGION)
 	m.set_team_color(GameState.team_colors[team])
 	m.position = Vector3(0.0, 0.0, 1.1)
 	if m.anim_player != null:

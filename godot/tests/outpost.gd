@@ -30,8 +30,13 @@ func _ready() -> void:
 	var tunnel_cells := 0
 	var massive_seen := 0
 	for i in SEEDS:
-		GameState.planet_seed = 1000 + i * 7717
+		# THE SEED IS SET AFTER `reset_match`, NOT BEFORE, AND THE ORDER IS THE
+		# WHOLE TEST. `reset_match` rolls `planet_seed` off the clock, so setting
+		# it first meant this walked twelve RANDOM bases every run and called
+		# them seeds 0..11 — it passed most runs, failed a few, and no failure it
+		# reported could ever be reproduced from the number it printed.
 		GameState.reset_match()
+		GameState.planet_seed = 1000 + i * 7717
 		var level: Node3D = OUTPOST.instantiate()
 		add_child(level)
 		await get_tree().process_frame
