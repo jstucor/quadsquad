@@ -46,12 +46,32 @@ const HANGAR := Vector2i(2, 2)
 ## loops are what let you break contact and come back round.
 const LOOP_CHANCE := 0.34
 
+## HOW MUCH OF THE BASE IS NOT A PLAIN ROOM. Both are COUNTS rather than chances,
+## so a base always has some of each — a generator that can roll "none of the
+## interesting thing" produces a map somebody plays once and calls broken.
+const HALLS := 2               # 2x1 or 2x2 blocks merged into one big room
+const SUNKEN_RUN := 3          # cells of lowered tunnel, in an L
+## How far the tunnel floor sits below the deck. Deep enough that standing in it
+## you cannot see across the floor above (a body is 1.8 m), shallow enough that
+## dropping in costs nothing — you climb out at the ramp, but you are never stuck.
+const SUNK := 3.4
+## The kerb round an opening in the deck. LOW on purpose, and the asymmetry is the
+## design: a player vaults it and drops in, and it is a WALL to the nav grid, so
+## bots route to the ramp instead of stepping off the edge on their way past.
+const KERB := 0.62
+
 var _rng := RandomNumberGenerator.new()
 ## Which cells are floor: every cell is, in this layout. What varies is the WALLS
 ## between them — see `_open`, keyed "x,z,dir".
 var _open := {}
 ## The two hangar rectangles, in cell coordinates.
 var _hangars: Array[Rect2i] = []
+## The big interior rooms — a 2x1 or 2x2 block with its inside walls left out.
+var _halls: Array[Rect2i] = []
+## Cells whose floor is DOWN a level: the tunnel. Keyed "x,z".
+var _sunk := {}
+## ...and the cell where the ramp runs from the deck down into it.
+var _ramp := Vector2i(-1, -1)
 
 
 func _configure() -> void:
@@ -78,6 +98,8 @@ func _configure() -> void:
 		Rect2i(Vector2i(0, 0), HANGAR),
 		Rect2i(Vector2i(GRID - HANGAR.x, GRID - HANGAR.y), HANGAR),
 	]
+	_plan_halls()
+	_plan_sunken()
 	_plan()
 	_place_spawns()
 	_place_cover()
@@ -97,8 +119,104 @@ func _configure() -> void:
 ## what they left, which is why a hangar never ends up sealed off by a random
 ## edge order.
 
+## BIG ROOMS, because a base of identical 12 m boxes is one room repeated
+## forty-nine times. A hall is a 2x1 or 2x2 block with its internal walls left
+## out — the same trick the hangars use — and what goes in it is not the same
+## furniture at a larger size: it gets MASSIVE crates, stacked, taller than a
+## body (see `_place_cover`). That changes what the room is FOR rather than how
+## big it is: cover you cannot shoot over, cannot see past, and can climb.
+func _plan_halls() -> void:
+	_halls.clear()
+	var tries := 0
+	while _halls.size() < HALLS and tries < 40:
+		tries += 1
+		var wide := _rng.randi_range(1, 2)
+		var tall := 2 if wide == 1 else _rng.randi_range(1, 2)
+		var at := Vector2i(_rng.randi_range(0, GRID - wide), _rng.randi_range(0, GRID - tall))
+		var rect := Rect2i(at, Vector2i(wide, tall))
+		var clash := false
+		# Never overlapping a hangar or another hall: two merged blocks sharing a
+		# cell is one enormous room, which is the opposite of what this map is.
+		for other in _hangars + _halls:
+			if other.intersects(rect):
+				clash = true
+		if not clash:
+			_halls.append(rect)
+
+
+## THE TUNNEL. A short run of cells whose floor is a level DOWN, reached by one
+## ramp, roofed by the deck above it — so it plays as a basement while being, to
+## everything that reads this map, the same single walkable surface.
+##
+## THAT IS NOT A COMPROMISE, IT IS THE CONSTRAINT. `NavGrid` is a 2D occupancy
+## grid: it has one height per cell and no idea that two floors can share an XZ.
+## A genuine second storey would give every bot in the base a plan of a level it
+## is not standing on. So the tunnel is DUG rather than stacked — same plan, same
+## walls, one surface — and the only thing the grid has to be told about is the
+## EDGE, which is what the kerbs are for.
+func _plan_sunken() -> void:
+	_sunk.clear()
+	# TRIED UNTIL IT LANDS, which is the same discipline `_plan_halls` keeps and
+	# for a reason this generator proved on its second run: the start is rolled in
+	# the middle third and the run stops at anything already spoken for, so a
+	# first cell inside a hall left `_sunk` EMPTY and the base simply had no
+	# tunnel — the exact "rolled none of the interesting thing" outcome the
+	# constants at the top are counts rather than chances to avoid. A one-cell
+	# tunnel is the same failure in a smaller size: it is a pit, not a tunnel.
+	var ways: Array[Vector2i] = [Vector2i.RIGHT, Vector2i.LEFT, Vector2i.UP, Vector2i.DOWN]
+	for attempt in 30:
+		_sunk.clear()
+		var at := Vector2i(_rng.randi_range(2, GRID - 3), _rng.randi_range(2, GRID - 3))
+		var dir: Vector2i = ways[_rng.randi_range(0, ways.size() - 1)]
+		for i in SUNKEN_RUN:
+			if at.x < 0 or at.y < 0 or at.x >= GRID or at.y >= GRID:
+				break
+			var blocked := false
+			for h in _hangars + _halls:
+				if h.has_point(at):
+					blocked = true
+			if blocked:
+				break
+			_sunk[_key_cell(at)] = at
+			# One turn part way along, so it is an L and not a trench you can see
+			# the whole of from either end — the same reason the rooms are not a
+			# grid of open squares.
+			if i == 1:
+				dir = Vector2i(dir.y, dir.x)
+			at += dir
+		if _sunk.size() >= 2:
+			break
+	# The ramp goes in the FIRST cell of the run, which is the only one guaranteed
+	# to have a neighbour on the deck.
+	_ramp = _sunk.values()[0] if not _sunk.is_empty() else Vector2i(-1, -1)
+
+
+func _key_cell(at: Vector2i) -> String:
+	return "%d,%d" % [at.x, at.y]
+
+
+func _is_sunk(x: int, z: int) -> bool:
+	return _sunk.has("%d,%d" % [x, z])
+
+
 func _plan() -> void:
 	_open.clear()
+	# A HALL IS ONE ROOM: its internal walls come out, exactly as a hangar's do.
+	for h in _halls:
+		for x in range(h.position.x, h.end.x):
+			for z in range(h.position.y, h.end.y):
+				if x + 1 < h.end.x:
+					_set_open(x, z, Vector2i.RIGHT)
+				if z + 1 < h.end.y:
+					_set_open(x, z, Vector2i.DOWN)
+	# ...and the tunnel is a run, so its cells are open to each other and to the
+	# cell the ramp climbs to. A sealed tunnel is a hole nobody can use.
+	for key in _sunk:
+		var at: Vector2i = _sunk[key]
+		for dir: Vector2i in [Vector2i.RIGHT, Vector2i.DOWN]:
+			var to := at + dir
+			if _is_sunk(to.x, to.y):
+				_set_open(at.x, at.y, dir)
 	for h in _hangars:
 		for x in range(h.position.x, h.end.x):
 			for z in range(h.position.y, h.end.y):
@@ -191,6 +309,7 @@ func _decorate() -> void:
 				if to.x >= GRID or to.y >= GRID:
 					continue
 				_build_edge(x, z, dir, _is_open(x, z, dir), mat, half)
+	_build_sunken(mat)
 	_build_ceiling()
 	_build_lights_inside()
 
@@ -223,6 +342,141 @@ func _box_size(along: Vector3, across: Vector3, length: float, thick: float) -> 
 		absf(along.x) * length + absf(across.x) * thick,
 		WALL_H,
 		absf(along.z) * length + absf(across.z) * thick)
+
+
+## THE FLOOR IS GENERATED TOO, ONE SLAB PER CELL, and it has to be: `Arena`
+## builds a single plane with one solid box under it, and a tunnel dug into that
+## is a room under a slab — unreachable, and open to the void at the sides. The
+## first version of this looked exactly like that: standing in the tunnel you saw
+## the STARFIELD through the walls, because below y=0 there was nothing at all.
+##
+## Per cell, the floor is at the deck or a level down; the tunnel gets retaining
+## walls round the drop, so the base has an inside everywhere you can stand.
+##
+## These slabs are NOT nav obstacles and need no marking to say so: their tops
+## are at or below `MAP_FLOOR_TOP`, which is the rule the scanner already applies
+## to a map's floor. The tunnel's own slab is far below that and skipped for the
+## same reason.
+func _build_floor() -> void:
+	var deck := _surface(floor_color, 0.85)
+	var sunk_mat := _surface(floor_color.darkened(0.22), 0.8)
+	var wall_mat := _surface(wall_color.darkened(0.12), 0.7)
+	for x in GRID:
+		for z in GRID:
+			var centre := _cell_centre(x, z)
+			var down := _is_sunk(x, z)
+			var top := -SUNK if down else 0.0
+			_wall(centre + Vector3(0.0, top - 0.4, 0.0),
+				Vector3(CELL, 0.8, CELL), sunk_mat if down else deck)
+			if not down:
+				continue
+			# RETAINING WALLS round the hole, from the tunnel floor up to the deck,
+			# on every side that is not more tunnel. Without them the dug cells are
+			# open to whatever is under the map, which is nothing.
+			for dir: Vector2i in [Vector2i.RIGHT, Vector2i.LEFT, Vector2i.UP, Vector2i.DOWN]:
+				var to := Vector2i(x, z) + dir
+				if _is_sunk(to.x, to.y):
+					continue
+				var along := Vector3(float(dir.y), 0.0, float(dir.x))
+				var across := Vector3(float(dir.x), 0.0, float(dir.y))
+				var at := centre + across * (CELL * 0.5) \
+					+ Vector3(0.0, -SUNK * 0.5, 0.0)
+				# THE RAMP SIDE IS STILL WALLED, with a gap the ramp runs through —
+				# two stubs, exactly as a doorway upstairs is built. Left fully open
+				# it was a window under the neighbouring floor slab and out of the
+				# map: standing in the tunnel you could see the STARFIELD past the
+				# ramp, which is the second time this map has shown the void and
+				# both times it was a hole nobody thought of as a surface.
+				var span := CELL
+				var gap := 0.0
+				if Vector2i(x, z) == _ramp and dir == _ramp_dir():
+					gap = CELL * 0.55
+					span = (CELL - gap) * 0.5
+				for side: float in ([-1.0, 1.0] if gap > 0.0 else [0.0]):
+					var offset := along * side * (gap + span) * 0.5
+					var box := Vector3(
+						absf(along.x) * span + absf(across.x) * WALL, SUNK,
+						absf(along.z) * span + absf(across.z) * WALL)
+					# NOT a nav obstacle: it is below the deck, and the KERB
+					# directly above is what the grid is meant to see. Two stamps
+					# on one edge would be the same wall counted twice.
+					_wall(at + offset, box, wall_mat, false)
+
+
+## THE TUNNEL, dug out of the deck: a floor a level down, a kerb round the drop,
+## and one ramp in.
+##
+## The floor is a slab marked `nav := false` — it is FLOOR, and the nav grid
+## reads footprints, so an unmarked slab down here would stamp the tunnel solid
+## and route every bot round the outside of it (the roof taught this lesson once
+## already, see `GameState.MAP_NAV_IGNORE`). The RAMP is marked the same way for
+## the same reason: a bot has to be able to path straight up it.
+##
+## The KERBS are the opposite: they are the only part of this the grid SHOULD see.
+## Without them a route that happens to cross the opening walks a bot off a 3.4 m
+## drop on its way somewhere else, over and over, because the grid has one height
+## per cell and cannot know the floor moved. With them the bots go round to the
+## ramp and the players — who can see the hole — vault in.
+func _build_sunken(mat: Material) -> void:
+	if _sunk.is_empty():
+		return
+	var kerb_mat := _surface(cover_color.lightened(0.05), 0.55)
+	for key in _sunk:
+		var at: Vector2i = _sunk[key]
+		var centre := _cell_centre(at.x, at.y)
+		# The floor and the retaining walls are `_build_floor`'s; what is left here
+		# is the EDGE the grid has to see and the way down.
+		# A kerb on every side that is NOT another tunnel cell and NOT the ramp:
+		# those are the edges you can fall off.
+		for dir: Vector2i in [Vector2i.RIGHT, Vector2i.LEFT, Vector2i.UP, Vector2i.DOWN]:
+			var to := at + dir
+			if _is_sunk(to.x, to.y):
+				continue
+			if at == _ramp and dir == _ramp_dir():
+				continue
+			var along := Vector3(float(dir.y), 0.0, float(dir.x))
+			var across := Vector3(float(dir.x), 0.0, float(dir.y))
+			_wall(centre + across * CELL * 0.5 + Vector3(0.0, KERB * 0.5, 0.0),
+				_box_size(along, across, CELL, 0.5) * Vector3(1.0, 0.0, 1.0)
+					+ Vector3(0.0, KERB, 0.0), kerb_mat)
+	# THE RAMP, cut into the cell the tunnel starts at and climbing back to the
+	# deck. A rotated box: the slope is what a body walks up, and `move_and_slide`
+	# needs no help with it below the floor angle.
+	if _ramp.x >= 0:
+		var centre := _cell_centre(_ramp.x, _ramp.y)
+		var dir: Vector2i = _ramp_dir()
+		var run := CELL * 0.9
+		var slope := atan2(SUNK, run)
+		var body := StaticBody3D.new()
+		body.set_meta(GameState.MAP_NAV_IGNORE, true)
+		body.position = centre + Vector3(float(dir.x), 0.0, float(dir.y)) * CELL * 0.32 \
+			+ Vector3(0.0, -SUNK * 0.5, 0.0)
+		body.rotation.y = atan2(float(dir.x), float(dir.y))
+		add_child(body)
+		var mi := MeshInstance3D.new()
+		var box := Vector3(CELL * 0.45, 0.6, sqrt(run * run + SUNK * SUNK))
+		mi.mesh = Meshes.chamfer_box(box)
+		mi.material_override = mat
+		mi.rotation.x = -slope
+		body.add_child(mi)
+		var shape := CollisionShape3D.new()
+		var cb := BoxShape3D.new()
+		cb.size = box
+		shape.shape = cb
+		shape.rotation.x = -slope
+		body.add_child(shape)
+
+
+## Which way the ramp climbs out: toward the neighbouring cell that is NOT part
+## of the tunnel, so it always arrives somewhere you can walk.
+func _ramp_dir() -> Vector2i:
+	for dir: Vector2i in [Vector2i.RIGHT, Vector2i.LEFT, Vector2i.UP, Vector2i.DOWN]:
+		var to := _ramp + dir
+		if to.x < 0 or to.y < 0 or to.x >= GRID or to.y >= GRID:
+			continue
+		if not _is_sunk(to.x, to.y):
+			return dir
+	return Vector2i.RIGHT
 
 
 ## THE ROOF, and it is what makes this an interior rather than a walled maze.
@@ -352,6 +606,17 @@ func _place_cover() -> void:
 	for x in GRID:
 		for z in GRID:
 			var centre := _cell_centre(x, z)
+			# THE TUNNEL IS FURNISHED BY BEING A TUNNEL. A crate in a 3.4 m slot
+			# under the floor is a plug, not cover.
+			if _is_sunk(x, z):
+				continue
+			var in_hall := false
+			for h in _halls:
+				if h.has_point(Vector2i(x, z)):
+					in_hall = true
+			if in_hall:
+				_stack_massive(centre)
+				continue
 			var in_hangar := false
 			for h in _hangars:
 				if h.has_point(Vector2i(x, z)):
@@ -372,6 +637,41 @@ func _place_cover() -> void:
 					_rng.randf_range(1.0, 1.8), _rng.randf_range(0.9, 1.3),
 					_rng.randf_range(1.0, 1.8))
 				cover_boxes.append({"pos": at, "size": box})
+
+
+## MASSIVE CRATES, and they are a different KIND of cover rather than a bigger
+## one. Everywhere else in this base the crates are chest height on purpose — a
+## crate you cannot see over is a second wall and the map already has all the
+## walls it needs. A big hall is where that rule is deliberately broken: a
+## freight stack you cannot see past, cannot shoot over and CAN climb, so the
+## room has an inside to fight through and a top to fight from.
+##
+## Stacked with the smaller box on top and set back, so the silhouette is a
+## staircase from one side and a cliff from the other — that asymmetry is what
+## makes a stack somewhere to go rather than an obstacle to walk round.
+const MASSIVE_BASE := Vector3(4.4, 2.6, 3.4)
+
+
+func _stack_massive(centre: Vector3) -> void:
+	# ONE OR TWO PER CELL, not three. At three, a 12 m room held 4.4 m stacks with
+	# no line through it — measured on the nav grid as routable journeys falling
+	# from 24 of 24 to 10, which is the room becoming a wall. Cover you cannot get
+	# past is not cover.
+	var spread := CELL * 0.28
+	for i in _rng.randi_range(1, 2):
+		var at := centre + Vector3(_rng.randf_range(-spread, spread), 0.0,
+			_rng.randf_range(-spread, spread))
+		var base := MASSIVE_BASE * Vector3(
+			_rng.randf_range(0.8, 1.15), _rng.randf_range(0.85, 1.2),
+			_rng.randf_range(0.8, 1.15))
+		cover_boxes.append({"pos": at, "size": base})
+		if _rng.randf() < 0.7:
+			# The one on top, set back over an edge so there is a step up onto it.
+			var top := base * Vector3(0.62, 0.55, 0.62)
+			cover_boxes.append({
+				"pos": at + Vector3(base.x * 0.18, base.y, -base.z * 0.14),
+				"size": top,
+			})
 
 
 func _cell_centre(x: int, z: int) -> Vector3:

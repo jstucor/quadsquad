@@ -1710,6 +1710,34 @@ before Main spawns players).
   strips and two shadowless fills — 49 rooms cannot each have a real light — and the strips take
   each hangar's SIDE COLOUR, which is the cheapest possible landmark in a place where every room
   looks like the last one.
+- **THE BASE HAS THREE KINDS OF SPACE, and a generator that can roll NONE of one
+  of them is the failure to design against.** Plain rooms, two BIG HALLS (a 2x1 or
+  2x2 block merged, stacked with MASSIVE crates — cover you cannot see over,
+  cannot shoot past and CAN climb, which is deliberately the opposite of the
+  chest-height rule every other room follows), and a SUNKEN TUNNEL: a short L of
+  cells whose floor is 3.4 m down, one ramp in, roofed by the deck. `HALLS` and
+  `SUNKEN_RUN` are COUNTS rather than chances for that reason, and both are
+  planned with retries — the tunnel start is rolled in the middle third and stops
+  at anything already spoken for, so a first cell inside a hall left `_sunk` empty
+  and the base simply had no basement.
+- **THE TUNNEL IS DUG, NOT STACKED, AND THAT IS THE CONSTRAINT SPEAKING.**
+  `NavGrid` is a 2D occupancy grid with one height per cell: a real second storey
+  would hand every bot a plan of a level it is not standing on. Dug, both levels
+  share one plan and one set of walls, so the grid is correct for both. The only
+  thing it has to be told about is the EDGE — hence the low KERBS, which are a
+  wall to the grid (bots route to the ramp) and a vault to a player (who can see
+  the hole). The ramp and the tunnel floor are `nav := false`: they are FLOOR, and
+  a floor stamped as an obstacle seals the thing it is the way into.
+- **AND THE FLOOR HAD TO BECOME GENERATED TOO.** `Arena` builds one plane with a
+  solid box under it, so a tunnel dug into that is a room under a slab —
+  unreachable, and open at the sides to nothing. The first version showed the
+  STARFIELD through the tunnel walls; the second showed it again through the ramp
+  opening, under the neighbouring floor slab. Both times the fault was a surface
+  nobody had thought of as a surface. It is a slab per cell now, with retaining
+  walls round the drop and stubs either side of the ramp.
+- **COVER YOU CANNOT GET PAST IS NOT COVER**, measured: three 4.4 m stacks in a
+  12 m hall took the nav grid's routable journeys from 24 of 24 down to 10 — the
+  room had become a wall. One or two per cell.
 - **AN INTERIOR NEEDS A LIGHTER ALBEDO THAN AN OUTDOOR MAP, WHICH IS THE OPPOSITE OF THE INSTINCT.**
   With no sun and no sky every surface is lit by ambient alone, and a dark albedo under ambient is
   black — the first pass of the Outpost was unplayably dark at the same wall colour the arenas use.
@@ -3042,6 +3070,8 @@ without a renderer, and `--headless` draws nothing.
 | `roster_feel.tscn` | **The play-test bench.** Every class in every universe as one table — health, walk, jump, height, TTK out, TTK once the gun is HOT, TTK in, TRADE ratio, rounds-to-kill, reach, ability slots. Asserts outer guard rails only: absurdity checks, not taste. |
 | `conquest.tscn` | Capture, tickets, defeat, spawn transforms, faction rosters (eight per side, every index a real build, no orphans). |
 | `vehicles.tscn` | The speeders. Most of what it protects is an ABSENCE or a RESTORE — that Halo and Warhammer field NONE, that royale and massive field none, that a dismount restores the body but a DEATH at the controls does not, that an enemy cannot take yours. It sets `pickup_in_reach` directly on purpose, which is what caught the team gate living only on the advertisement. Its BOARDING check walks a real Player capsule up to every machine and asks whether the interact prompt fires, which is the only question a vehicle exists to answer and the one nothing else asked: the AT-ST shipped unboardable because `MountArea` is authored once for a speeder riding 0.9 m up, and a walker standing on 4.6 m legs floated that trigger a metre over the tallest point of a trooper. Geometry cannot answer it — whether two physics volumes overlap is a question only physics can answer. Also boots six REAL matches and counts what `_place_vehicles` actually put on the field, since a rule that only holds in a unit test does not ship. |
+| `outpost.tscn` | The generated base makes what it CLAIMS to, on twelve separate seeds: a big room, a tunnel that is a run rather than a one-cell pit, a ramp that climbs out to a cell you can stand on, massive crates in the halls, and nothing built outside the map. `nav_grid` proves the base is walkable and that its rooms break the sight lines; what it cannot see is whether the interesting parts got BUILT, and a base with no tunnel and no big rooms routes perfectly. Both faults it found were real: an empty tunnel on one seed, and — because an edit had silently not applied — ZERO massive crates on every seed, which two screenshots had already hinted at and neither had proved. |
+| `outpost_look.tscn` | **WINDOWED.** The three places the generated base differs, found by ASKING THE LEVEL where they came out this run rather than guessing coordinates: inside a hall, standing in the tunnel, and the mouth of the ramp from the deck. The roofed map is the one `map_look`'s wide shot cannot photograph — from outside it is a grey lid. |
 | `vehicle_pov.tscn` | **WINDOWED.** What the DRIVER sees, from inside each machine, forward and looking down. The same argument `gunship_pov` makes: a vehicle photographed from outside — which is all `warmachine_look` does — cannot show whether the seat is in a usable place, and the AT-ST's camera floating over its own roof looked perfect from every other angle. The looking-DOWN shot is the one that matters, because that is how a walker is steered and it is where its own hull is most likely to be in the way. |
 | `slide_look.tscn` | **WINDOWED.** The slide SIDE ON and beside a crouch and a run. Both halves matter: a slide's silhouette is asymmetry in the SAGITTAL plane, so the front-on angle `locomotion_look` correctly uses for the walk is exactly the one that hides this; and the question is not whether the pose is nice (alone it photographs fine) but whether it reads as a DIFFERENT THING from a crouch, which is what it was before it had a clip. |
 | `guard_pose.tscn` | Hand-to-grip and ankle error on all ELEVEN clips (the directional ones included — add a clip, add it to CLIPS). **0.00 mm is the pass mark**; any pose change shows here first. It is what proved adding the wrist and ankle joints moved nothing. |

@@ -111,6 +111,15 @@ func _check_map(index: int, fails: Array[String]) -> String:
 			% [map_name, through, routed])
 	if blocked > 70.0:
 		fails.append("%s: %.0f%% of the map is marked solid" % [map_name, blocked])
+	# ...AND A MAP WITH NOTHING SOLID IN IT AT ALL DID NOT BUILD. Every map in the
+	# roster has walls or cover; zero means the level script errored out (a parse
+	# error leaves an empty Node3D) or its layout table is empty — and to every
+	# other measure here that map looks PERFECT: nothing to route around, every
+	# journey found, a detour of 1.00. This test read exactly that for a whole run
+	# while the Outpost's script was failing to parse.
+	if blocked < 1.0:
+		fails.append("%s: nothing is solid — the level built no geometry at all"
+			% map_name)
 	level.queue_free()
 	return "%-14s %6d  %4.0f%%  %4d/%-3d %7d %8d      x%.2f" % [
 		map_name, total, blocked, routed, SAMPLES, through, naive_blocked,
