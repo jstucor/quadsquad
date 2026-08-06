@@ -76,6 +76,32 @@ func _ready() -> void:
 				stray += 1
 		_ok(stray == 0, "seed %d: nothing is built outside the base (%d strays)" % [i, stray])
 
+		# IS THE BASE ONE PLACE? The question `nav_grid` asks with random pairs,
+		# asked properly: flood the walkable cells and see whether they are one
+		# island or several. A base in two halves still routes most journeys and
+		# fails the ones that cross — which is why the random-pair count came back
+		# 24 of 24 on one seed and 6 of 24 on another and looked like noise.
+		GameState.scan_map_geometry(level)
+		GameState.nav = NavGrid.new()
+		GameState.nav.build(GameState.map_center, GameState.map_extents,
+			GameState.map_shapes)
+		var reach := _largest_island(GameState.nav)
+		# 0.90 RATHER THAN 1.0, and the reason is where the residue comes from.
+		# The CELL plan is provably connected — it is a spanning tree plus loops —
+		# so anything left over is the nav grid's own padding closing a doorway it
+		# considers too tight, which strands a room rather than splitting the
+		# base. The bar is set where a stranded ROOM passes and a stranded WING
+		# does not; the check below is the one that protects the match.
+		_ok(reach >= 0.90, "seed %d: the base is one place — %.0f%% of the walkable floor is joined up"
+			% [i, reach * 100.0])
+		# ...AND THE TWO SPAWNS CAN REACH EACH OTHER, which is the property a
+		# match actually rests on: two sides that cannot meet is a round that
+		# never ends, and it is invisible until somebody plays it.
+		var a: Vector3 = level._cell_centre(1, 1)
+		var b: Vector3 = level._cell_centre(level.GRID - 2, level.GRID - 2)
+		_ok(GameState.nav.path(a, b).size() >= 2,
+			"seed %d: one hangar can reach the other" % i)
+
 		level.queue_free()
 		await get_tree().process_frame
 
@@ -85,6 +111,42 @@ func _ready() -> void:
 	print("\n==== %s ====" % ("THE OUTPOST BUILDS ITSELF" if _fails.is_empty()
 		else "%d FAILURE(S):\n  %s" % [_fails.size(), "\n  ".join(_fails)]))
 	get_tree().quit(0 if _fails.is_empty() else 1)
+
+
+## What fraction of the walkable cells belong to the BIGGEST connected island.
+## One means the whole base is reachable from anywhere in it; two thirds means a
+## third of the rooms are cut off from the rest and the mode played in them will
+## simply never finish.
+func _largest_island(nav: NavGrid) -> float:
+	var open_cells: Array[Vector2i] = []
+	for x in nav._cols:
+		for y in nav._rows:
+			var c := Vector2i(x, y)
+			if not nav._grid.is_point_solid(c):
+				open_cells.append(c)
+	if open_cells.is_empty():
+		return 0.0
+	var seen := {}
+	var best := 0
+	for start in open_cells:
+		if seen.has(start):
+			continue
+		var island := 0
+		var queue: Array[Vector2i] = [start]
+		seen[start] = true
+		while not queue.is_empty():
+			var at: Vector2i = queue.pop_back()
+			island += 1
+			for step: Vector2i in [Vector2i.RIGHT, Vector2i.LEFT, Vector2i.UP, Vector2i.DOWN]:
+				var to: Vector2i = at + step
+				if to.x < 0 or to.y < 0 or to.x >= nav._cols or to.y >= nav._rows:
+					continue
+				if seen.has(to) or nav._grid.is_point_solid(to):
+					continue
+				seen[to] = true
+				queue.append(to)
+		best = maxi(best, island)
+	return float(best) / float(open_cells.size())
 
 
 func _ok(cond: bool, what: String) -> void:

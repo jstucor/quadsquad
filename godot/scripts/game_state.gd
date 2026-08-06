@@ -560,6 +560,11 @@ var conquest: Node = null
 var map_center := Vector3.ZERO
 var map_extents := Vector2(40.0, 40.0)
 var map_shapes: Array = []  # [{pos: Vector2, size: Vector2, angle: float}, ...]
+## Bodies that COLLIDE but are neither ground nor obstacle — a roof, the soffit
+## under a ramp, the retaining wall below a deck. Collected by
+## `scan_map_geometry` from the same `MAP_NAV_IGNORE` flag the nav grid reads, and
+## kept as RIDs so `ground_at` can leave them out of a placement ray.
+var map_ignore_rids: Array[RID] = []
 ## Where the AI may walk. Built from map_shapes once the level exists (see
 ## Main), and shared by every bot — the grid is the same for all of them, and
 ## one per bot would be the same work sixteen times over.
@@ -1258,6 +1263,7 @@ func register_map_bounds(center: Vector3, extents: Vector2) -> void:
 ## skipped and Highridge shows its props rather than its contours.
 func scan_map_geometry(level: Node) -> void:
 	map_shapes.clear()
+	map_ignore_rids.clear()
 	var lo := Vector2(INF, INF)
 	var hi := Vector2(-INF, -INF)
 	for body in level.find_children("*", "StaticBody3D", true, false):
@@ -1266,6 +1272,10 @@ func scan_map_geometry(level: Node) -> void:
 		# A ROOF still collides — a jetpack has to stop somewhere — and is still
 		# not something anybody walks into. See MAP_NAV_IGNORE.
 		if body.has_meta(MAP_NAV_IGNORE):
+			# ...AND IT IS NOT GROUND EITHER, which is the same fact read the
+			# other way round and the half that put a capture zone on a roof.
+			# Kept so `ground_at` can leave it out of a placement ray.
+			map_ignore_rids.append(body.get_rid())
 			continue
 		for node in body.find_children("*", "CollisionShape3D", true, false):
 			if map_shapes.size() >= MAP_MAX_SHAPES:
@@ -1292,6 +1302,44 @@ func scan_map_geometry(level: Node) -> void:
 		map_center = Vector3((lo.x + hi.x) * 0.5, 0.0, (lo.y + hi.y) * 0.5)
 		map_extents = (hi - lo) * 0.5
 		map_bounds_known = true
+
+
+## WHERE THE GROUND IS UNDER A POINT — the ONE function for anything that has to
+## be PUT somewhere: the capture zone, the command posts, a royale crate.
+##
+## THE REASON IT EXISTS IS A ROOF. Each of those cast its own ray straight down
+## from 80 or 120 m against the world mask, which is right on every outdoor map
+## and lands on the CEILING of a roofed one — a capture area on top of the
+## Outpost, seen by nobody, reachable by nobody, with the match waiting for
+## somebody to go and stand in it. A map already states which of its collision is
+## not something you walk on (`MAP_NAV_IGNORE`, which arrived for the nav grid);
+## this is that same fact read from the other direction.
+##
+## Returns null where the ray finds nothing, so a caller can try somewhere else
+## rather than silently placing at zero — which on a terrain map is underground.
+func ground_at(near: Node3D, x: float, z: float, from_y := 200.0) -> Variant:
+	if near == null or not near.is_inside_tree():
+		return null
+	var from := Vector3(x, from_y, z)
+	var query := PhysicsRayQueryParameters3D.create(from,
+		from + Vector3.DOWN * (from_y + 400.0))
+	query.collision_mask = 1
+	query.exclude = map_ignore_rids
+	var hit := near.get_world_3d().direct_space_state.intersect_ray(query)
+	if hit.is_empty():
+		return null
+	return hit["position"] as Vector3
+
+
+## ...and could a body actually STAND there? The nav grid knows — it is stamped
+## from the same footprints the AI walks — so anything placing itself asks that
+## rather than inventing its own idea of "inside a wall". Answers true when there
+## is no grid yet, because a placement that happens before the map is scanned
+## should not be blocked by a question nothing can answer.
+func standable(at: Vector3) -> bool:
+	if nav == null or not map_bounds_known:
+		return true
+	return not nav.blocked_at(at)
 
 
 func register_combatant(body: Node3D) -> void:

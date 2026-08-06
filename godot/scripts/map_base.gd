@@ -35,7 +35,17 @@ const CELL := 12.0            # room pitch — a room is one cell across
 const GRID := 7               # 7 x 7 cells
 const WALL := 1.0             # thicker than a nav cell (see the header)
 const WALL_H := 6.5           # ceiling height, and the height of every wall
-const DOOR := 4.6             # doorway width — two men abreast, not a lane
+## DOORWAY WIDTH, AND IT IS SIZED AGAINST THE NAV GRID RATHER THAN AGAINST A
+## BODY. Two men abreast is 4.6 m and that is what this was — but the grid on an
+## 84 m map runs at 1.8 m cells, and `NavGrid._stamp` grows every obstacle by
+## CLEARANCE plus half a cell, which is 1.4 m on EACH side. A 4.6 m door comes out
+## as 1.8 m of open grid: one cell, and none at all once it lands off centre.
+##
+## The base was then in pieces and it did not look like it — `nav_grid` reported
+## anywhere between 6 and 24 of 24 journeys routable depending on the seed, which
+## reads as noise. At 7.0 the same padding leaves about 4 m of grid: a doorway the
+## AI can plan through, and still a door rather than a missing wall.
+const DOOR := 7.0
 ## The hangars: a 2x2 block of cells at each end with its internal walls left
 ## out, which is the only open volume in the base and the only place a fight is
 ## decided at more than a room's length.
@@ -44,7 +54,13 @@ const HANGAR := Vector2i(2, 2)
 ## anyway. A spanning tree alone is a base with dead ends, and a dead end in a
 ## close-quarters map is a place you die in rather than a place you fight in —
 ## loops are what let you break contact and come back round.
-const LOOP_CHANCE := 0.34
+## RAISED FROM 0.34, and the second reason is the one that made it necessary. A
+## spanning tree gives most rooms exactly ONE doorway — which is a base of dead
+## ends to play, and structurally fragile: one crate near that door, or one
+## doorway landing badly on the nav grid, and the room is cut off from the base
+## entirely. Flooding the walkable cells caught pockets of 10-25% of the floor
+## stranded that way. More loops is both the better map and the sturdier one.
+const LOOP_CHANCE := 0.55
 
 ## HOW MUCH OF THE BASE IS NOT A PLAIN ROOM. Both are COUNTS rather than chances,
 ## so a base always has some of each — a generator that can roll "none of the
@@ -70,8 +86,10 @@ var _hangars: Array[Rect2i] = []
 var _halls: Array[Rect2i] = []
 ## Cells whose floor is DOWN a level: the tunnel. Keyed "x,z".
 var _sunk := {}
-## ...and the cell where the ramp runs from the deck down into it.
+## ...and the cells where a ramp runs from the deck down into it. TWO of them,
+## one at each end — see `_ramp_cells`.
 var _ramp := Vector2i(-1, -1)
+var _ramp_out := Vector2i(-1, -1)
 
 
 func _configure() -> void:
@@ -186,9 +204,19 @@ func _plan_sunken() -> void:
 			at += dir
 		if _sunk.size() >= 2:
 			break
-	# The ramp goes in the FIRST cell of the run, which is the only one guaranteed
-	# to have a neighbour on the deck.
-	_ramp = _sunk.values()[0] if not _sunk.is_empty() else Vector2i(-1, -1)
+	# A RAMP AT EACH END, and the second one is not decoration.
+	#
+	# With one way in, the tunnel is a cul-de-sac — and worse, its KERBS are walls
+	# to the nav grid, so the cells it took stop being a route. Where the run
+	# happened to lie across the only corridor joining two halves of the base, the
+	# base came apart: `nav_grid` measured 24 of 24 journeys routable on one seed
+	# and 6 of 24 on another, which is a map that is fine on Tuesday and
+	# unplayable on Wednesday. Two ramps make the tunnel a PASSAGE — it carries
+	# the route it replaced, and it is a flanking way round rather than a hole to
+	# be cornered in.
+	var cells: Array = _sunk.values()
+	_ramp = cells[0] if not cells.is_empty() else Vector2i(-1, -1)
+	_ramp_out = cells[cells.size() - 1] if cells.size() > 1 else Vector2i(-1, -1)
 
 
 func _key_cell(at: Vector2i) -> String:
@@ -217,6 +245,17 @@ func _plan() -> void:
 			var to := at + dir
 			if _is_sunk(to.x, to.y):
 				_set_open(at.x, at.y, dir)
+	# ...AND THE DECK WALL AT EACH RAMP MOUTH, which is the edge the ramp climbs
+	# THROUGH. Opening only the edges BETWEEN tunnel cells left both ramps running
+	# straight into a solid wall: the tunnel was a sealed box, and where the run
+	# had taken over a corridor it took that route away with it. Measured by
+	# flooding the walkable cells — around 90% of the floor joined up with the
+	# tunnel cut off, and barely half where it had been a through route.
+	for spec: Array in [[_ramp, _ramp_dir_for(_ramp)], [_ramp_out, _ramp_dir_out()]]:
+		var cell: Vector2i = spec[0]
+		if cell.x < 0:
+			continue
+		_open_between(cell, cell + (spec[1] as Vector2i))
 	for h in _hangars:
 		for x in range(h.position.x, h.end.x):
 			for z in range(h.position.y, h.end.y):
@@ -261,6 +300,20 @@ func _plan() -> void:
 			_union(parent, from, to)
 		elif _rng.randf() < LOOP_CHANCE:
 			_set_open(from.x, from.y, dir)
+
+
+## Open the wall between two neighbouring cells, whichever way round they are
+## given. Every edge is stored against its LEFT/UPPER cell as RIGHT or DOWN, so
+## an edge opened the other way round is silently a different edge — and the wall
+## stays up.
+func _open_between(a: Vector2i, b: Vector2i) -> void:
+	var step := b - a
+	if step == Vector2i.RIGHT or step == Vector2i.DOWN:
+		_set_open(a.x, a.y, step)
+	elif step == Vector2i.LEFT:
+		_set_open(b.x, b.y, Vector2i.RIGHT)
+	elif step == Vector2i.UP:
+		_set_open(b.x, b.y, Vector2i.DOWN)
 
 
 func _key(x: int, z: int, dir: Vector2i) -> String:
@@ -389,7 +442,7 @@ func _build_floor() -> void:
 				# both times it was a hole nobody thought of as a surface.
 				var span := CELL
 				var gap := 0.0
-				if Vector2i(x, z) == _ramp and dir == _ramp_dir():
+				if _is_ramp_mouth(Vector2i(x, z), dir):
 					gap = CELL * 0.55
 					span = (CELL - gap) * 0.5
 				for side: float in ([-1.0, 1.0] if gap > 0.0 else [0.0]):
@@ -432,7 +485,7 @@ func _build_sunken(mat: Material) -> void:
 			var to := at + dir
 			if _is_sunk(to.x, to.y):
 				continue
-			if at == _ramp and dir == _ramp_dir():
+			if _is_ramp_mouth(at, dir):
 				continue
 			var along := Vector3(float(dir.y), 0.0, float(dir.x))
 			var across := Vector3(float(dir.x), 0.0, float(dir.y))
@@ -442,9 +495,12 @@ func _build_sunken(mat: Material) -> void:
 	# THE RAMP, cut into the cell the tunnel starts at and climbing back to the
 	# deck. A rotated box: the slope is what a body walks up, and `move_and_slide`
 	# needs no help with it below the floor angle.
-	if _ramp.x >= 0:
-		var centre := _cell_centre(_ramp.x, _ramp.y)
-		var dir: Vector2i = _ramp_dir()
+	for spec: Array in [[_ramp, _ramp_dir_for(_ramp)], [_ramp_out, _ramp_dir_out()]]:
+		var cell: Vector2i = spec[0]
+		if cell.x < 0:
+			continue
+		var centre := _cell_centre(cell.x, cell.y)
+		var dir: Vector2i = spec[1]
 		var run := CELL * 0.9
 		var slope := atan2(SUNK, run)
 		var body := StaticBody3D.new()
@@ -467,16 +523,42 @@ func _build_sunken(mat: Material) -> void:
 		body.add_child(shape)
 
 
-## Which way the ramp climbs out: toward the neighbouring cell that is NOT part
-## of the tunnel, so it always arrives somewhere you can walk.
-func _ramp_dir() -> Vector2i:
+## Which way a ramp climbs out of a given cell: toward a neighbour that is NOT
+## part of the tunnel, so it always arrives somewhere you can walk.
+func _ramp_dir_for(cell: Vector2i) -> Vector2i:
 	for dir: Vector2i in [Vector2i.RIGHT, Vector2i.LEFT, Vector2i.UP, Vector2i.DOWN]:
-		var to := _ramp + dir
+		var to := cell + dir
 		if to.x < 0 or to.y < 0 or to.x >= GRID or to.y >= GRID:
 			continue
 		if not _is_sunk(to.x, to.y):
 			return dir
 	return Vector2i.RIGHT
+
+
+## Is this edge the mouth of a ramp? Both ends of the run have one, and the two
+## look for different ways out so a two-cell tunnel does not put both on the same
+## wall.
+func _is_ramp_mouth(cell: Vector2i, dir: Vector2i) -> bool:
+	if cell == _ramp and dir == _ramp_dir_for(_ramp):
+		return true
+	if _ramp_out.x >= 0 and cell == _ramp_out and dir == _ramp_dir_out():
+		return true
+	return false
+
+
+## The far ramp climbs out the OTHER way where it can, so the tunnel runs through
+## rather than doubling back on itself.
+func _ramp_dir_out() -> Vector2i:
+	var back := _ramp_dir_for(_ramp)
+	for dir: Vector2i in [Vector2i.RIGHT, Vector2i.LEFT, Vector2i.UP, Vector2i.DOWN]:
+		if dir == back:
+			continue
+		var to := _ramp_out + dir
+		if to.x < 0 or to.y < 0 or to.x >= GRID or to.y >= GRID:
+			continue
+		if not _is_sunk(to.x, to.y):
+			return dir
+	return _ramp_dir_for(_ramp_out)
 
 
 ## THE ROOF, and it is what makes this an interior rather than a walled maze.
@@ -652,18 +734,41 @@ func _place_cover() -> void:
 const MASSIVE_BASE := Vector3(4.4, 2.6, 3.4)
 
 
+## A RANDOM OFFSET INSIDE THE CELL THAT CANNOT PLUG A DOORWAY.
+##
+## A doorway is `DOOR` metres of gap centred on a cell edge, and a crate is up to
+## 4.4 m across: dropped anywhere in the cell, one lands in the gap and shuts the
+## room. Two rooms shut that way is a base in pieces, and the failure is by SEED
+## — `nav_grid` reported 24 of 24 journeys routable on one roll and **6 of 24** on
+## another, which is the same map being fine on Tuesday and unplayable on
+## Wednesday. That is worse than a map that never works, because nothing looks
+## wrong until somebody is in it.
+##
+## So the offset is bounded by the crate's OWN half-extent plus a body's width of
+## clearance, which keeps every box inside the room and every doorway open.
+## Cover keeps its distance from the walls for the same reason the doors are
+## wide: the grid grows a crate by 1.4 m as well, so a box that merely LOOKS
+## clear of a doorway can still close it.
+const COVER_CLEAR := 2.4
+
+
+func _clear_of_walls(box: Vector3) -> Vector3:
+	var room_x: float = maxf(CELL * 0.5 - box.x * 0.5 - COVER_CLEAR, 0.0)
+	var room_z: float = maxf(CELL * 0.5 - box.z * 0.5 - COVER_CLEAR, 0.0)
+	return Vector3(_rng.randf_range(-room_x, room_x), 0.0,
+		_rng.randf_range(-room_z, room_z))
+
+
 func _stack_massive(centre: Vector3) -> void:
 	# ONE OR TWO PER CELL, not three. At three, a 12 m room held 4.4 m stacks with
 	# no line through it — measured on the nav grid as routable journeys falling
 	# from 24 of 24 to 10, which is the room becoming a wall. Cover you cannot get
 	# past is not cover.
-	var spread := CELL * 0.28
 	for i in _rng.randi_range(1, 2):
-		var at := centre + Vector3(_rng.randf_range(-spread, spread), 0.0,
-			_rng.randf_range(-spread, spread))
 		var base := MASSIVE_BASE * Vector3(
 			_rng.randf_range(0.8, 1.15), _rng.randf_range(0.85, 1.2),
 			_rng.randf_range(0.8, 1.15))
+		var at := centre + _clear_of_walls(base)
 		cover_boxes.append({"pos": at, "size": base})
 		if _rng.randf() < 0.7:
 			# The one on top, set back over an edge so there is a step up onto it.

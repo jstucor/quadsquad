@@ -61,22 +61,58 @@ func _place_posts() -> void:
 func _spawn_post(center: Vector3, along_x: bool, offset: float, owner: int, label: String) -> void:
 	var x := center.x + (offset if along_x else 0.0)
 	var z := center.z + (0.0 if along_x else offset)
-	var y := _ground(x, z)
+	var at := _standable_near(Vector3(x, 0.0, z))
 	var post := POST_SCENE.new()
 	_level.add_child(post)
-	post.setup(Vector3(x, y, z), owner, label)
+	post.setup(at, owner, label)
+
+
+## A POST HAS TO BE SOMEWHERE PEOPLE CAN STAND AND FIGHT, and the line down the
+## middle is only a wish.
+##
+## The posts are laid along the map's longer axis, which is right on open ground
+## and lands inside walls on a base of rooms — a capture point in a wall is a
+## post neither side can ever take, so Conquest simply cannot be played on that
+## map. So the wished-for spot is the FIRST GUESS: if the nav grid says a body
+## cannot stand there, it spirals outward until it finds somewhere one can, which
+## on an open map returns the original point on the first try and costs nothing.
+const POST_SEARCH := 26.0     # metres to give up after
+const POST_STEP := 3.0
+
+
+func _standable_near(want: Vector3) -> Vector3:
+	var first: Variant = GameState.ground_at(_level, want.x, want.z)
+	var best := Vector3(want.x, _ground(want.x, want.z), want.z) if first == null \
+		else first as Vector3
+	if GameState.standable(best):
+		return best
+	var rings := int(POST_SEARCH / POST_STEP)
+	for ring in range(1, rings + 1):
+		var radius := float(ring) * POST_STEP
+		for k in 12:
+			var a := TAU * float(k) / 12.0
+			var x := want.x + cos(a) * radius
+			var z := want.z + sin(a) * radius
+			var spot: Variant = GameState.ground_at(_level, x, z)
+			if spot == null:
+				continue
+			if GameState.standable(spot):
+				return spot as Vector3
+	return best
 
 
 ## Ground height at a point: the level's own analytic surface when it has one
-## (the terrain maps), else a downward ray, else zero.
+## (the terrain maps), else the shared placement ray, else zero.
+##
+## THE RAY USED TO BE THIS FILE'S OWN, from 120 m against the world mask, which
+## on a roofed map is the ceiling — every command post on the Outpost sat on the
+## roof. `GameState.ground_at` is the one place that question is answered now,
+## and it knows what a roof is.
 func _ground(x: float, z: float) -> float:
 	if _level != null and _level.has_method("height_at"):
 		return _level.height_at(x, z)
-	var from := Vector3(x, 120.0, z)
-	var query := PhysicsRayQueryParameters3D.create(from, from + Vector3.DOWN * 200.0)
-	query.collision_mask = 1
-	var hit := get_world_3d().direct_space_state.intersect_ray(query)
-	return (hit["position"] as Vector3).y if not hit.is_empty() else 0.0
+	var hit: Variant = GameState.ground_at(_level, x, z)
+	return (hit as Vector3).y if hit != null else 0.0
 
 
 ## Drain the reinforcements of every side that holds fewer posts than the leader,

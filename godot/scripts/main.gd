@@ -342,16 +342,38 @@ func _scatter_pickups() -> void:
 		_roll_pickup(item, rng)
 
 
+## WHERE A CRATE GOES. Two things it has to be: on the FLOOR, and somewhere a
+## player can walk to.
+##
+## Neither was a question while every royale map was open ground — `height_at`
+## answers the first and there is nowhere unreachable to answer the second about.
+## On a base of rooms both bite: a third of the map is wall, so a crate lands
+## inside one and is loot nobody can ever pick up, and a map with no `height_at`
+## fell back to y = 0, which in the sunken tunnel is a crate hanging in the air
+## over the hole. So it TRIES, and the tries are cheap.
 func _royale_spot(rng: RandomNumberGenerator, extents: Vector2) -> Vector3:
 	var margin := 6.0
-	var x := GameState.map_center.x + rng.randf_range(-extents.x + margin, extents.x - margin)
-	var z := GameState.map_center.z + rng.randf_range(-extents.y + margin, extents.y - margin)
-	var y := 0.0
-	if level.has_method("height_at"):
-		y = level.height_at(x, z)
-	# Same reason spawns are lifted: the collision mesh sits above the analytic
-	# curve across a hollow, and a crate at the exact height sinks into it.
-	return Vector3(x, y + 0.6, z)
+	for attempt in 24:
+		var x := GameState.map_center.x + rng.randf_range(-extents.x + margin, extents.x - margin)
+		var z := GameState.map_center.z + rng.randf_range(-extents.y + margin, extents.y - margin)
+		var y := 0.0
+		if level.has_method("height_at"):
+			y = level.height_at(x, z)
+		else:
+			var hit: Variant = GameState.ground_at(level, x, z)
+			if hit == null:
+				continue
+			y = (hit as Vector3).y
+		var at := Vector3(x, y, z)
+		# The last attempt takes what it is given rather than dropping the crate:
+		# a map the grid reads as mostly solid should still be playable, just
+		# untidily furnished.
+		if attempt < 20 and not GameState.standable(at):
+			continue
+		# Same reason spawns are lifted: the collision mesh sits above the
+		# analytic curve across a hollow, and a crate at the exact height sinks.
+		return at + Vector3.UP * 0.6
+	return GameState.map_center + Vector3.UP * 0.6
 
 
 ## What a given crate turns out to be. Guns dominate because a royale where you

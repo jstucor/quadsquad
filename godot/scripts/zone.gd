@@ -143,6 +143,13 @@ func _pick_spot() -> Vector3:
 		if ground == null:
 			continue
 		var candidate: Vector3 = ground
+		# INSIDE A WALL IS NOT A PLACE TO PUT A CAPTURE AREA. It never came up
+		# while every map was open ground with cover on it; on a base of rooms,
+		# a third of the map is wall and the area would sit in one with nobody
+		# able to reach it. The nav grid is the map's own answer to "can a body
+		# be here", so it is what is asked.
+		if not GameState.standable(candidate):
+			continue
 		if GameState.zone_active and Vector2(candidate.x - global_position.x,
 				candidate.z - global_position.z).length() < MIN_MOVE:
 			continue
@@ -151,16 +158,14 @@ func _pick_spot() -> Vector3:
 	return centre if centre != null else Vector3.ZERO
 
 
-## Straight down from high up: whatever floor, deck or hillside is there.
-## Vector3 where there's ground, null where the ray finds nothing.
+## Whatever floor, deck or hillside is under a point — asked of GameState, which
+## is where every placement in the game asks it now.
+##
+## IT USED TO BE ITS OWN RAY FROM 80 M with the world mask, and on a ROOFED map
+## that is the ceiling: the capture area sat on top of the Outpost for the whole
+## match. See `GameState.ground_at`.
 func _ground_at(x: float, z: float) -> Variant:
-	var from := Vector3(x, 80.0, z)
-	var query := PhysicsRayQueryParameters3D.create(from, from + Vector3.DOWN * 140.0)
-	query.collision_mask = 1  # world geometry
-	var hit := get_world_3d().direct_space_state.intersect_ray(query)
-	if hit.is_empty():
-		return null
-	return hit["position"] as Vector3
+	return GameState.ground_at(self, x, z)
 
 
 ## Half-extents to sample within: the arena's own size when it has one, or the
