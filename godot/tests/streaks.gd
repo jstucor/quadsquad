@@ -31,12 +31,14 @@ func _ready() -> void:
 	_check_thresholds()
 	await _check_become()
 	await _check_gunship()
+	await _check_third_person()
 	# EVERY SECTION MUST HAVE FINISHED. A GDScript error aborts the enclosing
 	# function silently (house rule 6), so a bad call halfway down a check skips
 	# the rest of its assertions and the run still reports success — which is
 	# exactly what happened here the first time, on a mistyped GameState call.
 	# Each check signs off at its own end and this counts the signatures.
-	var want := ["table", "gates", "thresholds", "become", "gunship"]
+	var want := ["table", "gates", "thresholds", "become", "gunship",
+		"third person"]
 	for name in want:
 		if not _done.has(name):
 			_fails.append("the `%s` checks did not run to the end — something in "
@@ -322,6 +324,38 @@ func _check_become() -> void:
 	_ok(p.health == 10.0,
 		"the signature re-earned itself and healed to %.0f" % p.health)
 	print("  a 7th kill does not re-issue it (health stayed %.0f)" % p.health)
+
+	# AND IT DOES NOT REGENERATE — the pool it came with is the whole budget for
+	# the rest of the life. This is the counterweight to seven-to-eleven times a
+	# trooper's health, and it is INVISIBLE: nothing about the body says so, so
+	# nothing but a test would notice it quietly coming back. Wound it, wait past
+	# REGEN_DELAY, and assert it stayed wounded.
+	p.health = 10.0
+	p._since_damage = Player.REGEN_DELAY + 1.0
+	for _i in 8:
+		p._update_regen(0.25)
+	_ok(p.health == 10.0,
+		"a BECOME reward regenerated to %.0f — the pool has to be finite" % p.health)
+	print("  and it does not regenerate (%.0f hp after %.1fs idle)"
+		% [p.health, 2.0])
+
+	# ...while an ORDINARY body still does, or the rule leaked onto everybody.
+	var plain: Player = PLAYER.instantiate()
+	add_child(plain)
+	await get_tree().process_frame
+	plain.team = 3
+	plain.pending = Loadout.new()
+	plain.pending.adopt_kit(Loadout.Kit.CLONE)
+	plain._apply_loadout()
+	await get_tree().process_frame
+	plain.health = 10.0
+	plain._since_damage = Player.REGEN_DELAY + 1.0
+	for _i in 8:
+		plain._update_regen(0.25)
+	_ok(plain.health > 10.0,
+		"an ordinary body stopped regenerating — the BECOME rule leaked")
+	print("  an ordinary trooper still heals (%.0f hp)" % plain.health)
+	plain.queue_free()
 	p.queue_free()
 
 	# DECLINING SPENDS THE OFFER. Otherwise every further kill re-offers the thing
@@ -346,3 +380,83 @@ func _check_become() -> void:
 	print("  declined, and not re-offered on the next kill")
 	q.queue_free()
 	_done["become"] = true
+
+
+## THE FORCE MASTER IS WATCHED, NOT LOOKED THROUGH.
+##
+## Three things have to move together and each is silent when wrong: the flag,
+## the CAMERA (which is what the player actually experiences) and the CULL MASK
+## (which decides whether they can see the body the camera is now pointed at).
+## Get the mask wrong and you play third person looking at empty air with your
+## own rifle floating in it — a picture no assertion on `third_person` alone
+## would catch.
+##
+## And the half that regresses quietly: an ordinary respawn has to put it ALL
+## back. `_apply_loadout` is what a fresh deploy calls, so a reset left out there
+## means dying once as a Force Master and playing the rest of the match over your
+## own shoulder as a trooper.
+func _check_third_person() -> void:
+	print("\n-- the Force Master is played in third person --")
+	GameState.match_live = true
+	var p: Player = PLAYER.instantiate()
+	add_child(p)
+	await get_tree().process_frame
+	p.team = 0                      # Republic: reaches the FORCE MASTER
+	p.pending = Loadout.new()
+	p.pending.adopt_kit(Loadout.Kit.CLONE)
+	p._apply_loadout()
+	# A camera to actually drive, since the whole point is where it ends up.
+	var cam := Camera3D.new()
+	add_child(cam)
+	p.bind_camera(cam)
+	await get_tree().process_frame
+
+	var body_bit: int = 1 << (1 + p.player_index)
+	var gun_bit: int = 1 << (Player.VIEWMODEL_BIT + p.player_index)
+	_ok(not p.third_person, "an ordinary trooper deploys in third person")
+	_ok((cam.cull_mask & body_bit) == 0,
+		"a first-person trooper can see its own body")
+	_ok((cam.cull_mask & gun_bit) != 0,
+		"a first-person trooper cannot see its own weapon")
+
+	for i in Streaks.KILLS_FORCE:
+		p.credit_kill()
+	await get_tree().process_frame
+	_ok(str(p.pending_reward().get("name", "")) == "FORCE MASTER",
+		"the top rung offered `%s`" % str(p.pending_reward().get("name", "-")))
+	p.accept_reward()
+	# Let the chase camera ease all the way out — it is deliberately NOT a cut.
+	for i in 90:
+		await get_tree().physics_frame
+
+	var back: float = p.remote_cam.position.z
+	print("  camera pulled back %.2f m, signature `%s`" % [back, p.signature_name])
+	_ok(p.third_person, "the Force Master is still in first person")
+	_ok(back > 1.0,
+		"the Force Master's camera never left the head (%.2f m back)" % back)
+	_ok((cam.cull_mask & body_bit) != 0,
+		"the Force Master cannot see its own body — third person looking at nothing")
+	_ok((cam.cull_mask & gun_bit) == 0,
+		"the Force Master still draws its first-person weapon, inside its own head")
+	_ok(p.signature_name == "FORCE MASTER" or p.signature_name == "JEDI MASTER"
+			or p.signature_name == "SITH MASTER",
+		"the HUD was told the wrong signature name: `%s`" % p.signature_name)
+
+	# AND AN ORDINARY DEPLOY PUTS IT ALL BACK.
+	p.pending = Loadout.new()
+	p.pending.adopt_kit(Loadout.Kit.CLONE)
+	p._apply_loadout()
+	for i in 90:
+		await get_tree().physics_frame
+	_ok(not p.third_person, "a respawned trooper is still in third person")
+	_ok(p.remote_cam.position.z < 0.05,
+		"the chase camera never came back in (%.2f m back)" % p.remote_cam.position.z)
+	_ok((cam.cull_mask & body_bit) == 0,
+		"a respawned trooper can see its own body")
+	_ok((cam.cull_mask & gun_bit) != 0,
+		"a respawned trooper lost its first-person weapon")
+	_ok(p.signature_name == "", "a respawned trooper is still named a signature")
+	p.queue_free()
+	cam.queue_free()
+	await get_tree().process_frame
+	_done["third person"] = true

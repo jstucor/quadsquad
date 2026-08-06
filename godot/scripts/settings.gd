@@ -9,7 +9,6 @@ extends Control
 ##
 ## All the binding logic lives in Controls; this file is the screen.
 
-const MENU_SCENE := "res://scenes/menu.tscn"
 
 const BG_COLOR := Color(0.06, 0.07, 0.09)
 const ACCENT := Color(0.45, 0.72, 1.0)
@@ -302,8 +301,19 @@ func _unhandled_input(event: InputEvent) -> void:
 		_go_back()
 
 
+## BACK GOES WHERE YOU CAME FROM (`GameState.settings_return`), not always to the
+## match-setup menu — three screens can reach this one now.
+##
+## AND WHATEVER WAS CHANGED HERE IS THEIRS. A player signed in on a device owns
+## that device's configuration (see `Accounts`), so leaving this screen writes it
+## back to their account. Without it, a rebind made before the match is kept only
+## if they then go on to finish a match, which is a rule nobody could guess.
 func _go_back() -> void:
-	get_tree().change_scene_to_file(MENU_SCENE)
+	for i in GameState.player_accounts.size():
+		var who := GameState.account_for(i)
+		if not who.is_empty():
+			Accounts.capture(who, GameState.device_for_player(i))
+	get_tree().change_scene_to_file(GameState.settings_return)
 
 
 func _button(text: String) -> Button:

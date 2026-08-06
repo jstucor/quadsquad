@@ -176,6 +176,54 @@ const CROUCH_KNEE_DEG := CROUCH_HIP_DEG * 2.0
 const CROUCH_HIP_DROP := LEG * (cos(deg_to_rad(CROUCH_HIP_DEG)) - 1.0)
 const CROUCH_LEAN_DEG := 26.0  # torso out over the knees
 const CROUCH_HEAD_DEG := 21.0  # ...and the head back up, so the visor faces front
+# --- THE SLIDE ---------------------------------------------------------------
+#
+# A SLIDE IS ASYMMETRIC AND THAT IS THE WHOLE READ. A crouch is two legs folded
+# the same way, which from any angle is a person squatting; what says "sliding"
+# is one leg thrown out in front and the other folded underneath, with the torso
+# back over the trailing hip. Get that pair of angles right and it is unmistakable
+# in a silhouette; get them symmetric and it is a crouch moving quickly, which is
+# exactly what the mechanic looked like before this clip existed.
+#
+# THE TRAILING LEG IS THE ONE THAT CARRIES THE BODY, so it is the one the hip
+# drop is solved against — and it keeps the crouch's own knee = 2 x hip
+# constraint, which is what puts the ankle under the hip rather than out in front
+# of it. Deeper than a crouch, because a slide is lower than a squat.
+#
+# THE ANGLE ITSELF WAS SOLVED BY MEASUREMENT, and that is worth stating because
+# the closed form looks like it should have given it. `CROUCH_HIP_DROP`'s
+# derivation is exact only where thigh and shin are equal, and on this rig they
+# are not — so it lands at exactly 0.00 mm for the crouch's 55 degrees (which is
+# what it was calibrated against) and drifts about 2.7 mm of foot per degree
+# beyond that. At 74 degrees the trailing boot was 14.7 mm under the floor.
+# `tests/guard_pose.tscn` is what says so, and 68.5 is where it reads 0.00 —
+# still comfortably deeper than the crouch, which is all the pose needs.
+const SLIDE_TRAIL_HIP_DEG := 68.5
+const SLIDE_TRAIL_KNEE_DEG := SLIDE_TRAIL_HIP_DEG * 2.0
+# ...and the lead leg is thrown forward, nearly straight, heel first — a bent
+# lead leg reads as a stumble.
+#
+# IT HAS TO BE NEARLY HORIZONTAL, AND THAT IS ARITHMETIC RATHER THAN TASTE. The
+# hips are down at `LEG * cos(SLIDE_TRAIL_HIP_DEG)` above the ground, which at 74
+# degrees is barely a quarter of a leg. A straight leg reaches almost a whole one
+# — so at the 34 degrees this was first written with, the lead foot finished
+# **368 mm through the floor** (`tests/guard_pose.tscn` measures exactly this).
+# For the foot to clear the ground the leg's VERTICAL reach must be less than the
+# hip height, and for a straight leg that means `cos(lead) < cos(trail)` — the
+# lead hip has to open FURTHER than the trailing one, not less. Which is also
+# what a slide looks like: the front leg is stretched out along the ground.
+const SLIDE_LEAD_HIP_DEG := 86.0
+const SLIDE_LEAD_KNEE_DEG := 10.0
+# The torso goes BACK, not forward. A crouch leans out over its knees because it
+# is about to move; a slide is already moving and the weight is behind the lead
+# foot. This is the single angle that most decides whether it reads.
+const SLIDE_LEAN_DEG := 16.0
+const SLIDE_HEAD_DEG := 12.0    # ...and the head brought back up to face front
+# Solved off the TRAILING leg for the reason recorded on CROUCH_HIP_DROP: it is a
+# fraction of LEG and never of HIP_Y, or the boots go through the floor.
+const SLIDE_HIP_DROP := LEG * (cos(deg_to_rad(SLIDE_TRAIL_HIP_DEG)) - 1.0)
+const SLIDE_LEN := 0.5
+
 const CROUCH_SWING_DEG := 26.0  # hip swing either side of the fold, when shuffling
 const CROUCH_LIFT_DEG := 20.0   # extra knee tuck on the leg swinging through
 
@@ -517,6 +565,239 @@ func set_twist(radians: float) -> void:
 	_twist = radians
 	if _twist_joint != null and is_instance_valid(_twist_joint):
 		_twist_joint.rotation.y = radians
+
+
+## LEAN THE UPPER BODY, in radians — forward/back and side to side.
+##
+## On the SAME joint as the twist, and for the same reason: `Twist` is the one
+## joint in this rig that no clip ever names, so what is written here survives
+## the AnimationPlayer rewriting every other joint every frame. On the Spine it
+## would be erased on the frame it was set, with nothing anywhere to say why.
+##
+## The twist owns that joint's Y and this owns its X and Z, so the two compose
+## rather than clobbering each other — which is what makes a body able to lean
+## into a turn while its chest is still tracking the aim.
+##
+## Driven by `Locomotion`, which is the thing that knows how fast this body is
+## changing direction. Nothing here decides how much to lean.
+## --- FOOT PLANTING -----------------------------------------------------------
+##
+## A CLIP MOVES A FOOT WHETHER OR NOT THE FOOT IS ON ANYTHING. Every stride here
+## was a set of joint angles played back at a rate, so the foot went where the
+## curve said and the ground was never consulted: on a slope one boot hung in the
+## air and the other was buried, on a step both were, and while the body slid
+## round a turn the planted foot slid with it.
+##
+## PLANTING IS ONE IDEA THAT FIXES ALL THREE. A foot near the ground is LOCKED to
+## the world point it landed on and the leg is solved to keep it there, so:
+##
+##   the foot stops sliding      it is pinned to a place, not to the hips
+##   turning in place takes STEPS  the pinned foot holds while the body turns,
+##                               and only releases when the leg runs out of reach
+##   stopping PLANTS             the swinging foot finishes its step and stays
+##
+## None of those needed a clip. They are what happens once a foot is allowed to
+## belong to the ground instead of to the animation.
+##
+## WHERE IT RUNS IS THE WHOLE TRICK. The AnimationPlayer rewrites every leg joint
+## every frame, so the solve has to happen AFTER it — hence `process_priority`
+## below and `_process` rather than `_physics_process`. But a ray query may only
+## be made during physics, so the GROUND under each foot is probed on the physics
+## tick (by `Locomotion`, which is already there) and handed over. A ground height
+## one frame old is worth nothing against getting the order wrong.
+
+## How close to the ground a foot has to be before it counts as down.
+const PLANT_BAND := 0.09
+## ...and how far it may be dragged from where it landed before it gives up and
+## takes a new step. This is what makes a turn in place read as FOOTWORK: the
+## foot holds, the body turns, the leg stretches, and at this distance it steps.
+const PLANT_BREAK := 0.34
+## How fast a foot eases onto a new lock, so a step does not snap.
+const PLANT_EASE := 18.0
+## The lowest a hip may be dropped to keep a foot down (a foot on a step below
+## the other pulls the whole body down rather than stretching one leg).
+const HIP_DROP_MAX := 0.28
+
+## Set by `Locomotion` — the world height of the ground under each foot, and
+## whether the probe found any. Index 0 is LEFT.
+var foot_ground := [0.0, 0.0]
+var foot_ground_hit := [false, false]
+## Turned on by `Locomotion` for bodies that are worth the two rays. Off by
+## default, so a bare `CharacterModel` in a look test animates exactly as before.
+var planting := false
+
+var _plant_at := [Vector3.ZERO, Vector3.ZERO]
+var _plant_on := [false, false]
+var _plant_mix := [0.0, 0.0]
+var _hip_drop := 0.0
+
+
+func _process(delta: float) -> void:
+	if planting:
+		_solve_feet(delta)
+
+
+## Where the ankle wants to be, and what the leg has to do about it.
+func _solve_feet(delta: float) -> void:
+	var hips := get_node_or_null(NodePath("Hips")) as Node3D
+	if hips == null:
+		return
+	var want_drop := 0.0
+	for i in 2:
+		var sn := "L" if i == 0 else "R"
+		var ankle := get_node_or_null(NodePath(PATHS["a" + sn])) as Node3D
+		if ankle == null:
+			continue
+		var at := ankle.global_position
+		var ground: float = foot_ground[i]
+		# THE SOLE TOUCHES THE GROUND, NOT THE JOINT. The ankle sits `FOOT_LIFT`
+		# above the bottom of the boot, so measuring the joint against the ground
+		# both fails to notice a foot that is standing on it (the first version
+		# never planted at all — a planted foot reads 75 mm "above" the ground)
+		# and, once locked, buries the boot by the same amount.
+		var lift: float = FOOT_LIFT * scale.y
+		var down: bool = foot_ground_hit[i] and at.y - lift - ground < PLANT_BAND
+
+		if down and not _plant_on[i]:
+			# IT JUST LANDED. Lock it where it touched, sole on the ground.
+			_plant_at[i] = Vector3(at.x, ground + lift, at.z)
+			_plant_on[i] = true
+		elif _plant_on[i]:
+			# THE LOCK'S HEIGHT IS REFRESHED, ITS PLACE IS NOT. The XZ is the
+			# whole point of a lock and must not move; the Y was captured on the
+			# frame the foot touched, which is the frame the body is least
+			# settled, and a lock taken a few centimetres wrong stays wrong
+			# forever because a foot that is already down never re-captures.
+			_plant_at[i].y = ground + lift
+			# ...and it lets go once the leg can no longer reach the lock, which
+			# is what turns a turn-in-place into a step rather than a stretch.
+			var drag := Vector2(at.x - _plant_at[i].x, at.z - _plant_at[i].z).length()
+			if not down or drag > PLANT_BREAK:
+				_plant_on[i] = false
+		_plant_mix[i] = move_toward(_plant_mix[i],
+			1.0 if _plant_on[i] else 0.0, delta * PLANT_EASE)
+		if _plant_mix[i] <= 0.001:
+			continue
+		var target := at.lerp(_plant_at[i], _plant_mix[i])
+		# A foot that cannot be reached without straightening the leg pulls the
+		# HIPS down instead — one leg stretched to a pin is the artefact this is
+		# meant to remove, not a new one to introduce.
+		#
+		# MEASURED FROM THE HIP JOINT AND NOT FROM `Hips`. The pelvis node sits
+		# about 10 cm above the joint the thigh actually turns on, and `HIP_Y` is
+		# 20 cm longer than the leg it carries (see the note on LEG) — so asking
+		# whether a foot is reachable from the pelvis says the leg is a fifth
+		# longer than it is, and the drop never fires when it is needed.
+		var hip := get_node_or_null(NodePath(PATHS["h" + sn])) as Node3D
+		if hip != null:
+			var reach := hip.global_position.distance_to(target)
+			var limit: float = LEG * scale.y
+			if reach > limit:
+				want_drop = maxf(want_drop, minf(reach - limit, HIP_DROP_MAX))
+		_leg_ik(sn, target)
+	_hip_drop = lerpf(_hip_drop, want_drop, clampf(delta * 10.0, 0.0, 1.0))
+	# SUBTRACTED FROM WHAT THE CLIP SET, not written over it. Several poses drop
+	# the hips themselves — the idle stance pays for its splay that way, and the
+	# crouch and the guard are nothing but hip drops — so assigning `HIP_Y` here
+	# silently undid all of them and stood the body back up by the exact amount
+	# the pose had just crouched it. Safe to subtract every frame because the
+	# AnimationPlayer rewrites this joint before this function runs.
+	hips.position.y -= _hip_drop
+
+
+## What the ankle joint sits above the sole, so a locked foot is placed by its
+## SOLE and not by the joint inside it.
+const FOOT_LIFT := 0.075
+
+
+## PUT THE ANKLE ON `target` BY CORRECTING THE POSE, NOT BY REPLACING IT.
+##
+## This is the whole difference between foot planting that works and foot
+## planting that flattens every body's stance. The obvious version solves the leg
+## from scratch and writes the hip and knee outright — and the hip's rotation is
+## where the pose keeps its leg PLACEMENT, so a solved-from-scratch leg loses the
+## idle stance's splay, the crouch's knee-out, and every other thing a clip said
+## about where that leg should be. A body planted that way stands with its legs
+## together, which is a worse artefact than the floating foot it fixed.
+##
+## So the animated pose is the starting point and this moves it the least it can:
+##
+##   THE KNEE sets how far the leg REACHES, and is the only joint whose value is
+##     solved outright — extension is what has to change and the knee is the one
+##     thing that changes it. Its bend axis is the rig's, not the solve's.
+##   THE HIP is kept exactly as the clip left it and then SWUNG by the minimum
+##     rotation that carries the ankle onto the target. A minimal swing preserves
+##     everything about the hip that is perpendicular to it, which is precisely
+##     the splay and the toe-out.
+##
+## Nothing accumulates: the AnimationPlayer rewrites both joints every frame
+## before this runs (see `process_priority`), so each frame corrects a fresh pose.
+func _leg_ik(sn: String, target: Vector3) -> void:
+	var hip := get_node_or_null(NodePath(PATHS["h" + sn])) as Node3D
+	var knee := get_node_or_null(NodePath(PATHS["k" + sn])) as Node3D
+	if hip == null or knee == null:
+		return
+	var parent := hip.get_parent() as Node3D
+	if parent == null:
+		return
+	var a := knee.position.length()
+	if a <= 0.0001:
+		return
+	var b := LOWER_LEG
+	var rest := knee.position / a          # the straight leg, in the hip's frame
+	# Where the ankle has to end up, from the hip JOINT, in the hip's parent frame.
+	var want: Vector3 = parent.global_transform.affine_inverse() * target \
+		- hip.position
+	var d := want.length()
+	if d <= 0.0001:
+		return
+	# THE KNEE, from the extension alone. Same law of cosines `_arm_ik` takes
+	# about the rest direction: only the part of the leg perpendicular to the bend
+	# axis actually swings, hence the `rest.x²` term.
+	var fixed := rest.x * rest.x
+	var reach := (d * d - a * a - b * b) / (2.0 * a * b)
+	var cos_flex := clampf((reach - fixed) / maxf(1.0 - fixed, 0.001), -1.0, 1.0)
+	# NEGATIVE: a knee folds backward. With the elbow's sign the shin swings the
+	# foot out in front of the body, which is not subtle to look at.
+	var flex := -acos(cos_flex)
+	knee.rotation = Vector3(flex, 0.0, 0.0)
+	# THE HIP, swung from wherever the pose left it.
+	var local_ankle := knee.position + Basis(Vector3.RIGHT, flex) * (rest * b)
+	var posed := hip.basis * local_ankle
+	if posed.length_squared() < 0.000001:
+		return
+	var from := posed.normalized()
+	var to := want.normalized()
+	# `Quaternion(from, to)` is undefined for anti-parallel vectors and hands back
+	# a NaN basis, which then propagates into every global transform under this
+	# joint and takes the frame with it. A leg asked to point exactly backwards
+	# cannot happen with a reachable target, so it is refused rather than
+	# approximated.
+	if from.dot(to) < -0.9999:
+		return
+	var swung := Basis(Quaternion(from, to)) * hip.basis
+	if not _finite(swung):
+		return
+	# ORTHONORMALISED: this composes a rotation onto a basis every frame, and
+	# without it the numerical drift shows up as a leg that slowly shears.
+	hip.basis = swung.orthonormalized()
+
+
+## A basis with a NaN in it is worse than a wrong one: it spreads to every
+## transform below it and there is nothing on screen or in the log to say where
+## it started.
+static func _finite(b: Basis) -> bool:
+	for v in [b.x, b.y, b.z]:
+		if not (is_finite(v.x) and is_finite(v.y) and is_finite(v.z)):
+			return false
+	return true
+
+
+func set_lean(pitch: float, roll: float) -> void:
+	if _twist_joint == null or not is_instance_valid(_twist_joint):
+		return
+	_twist_joint.rotation.x = pitch
+	_twist_joint.rotation.z = roll
 
 
 ## Rebuild just the held blade and pole for the melee weapon now in hand. The
@@ -1605,6 +1886,12 @@ func _build_animations() -> void:
 	anim_player = AnimationPlayer.new()
 	anim_player.name = "AnimationPlayer"
 	add_child(anim_player)
+	# THE FOOT SOLVE MUST RUN AFTER THE ANIMATION HAS WRITTEN THE LEG JOINTS, and
+	# `_process` runs parents before children by default — which is exactly the
+	# wrong order. A later priority puts this model's `_process` behind every
+	# priority-0 node, the AnimationPlayer included. Without it the IK is written
+	# and then overwritten on the same frame, with nothing anywhere to say why.
+	process_priority = 1
 	anim_player.root_node = NodePath("..")  # tracks are relative to this Character
 
 	var lib := AnimationLibrary.new()
@@ -1630,6 +1917,11 @@ func _build_animations() -> void:
 		_clip(CROUCH_IDLE_LEN, true, 9, _crouch_idle_pose, _crouch_idle_hips))
 	lib.add_animation("crouch_walk",
 		_clip(CROUCH_WALK_LEN, true, 9, _crouch_walk_pose, _crouch_walk_hips))
+	# THE SLIDE. Its own clip for the same reason the crouch has one, and NOT a
+	# loop: a slide is an event with a beginning and an end, so it settles into
+	# its pose and holds rather than cycling. `Locomotion` plays it for as long as
+	# the state lasts and blends out of it when the state ends.
+	lib.add_animation("slide", _clip(SLIDE_LEN, false, 5, _slide_pose, _slide_hips))
 	# The guard is a clip pair for the same reason the crouch is: it has to survive
 	# whatever else the AnimationPlayer writes that frame, and you can still walk
 	# while holding it — a static stance played over a moving body skates the feet
@@ -2050,7 +2342,11 @@ func _carry() -> Dictionary:
 ## are built along that same direction. Assuming -Y solved a DIFFERENT arm from
 ## the one the model is made of and left every hand 8-14 cm off its grip — the
 ## shoulders visibly rotated wrong on every character holding a gun.
-func _arm_ik(target: Vector3, elbow: Vector3, b: float) -> Array:
+## `bend` is which way the middle joint folds: +1 for an elbow, -1 for a KNEE.
+## A leg is the same solve as an arm run backwards — the shin has to swing the
+## foot behind the body, and with the elbow's sign it swings it in front, which
+## is a knee bending the wrong way and is not subtle to look at.
+func _arm_ik(target: Vector3, elbow: Vector3, b: float, bend := 1.0) -> Array:
 	var a := elbow.length()
 	var rest := elbow / a          # the straight arm's direction, in shoulder space
 	if target.length_squared() < 0.000001:
@@ -2066,9 +2362,9 @@ func _arm_ik(target: Vector3, elbow: Vector3, b: float) -> Array:
 	var cos_flex := clampf((reachable - fixed) / maxf(1.0 - fixed, 0.001), -1.0, 1.0)
 	var flex := acos(cos_flex)     # 0 = straight; bends FORWARD, about +X
 	# Where the hand sits with only the elbow bent, arm still in its rest plane.
-	var h := elbow + Basis(Vector3.RIGHT, flex) * (rest * b)
+	var h := elbow + Basis(Vector3.RIGHT, flex * bend) * (rest * b)
 	var swing := Quaternion(h.normalized(), target.normalized())
-	return [swing.get_euler(), flex]
+	return [swing.get_euler(), flex * bend]
 
 
 func _idle_pose(_time: float) -> Dictionary:
@@ -2270,6 +2566,53 @@ func _crouch_base() -> Dictionary:
 
 func _crouch_idle_pose(_time: float) -> Dictionary:
 	return _crouch_base()
+
+
+## GOING TO GROUND. Built from the carry like every other pose, so both hands
+## stay on the weapon — a slide is a fighting move and the gun has to stay up,
+## which is also why nothing here touches the arms.
+##
+## It EASES IN over the clip rather than snapping to the final angles: the body
+## is dropping into this over about a fifth of a second, and a pose that is fully
+## down on frame one reads as the model teleporting into a squat. `_clip` samples
+## this at five points across `SLIDE_LEN` and the clip does not loop, so the last
+## sample is the pose it holds for the rest of the slide.
+func _slide_pose(time: float) -> Dictionary:
+	var k: float = clampf(time / (SLIDE_LEN * 0.55), 0.0, 1.0)
+	# Smoothstepped, for the reason the ADS zoom is: a linear settle reads as a
+	# machine moving a limb, an eased one reads as a body arriving.
+	k = k * k * (3.0 - 2.0 * k)
+	var trail_hip := deg_to_rad(SLIDE_TRAIL_HIP_DEG) * k
+	var trail_knee := deg_to_rad(SLIDE_TRAIL_KNEE_DEG) * k
+	var lead_hip := deg_to_rad(SLIDE_LEAD_HIP_DEG) * k
+	var lead_knee := deg_to_rad(SLIDE_LEAD_KNEE_DEG) * k
+	var p := _carry()
+	# BACK, not forward — see SLIDE_LEAN_DEG. Positive pitch on the spine is the
+	# opposite sign to the crouch's lean, which is the one thing to check if this
+	# ever starts reading as a squat again.
+	p["spine"] = Vector3(deg_to_rad(SLIDE_LEAN_DEG) * k, 0, 0)
+	p["head"] = Vector3(-deg_to_rad(SLIDE_HEAD_DEG) * k, 0, 0)
+	# LEFT LEADS. Which leg is arbitrary — nothing else in the rig is handed —
+	# but it has to be CHOSEN rather than left symmetric, because symmetric is
+	# precisely what makes it a crouch.
+	p["hL"] = Vector3(lead_hip, 0, 0)
+	p["kL"] = Vector3(-lead_knee, 0, 0)
+	p["hR"] = Vector3(trail_hip, 0, 0)
+	p["kR"] = Vector3(-trail_knee, 0, 0)
+	# The trailing foot is under the body and carrying it, so it is levelled the
+	# way a crouched foot is; the lead foot is off the ground with the toe up,
+	# which is what a heel-first leg does and what stops it reading as a kick.
+	p["aR"] = _ankle(trail_hip, -trail_knee, ANKLE_LEVEL_FOLD)
+	p["aL"] = _ankle(lead_hip, -lead_knee, ANKLE_LEVEL_FOLD, -0.20 * k)
+	return p
+
+
+## The hips drop into the slide over the same eased curve the joints do, or the
+## body would arrive at its final height before its legs had folded to match.
+func _slide_hips(time: float) -> Vector3:
+	var k: float = clampf(time / (SLIDE_LEN * 0.55), 0.0, 1.0)
+	k = k * k * (3.0 - 2.0 * k)
+	return Vector3(0, SLIDE_HIP_DROP * k, 0)
 
 
 ## Where the hips sit while crouched. The bob function returns an OFFSET from

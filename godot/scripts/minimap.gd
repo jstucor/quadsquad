@@ -190,9 +190,12 @@ func _draw() -> void:
 	# Under the markers, so it never cuts through one.
 	draw_arc(_centre, _radius * 0.5, 0.0, TAU, 32, RING, 1.0)
 	_draw_self()
-	# The border last, over everything, in the player's own colour — on a
-	# four-way split every player already finds their quadrant by that colour, so
-	# the minimap belonging to them should be said the same way.
+	# The border last, over everything, in THE SIDE'S colour. Everything inside
+	# this window is already answering "whose is that" — teammates, held posts,
+	# scanned contacts — and it read them against a frame in the colour of the
+	# controller being held, which matched nothing on the map. The outline is the
+	# largest single piece of colour on the HUD, so it is the one that decides
+	# what the whole widget appears to be about.
 	draw_rect(frame, color, false, 2.0)
 
 

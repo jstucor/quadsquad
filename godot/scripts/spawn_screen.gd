@@ -23,6 +23,7 @@ var color := Color.WHITE
 var _panel: Control
 var _dim: ColorRect
 var _title: Label
+var _side: Label
 var _held: Label
 var _class_names: Array[Label] = []
 var _class_blurb: Label
@@ -67,6 +68,12 @@ func _build() -> void:
 
 	_title = BoxScreen.label("DEPLOY", _m["title"], color)
 	column.add_child(_title)
+	# WHICH SIDE YOU ARE, under the word DEPLOY and in that side's own colour.
+	# The screen knew the answer — it is picking from that side's roster — and
+	# never said it, so the one thing a spawn screen is FOR (you are about to
+	# join this army) was the thing it left out.
+	_side = BoxScreen.label("", _m["head"] + 1, color)
+	column.add_child(_side)
 	# The front line in one line: what your side holds, and what it costs to die.
 	# Conquest only — nothing else has posts or reinforcements to report.
 	_held = BoxScreen.label("", _m["head"], BoxScreen.HEAD)
@@ -202,6 +209,8 @@ func _refresh() -> void:
 	var conquest := GameState.mode == GameState.Mode.CONQUEST
 	var open := player.buy_inside
 
+	_side.text = _side_name()
+
 	# The tally of who holds what — the front line, at a glance. Conquest only.
 	_held.visible = conquest
 	if conquest:
@@ -267,7 +276,11 @@ func _refresh() -> void:
 			Player.PICK_POST_BOX:
 				_blurb.text = "Where you come back in"
 			_:
-				_blurb.text = "Your side's four classes"
+				# COUNTED, NOT STATED. It said "four" for as long as a roster had
+				# four; there are eight now and nothing anywhere reported that the
+				# screen was lying about its own contents.
+				_blurb.text = "%d classes  ·  %s" % [
+					_class_names.size(), _side_name()]
 		_prompt.text = "move the cursor     %s to choose" % a
 
 
@@ -282,3 +295,12 @@ func _class_summary(index: int) -> String:
 	if not _summaries.has(index):
 		_summaries[index] = Loadout.faction_build(index).gear_summary()
 	return _summaries[index]
+
+
+## Which side this player is on, by name. Bounds-checked because `team_names` is
+## a var sized by the universe and a viewport can outlive a setting change.
+func _side_name() -> String:
+	var names := GameState.team_names
+	if player.team >= 0 and player.team < names.size():
+		return str(names[player.team]).to_upper()
+	return "YOUR SIDE"

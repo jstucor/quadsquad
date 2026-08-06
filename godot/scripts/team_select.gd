@@ -11,6 +11,7 @@ extends Control
 
 const GAME_SCENE := "res://scenes/main.tscn"
 const MENU_SCENE := "res://scenes/menu.tscn"
+const PLAYLIST_SCENE := "res://scenes/playlist.tscn"
 const DEADZONE := 0.6   # stick push that counts as one step, like the buy screen
 
 # Match Main's player colours, so a token here is the same colour as that
@@ -32,8 +33,10 @@ func _ready() -> void:
 	_teams = GameState.active_teams()
 	for i in GameState.human_players:
 		_players.append({
-			# device: keyboard for P1 under the debug flag, else this player's pad.
-			"device": -1 if (GameState.debug_kbm and i == 0) else i,
+			# The device this player CLAIMED at the sign-in, or the old rule when
+			# there was no sign-in. Asked of GameState so this screen and the
+			# match cannot end up polling two different controllers for one seat.
+			"device": GameState.device_for_player(i),
 			"hover": GameState.team_for_player(i),   # start on the round-robin pick
 			"locked": false,
 			# One-shot latches so a held stick/button steps once, not every frame.
@@ -121,6 +124,14 @@ func _input(event: InputEvent) -> void:
 	# trap. START on any pad, or ESC before anyone has locked in.
 	if event is InputEventJoypadButton and event.pressed \
 			and event.button_index == JOY_BUTTON_START:
+		# BACK TO THE SCREEN YOU CAME FROM, which is the playlist when one is
+		# driving and the single-match menu otherwise. Bailing out of a queued
+		# night onto a screen that knows nothing about the queue would look like
+		# having lost it.
+		if GameState.playlist_active():
+			GameState.playlist_index = -1
+			get_tree().change_scene_to_file(PLAYLIST_SCENE)
+			return
 		get_tree().change_scene_to_file(MENU_SCENE)
 
 
@@ -166,6 +177,14 @@ func _draw() -> void:
 		else:
 			draw_arc(pos, 18.0, 0.0, TAU, 28, Color(col, 0.9), 3.0, true)
 			_centre(font, 16, pos + Vector2(0, 1), "P%d" % (i + 1), col)
+		# WHO THAT TOKEN IS, under it. The seat tag stays inside the circle
+		# because it is what fits there and is what the HUD calls them in the
+		# match; the NAME is what the other three people at the couch use, and
+		# without it a screen full of P1..P4 is asking somebody who signed in as
+		# themselves two minutes ago to work out which one they are again.
+		var who := GameState.account_for(i)
+		if not who.is_empty():
+			_centre(font, 13, pos + Vector2(0, 34.0), who, Color(col, 0.85))
 
 	# Status line: who is still choosing, or that the match is loading.
 	var waiting := 0
@@ -176,7 +195,10 @@ func _draw() -> void:
 		else "waiting for %d player%s" % [waiting, "" if waiting == 1 else "s"]
 	_centre(font, 20, Vector2(s.x * 0.5, s.y - 92.0), msg, Color(0.7, 0.74, 0.8))
 	_centre(font, 15, Vector2(s.x * 0.5, s.y - 58.0),
-		"move to a team    A to lock in    B to change    START returns to menu",
+		# "returns to menu" was true when there was one screen behind this; there
+		# are two now (the playlist or the setup grid) and naming the wrong one is
+		# worse than naming neither.
+		"move to a team    A to lock in    B to change    START steps back",
 		Color(0.5, 0.54, 0.6))
 
 

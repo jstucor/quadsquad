@@ -93,9 +93,11 @@ func _draw() -> void:
 	if _fill > 0.0:
 		draw_rect(Rect2(bar.position, Vector2(bar.size.x * _fill, bar.size.y)),
 			LOW_COLOR if low else _color)
-	# P1'S COLOUR IS RED, so "the bar turns red" says nothing to player one — the
-	# warning has to be carried by something that is not the fill colour as well.
-	# A white edge is the one treatment no player's own colour can collide with.
+	# THE BAR IS ALREADY A SIDE'S COLOUR, AND ONE OF THE SIDES IS RED — the
+	# Separatists, and any side given the RED tint on the menu. So "the bar turns
+	# red" says nothing at all to those players, and the warning has to be carried
+	# by something that is not the fill colour. A white edge is the one treatment
+	# no faction colour and no chosen tint can collide with.
 	draw_rect(bar, Color(1, 1, 1, 0.95) if low else EDGE, false,
 		2.5 if low else 1.5)
 	_label.add_theme_color_override("font_color",

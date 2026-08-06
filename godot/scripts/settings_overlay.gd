@@ -14,7 +14,12 @@ extends Control
 ##
 ## While it is open the player stands still (Player.settings_open), like the map.
 
+const FRONT_SCENE := "res://scenes/front.tscn"
+const PLAYLIST_SCENE := "res://scenes/playlist.tscn"
+const LOBBY_SCENE := "res://scenes/lobby.tscn"
+
 const ACCENT := Color(0.45, 0.72, 1.0)
+const WARN := Color(1.0, 0.55, 0.45)
 const DIM := Color(0.70, 0.74, 0.80)
 const FAINT := Color(0.48, 0.52, 0.58)
 const LISTEN_COLOR := Color(1.0, 0.78, 0.35)
@@ -30,10 +35,13 @@ const CELL_DEL := "DEL"
 const CELL_OK := "OK"
 const NAME_MAX := 14
 
-enum Mode { NAV, LISTEN, NAME }
+## CONFIRM is its own mode rather than a second row, because the thing it guards
+## is the only irreversible action on this screen: everything else here can be
+## undone by doing it again, and ending the match cannot.
+enum Mode { NAV, LISTEN, NAME, CONFIRM }
 
 # One row per line of the NAV screen. `kind` drives what accept/left/right do.
-enum Kind { SENS, ASSIST, BIND, PROFILE, LOAD, SAVE, DELETE, RESET, RESUME }
+enum Kind { SENS, ASSIST, BIND, PROFILE, LOAD, SAVE, DELETE, RESET, RESUME, QUIT }
 
 var player: Player
 var device := -1
@@ -69,8 +77,29 @@ var _hint: Label
 func setup(p: Player) -> void:
 	player = p
 	device = p.input_device
+	# THIS SCREEN OUTRANKS THE PAUSE IT TAKES. Solo, opening it stops the tree —
+	# so if this node were pausable it would stop with everything else and there
+	# would be no way to close it, no way to resume, and no way to quit: the game
+	# would be frozen by the one control that exists to unfreeze it. It has to
+	# run unpaused as well (that is how it sees the START press in the first
+	# place), which is ALWAYS rather than WHEN_PAUSED.
+	process_mode = Node.PROCESS_MODE_ALWAYS
+	# THE CACHED DEVICE HAS TO FOLLOW THE BODY. This screen is per-device by
+	# design — its bindings, its sensitivity and its presets are all that device's
+	# — so it keeps a copy, and a copy is a thing that goes stale. A player who
+	# picks up a spare controller mid-match would otherwise be editing the
+	# settings of the pad whose batteries just died.
+	p.device_changed.connect(_on_device_changed)
 	_build_ui()
 	visible = false
+
+
+func _on_device_changed(new_device: int) -> void:
+	device = new_device
+	_prev.clear()          # the old pad's held buttons are not this one's edges
+	if _open:
+		_rebuild_rows()    # a pad and a keyboard do not offer the same rows
+		_render()
 
 
 func _build_ui() -> void:
@@ -137,6 +166,8 @@ func _process(_delta: float) -> void:
 			# on-screen character strip. Reading edges above still refreshed _prev.
 			if device >= 0:
 				_name_input(edges)
+		Mode.CONFIRM:
+			_confirm_input(edges)
 		Mode.LISTEN:
 			# Nothing here: the binding — and its START-cancel / BACK-clear — is
 			# captured in _input, so a pad can still bind its B or BACK button. The
@@ -150,6 +181,12 @@ func _show() -> void:
 	_open = true
 	_mode = Mode.NAV
 	_row = 0
+	# SOLO, THIS IS A REAL PAUSE. At more than one human it never has been and
+	# must not become one — the whole point of this screen is that it opens over
+	# ONE viewport while everybody else keeps playing. `GameState.may_pause()`
+	# owns that rule so it is not restated here (see the note there).
+	if GameState.may_pause():
+		GameState.hold(_hold_id(), true)
 	player.settings_open = true
 	player.weapon.aiming = false
 	if device < 0:
@@ -164,6 +201,11 @@ func _close() -> void:
 	_mode = Mode.NAV
 	_listen_id = ""
 	visible = false
+	# ALWAYS released, whether or not it was ever taken — `hold(x, false)` on a
+	# reason that was never held is a no-op, and the alternative is remembering
+	# across a code path that can also be reached by dying, by a map change and
+	# by leaving the match.
+	GameState.hold(_hold_id(), false)
 	if is_instance_valid(player):
 		player.settings_open = false
 		if device < 0:
@@ -171,6 +213,12 @@ func _close() -> void:
 
 
 # --- NAV mode -----------------------------------------------------------------
+
+## This screen's own hold, keyed per player so two of them (which cannot both be
+## solo, but can both exist) can never clear each other's.
+func _hold_id() -> String:
+	return "settings:%d" % (player.player_index if is_instance_valid(player) else 0)
+
 
 func _rebuild_rows() -> void:
 	_rows.clear()
@@ -188,6 +236,11 @@ func _rebuild_rows() -> void:
 	_rows.append({"kind": Kind.DELETE})
 	_rows.append({"kind": Kind.RESET})
 	_rows.append({"kind": Kind.RESUME})
+	# LAST, and behind a confirm. It is last because RESUME is what a player
+	# reaching for this screen actually wants and should be the easiest thing to
+	# land on; it is behind a confirm because the row list WRAPS, so "up from the
+	# top row" is one press away from it.
+	_rows.append({"kind": Kind.QUIT})
 	_row = clampi(_row, 0, _rows.size() - 1)
 	_profile_idx = clampi(_profile_idx, 0, maxi(Controls.profile_names().size() - 1, 0))
 
@@ -253,8 +306,64 @@ func _activate() -> void:
 			_render()
 		Kind.RESUME:
 			_close()
+		Kind.QUIT:
+			_mode = Mode.CONFIRM
+			_render()
 		_:
 			return
+
+
+## THE CONFIRM. Accept leaves, anything else comes back — and BACK is not the
+## only way out on purpose: START (`toggle`) has closed this screen from every
+## other mode since it was written, and a mode where the button that has always
+## meant "put this away" instead does nothing is how a player ends up pressing
+## accept to make something happen.
+func _confirm_input(edges: Dictionary) -> void:
+	if edges["back"] or edges["toggle"]:
+		_mode = Mode.NAV
+		_render()
+		return
+	if edges["accept"]:
+		_leave_match()
+
+
+## OUT OF THE MATCH ENTIRELY. Until this existed the only ways out of a match
+## were winning it, losing it, or killing the process — which for a 200-ticket
+## Conquest is several minutes of a game somebody has already decided to stop
+## playing.
+##
+## ONLINE IT LEAVES THE SESSION FIRST. Changing scene without `Net.leave()`
+## abandons a live peer connection: the host goes on believing this machine is
+## still in the match and holding bodies for it, and the next attempt to join
+## anything reuses a socket that was never closed.
+func _leave_match() -> void:
+	_close()
+	var to := exit_scene()
+	# Walked out of, not paused: a queue you left in the middle of is one you are
+	# no longer playing, and `playlist_begin` starts it from the top next time.
+	GameState.playlist_index = -1
+	# EVERY hold, not just this screen's: a pad may have fallen out while the menu
+	# was up, and a scene loaded into a paused tree never runs its first frame.
+	GameState.release_all_holds()
+	if Net.online():
+		Net.leave()
+	get_tree().change_scene_to_file(to)
+
+
+## WHERE LEAVING GOES, split out from the act of going there so it can be checked
+## without being done. A test that performs the real navigation frees itself
+## mid-run — the scene it is part of is the scene being replaced — so the choice
+## and the jump have to be separable or the choice cannot be tested at all.
+## LEAVING A PLAYLIST GOES BACK TO THE PLAYLIST, not out to the front screen.
+## The queue is a night's play that somebody built, everyone is still signed in,
+## and the commonest reason to walk out of round two of three is to change
+## something about round three — so the screen that can do that is where leaving
+## belongs. The playlist itself is ABANDONED (`playlist_index` goes back to -1,
+## done by the caller) rather than resumed: quitting is quitting.
+func exit_scene() -> String:
+	if Net.online():
+		return LOBBY_SCENE
+	return PLAYLIST_SCENE if GameState.playlist_active() else FRONT_SCENE
 
 
 # --- rebinding (LISTEN mode) --------------------------------------------------
@@ -398,6 +507,11 @@ func _render() -> void:
 		_hint.text = "MOVE to pick a letter  ·  ACCEPT adds  ·  BACK cancels" \
 			if device >= 0 else "TYPE a name  ·  ENTER saves  ·  ESC cancels"
 		return
+	if _mode == Mode.CONFIRM:
+		_title.text = "LEAVE THE MATCH?"
+		_render_confirm()
+		_hint.text = "ACCEPT to leave  ·  BACK / START to stay"
+		return
 	_title.text = "SETTINGS  —  %s" % Controls.device_label(device) if device >= 0 \
 		else "SETTINGS  —  KEYBOARD + MOUSE"
 	for i in _rows.size():
@@ -432,6 +546,7 @@ func _row_name(i: int) -> String:
 		Kind.DELETE: return caret + "DELETE PRESET"
 		Kind.RESET: return caret + "RESET TO DEFAULTS"
 		Kind.RESUME: return caret + "RESUME"
+		Kind.QUIT: return caret + "QUIT TO MENU"
 	return caret
 
 
@@ -463,6 +578,33 @@ func _row_value_color(i: int, selected: bool) -> Color:
 			and _rows[i]["id"] == _listen_id:
 		return LISTEN_COLOR
 	return Color(0.90, 0.93, 0.97) if selected else DIM
+
+
+## WHAT LEAVING ACTUALLY COSTS, said out loud and said DIFFERENTLY depending on
+## who else is playing. On a couch this is not one player's decision: there is
+## one match on one machine and no way for player three to walk out while the
+## other three carry on, so the honest thing is to tell whoever is about to press
+## it that they are ending everybody's game. A confirm that says only "are you
+## sure?" is a confirm that answers the wrong question.
+func _render_confirm() -> void:
+	var lines := PackedStringArray()
+	var humans: int = GameState.human_players
+	if Net.online():
+		lines.append("This machine leaves the session and returns to the lobby.")
+		if humans > 1:
+			lines.append("All %d players on this machine leave with it." % humans)
+	elif humans > 1:
+		lines.append("This ends the match for all %d players." % humans)
+		lines.append("There is one match on this machine — nobody carries on without you.")
+	else:
+		lines.append("The match ends and you go back to the menu.")
+	lines.append("")
+	lines.append("Nothing about this round is kept.")
+	for i in lines.size():
+		var l := _label(lines[i], 15 if i == 0 else 14,
+			WARN if i == 0 else DIM)
+		l.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+		_body.add_child(l)
 
 
 func _render_name() -> void:
@@ -514,6 +656,8 @@ func _hint_text() -> String:
 			return "ACCEPT restores default bindings and feel"
 		Kind.RESUME:
 			return "ACCEPT (or BACK / START) returns to the match"
+		Kind.QUIT:
+			return "ACCEPT to leave this match"
 	return ""
 
 
@@ -538,9 +682,27 @@ func _read_edges() -> Dictionary:
 	return edges
 
 
+## THE KEYBOARD IS A SAFETY VALVE WHEN THIS PLAYER'S PAD IS GONE, and it exists
+## to close a dead end rather than as a feature.
+##
+## Solo, a pad falling out stops the match (`Main._on_pad_changed`) and the only
+## thing that can start it again is this screen — which is driven by the pad that
+## just died. Reconnecting is the ordinary fix and usually works, but a controller
+## that has genuinely broken would otherwise leave the game frozen with no exit
+## but killing the process, which is precisely the failure this whole pass is
+## about. So while a pad player is disconnected, the keyboard drives their screen
+## too: it is the one input that is always present.
+##
+## It is deliberately gated on being DISCONNECTED and never on merely being a pad
+## player — otherwise at a couch one keyboard would silently drive four overlays
+## at once.
+func _pad_lost() -> bool:
+	return device >= 0 and not Input.get_connected_joypads().has(device)
+
+
 func _down(which: String) -> bool:
 	if device >= 0:
-		return _pad_down(which)
+		return _pad_down(which) or (_pad_lost() and _key_down(which))
 	return _key_down(which)
 
 

@@ -1,8 +1,8 @@
 class_name AbilityGauge
 extends Control
 ## AN ABILITY, THE WAY BATTLEFRONT DRAWS ONE: a round icon that is WHITE while it
-## is ready, flips to the player's own colour the moment it is spent, and then
-## refills from the bottom until it comes back.
+## is ready, flips to the SIDE'S colour the moment it is spent, and then refills
+## from the bottom until it comes back.
 ##
 ## It replaces a line of text ("CABLE 3s", "JET 62%"). The text was accurate and
 ## useless: reading a number costs a beat, four of them stack into a wall of
@@ -13,10 +13,10 @@ extends Control
 ##
 ## WHY THE COLOUR FLIPS THE WAY IT DOES. White is "you have this", and it is the
 ## brightest thing available so it wins at the edge of vision. Spent, the icon
-## takes the PLAYER's colour rather than going grey: on a four-way split screen
-## every player is already reading their own quadrant by that colour, so a
-## charging ability reads as *yours* rather than as a disabled control. The
-## refill climbs in white, so what you are watching is white coming back.
+## takes the SIDE's colour rather than going grey, so a charging ability reads as
+## a thing you own that is coming back rather than as a control that has been
+## disabled. The refill climbs in white, so what you are watching is white
+## coming back.
 ##
 ## Everything is drawn (`_draw`) rather than textured. Twelve abilities would be
 ## twelve images to author, import, keep in step with the catalogue and ship;

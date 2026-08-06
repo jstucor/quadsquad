@@ -216,6 +216,9 @@ static func bank() -> Dictionary:
 		"death": _death,
 		"deploy": _deploy,
 		"pickup": _pickup,
+		"slide": _slide,
+		"footstep": _footstep,
+		"land": _land,
 		"ui_move": _ui_move,
 		"ui_accept": _ui_accept,
 		"ui_back": _ui_back,
@@ -226,6 +229,84 @@ static func bank() -> Dictionary:
 		"countdown": _countdown,
 		"capture": _capture,
 	}
+
+
+## A BOOT ON THE GROUND, which the game did not have at all — and silence is the
+## loudest thing missing from a shooter's feel. A body that moves without a sound
+## is a body with no weight, and it also removes an entire information channel:
+## hearing somebody come round a corner is how half of every firefight starts.
+##
+## A footfall is two events a few milliseconds apart and NOT one thud — heel then
+## sole. That gap is most of what makes it read as a foot rather than as a knock;
+## at zero it is a click, and much past 25 ms it is two people.
+##
+## All of it is well below 400 Hz apart from the scuff. Boots are a LOW sound,
+## and the commonest way to get this wrong is to make it bright enough to notice,
+## at which point a hundred bodies walking is an insect swarm.
+const STEP_GAP := 0.016
+
+
+static func _footstep() -> AudioStreamWAV:
+	var b := buffer(0.14)
+	# The heel: a short low thump with almost no tone to it.
+	noise(b, 0.0, 0.05, 0.42, 34.0, 900.0, 180.0)
+	osc(b, 0.0, 0.05, 150.0, 62.0, 0.30, 24.0)
+	# ...and the sole rolling down after it, quieter and drier.
+	noise(b, STEP_GAP, 0.06, 0.26, 26.0, 1700.0, 320.0)
+	# A whisper of grit on top, which is the only part above the mud and the only
+	# part that says "ground" rather than "furniture".
+	noise(b, STEP_GAP, 0.035, 0.10, 40.0, 5200.0, 2200.0)
+	saturate(b, 1.5)
+	fade_out(b, 0.02)
+	return to_stream(b)
+
+
+## ARRIVING. The same event with the weight of a whole body behind it rather than
+## one leg: lower, longer, and with a real transient — a landing is something
+## that happens TO you, where a step is something you do.
+##
+## It is deliberately close in character to the footstep rather than its own
+## invention. They are the same boots on the same ground, and two sounds that
+## disagree about that are two sounds the ear files as unrelated.
+static func _land() -> AudioStreamWAV:
+	var b := buffer(0.26)
+	noise(b, 0.0, 0.10, 0.62, 22.0, 1100.0, 140.0)
+	osc(b, 0.0, 0.13, 118.0, 44.0, 0.46, 16.0)
+	# The scuff of the boots settling, a beat later.
+	noise(b, 0.03, 0.09, 0.22, 18.0, 3000.0, 500.0)
+	# ...and a low tail, which is the body's mass rather than its feet.
+	osc(b, 0.02, 0.18, 70.0, 34.0, 0.20, 12.0)
+	saturate(b, 1.8)
+	fade_out(b, 0.04)
+	return to_stream(b)
+
+
+## GOING TO GROUND: armour and gravel, not a whoosh.
+##
+## A slide is one of the few sounds here with no pitched content in it at all —
+## nothing is struck and nothing rings, it is a body's worth of plate dragging
+## across dirt. So it is built entirely out of filtered NOISE, which the other
+## voices only ever use as a layer under a tone.
+##
+## The shape is the whole thing: a bright SCUFF as the body goes down (the one
+## transient, and what makes it an event rather than a fade-in), then a longer
+## body whose filter closes from bright to dull over its life. That closing
+## sweep is the slide losing speed — the same reason a struck object loses its
+## high partials first, arriving here as friction rather than as decay. Two
+## overlapping passes at slightly different rates so it does not read as a
+## single filtered hiss.
+static func _slide() -> AudioStreamWAV:
+	var b := buffer(0.75)
+	# The scuff: brief, bright, and the only part with a hard attack.
+	noise(b, 0.0, 0.09, 0.55, 26.0, 7000.0, 2600.0)
+	# The drag, closing down as it goes.
+	noise(b, 0.02, 0.62, 0.34, 3.1, 3400.0, 520.0)
+	noise(b, 0.05, 0.55, 0.20, 2.4, 1500.0, 260.0)
+	# Saturation is what makes it grit rather than air — the same job it does on
+	# the hit marker, and the reason that one is dense rather than merely loud.
+	saturate(b, 1.9)
+	fade_out(b, 0.06)
+	return to_stream(b)
 
 
 ## THE HIT MARKER, which is the sound this game most needed to get right: it is

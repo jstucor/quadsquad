@@ -15,16 +15,17 @@ extends Object
 ##
 ##   CALL-IN   something happens somewhere else. Recon, orbital strike, a walker
 ##             delivered to you. You carry on being what you were.
-##   BECOME    something happens to YOU. Juggernaut, Jedi Master. You stop being
+##   BECOME    something happens to YOU. Ork Warboss, Jedi Master. You stop being
 ##             a trooper and the rest of the life is played as something else.
 ##
-## **EVERY REWARD FIRES THE MOMENT IT IS EARNED, and takes no button.** Not for
-## want of a design — CoD hands you a key — but because this game has no free
-## one: A jump, B swap, X gadget, Y sustain, LB gadget 2, R3 crouch, and the
-## project's own rule is that every prompt names a rebindable control rather than
-## a key. A reward that had to be triggered would need a seventh face button, a
-## chord, or a screen, and all three cost more than the tactical choice is worth
-## at a couch where three other people are still playing.
+## **A REWARD IS OFFERED, NOT APPLIED.** D-UP takes it, D-DOWN turns it down (see
+## `Player.accept_reward` / `decline_reward`). DECLINE is a real answer and not a
+## politeness, because some of these COST you something: a BECOME replaces the
+## build you chose and are in the middle of using, and the gunship takes you off
+## the ground for twenty seconds while your side is holding a post. Forcing that
+## on somebody at the moment they are doing best is the opposite of a reward.
+## **The offer is spent when it is MADE, not when it is taken**, or every further
+## kill re-offers the thing you just refused.
 ##
 ## A REWARD IS A TABLE ROW, and a BECOME reward's row is an ORDINARY PRESET in
 ## the same format as every AI build and authored class in the game (see
@@ -47,9 +48,10 @@ enum Kind { RECON, BOMBARDMENT, VEHICLE, BECOME, GUNSHIP }
 ##                in every setting.
 ##
 ## Stated as a MAP rather than as a `universe` + `teams` pair because a reward can
-## belong to different sides in different settings — the Juggernaut is the CIS's
-## and the Rebels' in Star Wars and everybody's in Halo — and the pair cannot
-## express that without two rows that would then drift apart.
+## belong to different sides in different settings, and the pair cannot express
+## that without two rows that would then drift apart. It is also what makes an
+## absent universe a REFUSAL rather than a fallthrough: team 0 is the Republic in
+## Star Wars and the UNSC in Halo, and neither may inherit the other's prize.
 ## THE LADDER IS THE SAME SHAPE FOR EVERY FACTION: two rewards anybody can earn,
 ## then that side's OWN signature, and for Star Wars a fourth at the top.
 const KILLS_RECON := 4
@@ -61,6 +63,62 @@ const KILLS_FORCE := 14
 ## once here and merged in by `_signature`. What each faction actually states is
 ## the three things that make it itself: a NAME, a BODY and a WEAPON.
 const SIGNATURE_BLURB := "Your side's finest takes the field"
+
+## WHAT A SIGNATURE PRESET MUST STATE, and why leaving a field out is not neutral.
+##
+## `Loadout._build_from` builds a FRESH Loadout and writes only the keys the row
+## names — everything else is the class default. So a row that states a body and
+## two guns and stops does not inherit the build the player spent two hundred
+## tokens and ten kills assembling: it REPLACES it with iron sights, no cooling,
+## no grip and three empty gadget slots. The first pass did exactly that, which
+## made the best reward in the game a downgrade in everything except health, and
+## is most of why they did not feel like rewards. Every row below therefore names:
+##
+##   unit_health / overshield  the pool, and it is the only pool this life gets
+##                             (`Player._no_regen`) — a signature does not heal.
+##   gadget / gadget2 / gadget3  all three, always. Slot 3 is an OVERSHIELD-class
+##                             ability on purpose: with regeneration gone it is
+##                             the one thing that gives ground back.
+##   sight / cooling / grip / foregrip   on a RANGED primary. A melee signature
+##                             hides those rows, so it states `secondary_mod`
+##                             instead and walks in with two sidearms.
+##
+## A gadget here is NOT checked against the kit's allow-list, exactly as an
+## authored faction class's is not — `_build_from` writes the field. That is
+## deliberate: a Droideka Prime carries the Wookiee's front shield because a
+## droideka IS a shield, and the allow-lists are a SHOP rule, not a physics one.
+##
+## ---------------------------------------------------------------------------
+## A SIGNATURE IS SUPPOSED TO BE TOO STRONG. That is the design, not a tuning
+## slip, and the numbers below were raised deliberately to make it true.
+##
+## The argument is what a ten-kill streak COSTS. It is ten kills without dying
+## once, in a mode where everybody respawns and nobody else has to string
+## anything together — most players will earn one a handful of times and many
+## will never see one. A reward that rare has to change the shape of the fight
+## when it lands, or the correct play on earning it is to carry on exactly as
+## before, which is the same as not having earned it. The previous pass stood a
+## signature up at roughly 7-11x a trooper's effective health, which is a very
+## good trooper; these stand at closer to 12-16x, which is a problem the other
+## side has to organise against. Being able to say "somebody is a Warboss, deal
+## with it" out loud is the whole point of the rung.
+##
+## WHAT KEEPS IT FROM BEING A ROUND-ENDER IS UNCHANGED, and it is three things,
+## none of which is a smaller pool:
+##
+##   NO REGENERATION (`Player._no_regen`). Every point spent is a point gone.
+##       You can win five fights on one shield and not fifty, and this is the
+##       only counterweight that SCALES with how big the pool gets — which is
+##       exactly why the pool is the right dial to turn up.
+##   THE SLOT 3 EXCEPTION. An OVERSHIELD or an IRON HALO re-issues the second
+##       pool, so there is one deliberate way to give ground back, and it is a
+##       cooldown the enemy can play around.
+##   IT DIES WITH YOU. A signature is per LIFE. Focus it down once and it is
+##       gone for good, along with the streak that earned it.
+##
+## And it is ANNOUNCED (`Player._signature_entry`): the transformation is loud,
+## bright and visible to everyone nearby, so nobody is surprised by it. A body
+## this strong arriving quietly would be the unfair version.
 
 
 const REWARDS: Array[Dictionary] = [
@@ -80,8 +138,11 @@ const REWARDS: Array[Dictionary] = [
 	# rung that keeps the ladder the same height for a Grot and a Space Marine.
 	{
 		"name": "ORBITAL STRIKE", "kills": KILLS_ORBITAL, "kind": Kind.BOMBARDMENT,
-		"blurb": "A battery walks fire across the enemy's densest ground",
-		"duration": 7.0,
+		"blurb": "Take fire control aboard the ship and call the rounds down yourself",
+		# EIGHTEEN AND NOT SEVEN. Seven seconds was the right length for a barrage
+		# that aimed itself and needed no player in it; this one has to be flown
+		# to, read, and aimed, and a window you spend arriving in is not a reward.
+		"duration": 18.0,
 	},
 
 	# =========================================================================
@@ -111,12 +172,20 @@ const REWARDS: Array[Dictionary] = [
 		"name": "DROIDEKA PRIME", "kills": KILLS_SIGNATURE, "kind": Kind.BECOME,
 		"blurb": "Paired repeaters behind a shield, and no way to run",
 		"factions": {Loadout.Universe.STAR_WARS: [1]},
-		"overshield": 320.0,
+		"overshield": 759.0,
 		"preset": {
 			"name": "DROIDEKA PRIME", "kit": Loadout.Kit.CLONE,
 			"primary": Weapon.Class.DROIDEKA_TWIN, "sidearm": Weapon.Class.PISTOL,
 			"armor": 3, "style": CharacterModel.Style.DROIDEKA,
-			"unit_health": 2.0, "unit_speed": 0.72, "unit_stature": 0.95,
+			"unit_health": 3.07, "unit_speed": 0.72, "unit_stature": 0.95,
+			# COOLING matters more here than on anything else in the game: the twin
+			# is the highest sustained output in the catalogue behind the SHORTEST
+			# heat pool, so the mod that lengthens the burst is the whole unit.
+			"sight": Loadout.Sight.RED_DOT, "cooling": true,
+			"grip": true, "foregrip": true,
+			"gadget": Loadout.Gadget.SHIELD,
+			"gadget2": Loadout.Gadget.SCAN_DART,
+			"gadget3": Loadout.Gadget.OVERSHIELD,
 		},
 	},
 	{
@@ -129,12 +198,20 @@ const REWARDS: Array[Dictionary] = [
 		"name": "WOOKIEE CHIEFTAIN", "kills": KILLS_SIGNATURE, "kind": Kind.BECOME,
 		"blurb": "Two metres of fur, plate and bowcaster",
 		"factions": {Loadout.Universe.STAR_WARS: [3]},
-		"overshield": 220.0,
+		"overshield": 594.0,
 		"preset": {
 			"name": "WOOKIEE CHIEFTAIN", "kit": Loadout.Kit.WOOKIEE,
 			"primary": Weapon.Class.HMG, "sidearm": Weapon.Class.BOWCASTER,
 			"armor": 3, "style": CharacterModel.Style.WOOKIEE,
-			"unit_health": 2.2, "unit_speed": 0.88, "unit_stature": 1.14,
+			"unit_health": 3.42, "unit_speed": 0.88, "unit_stature": 1.14,
+			# NO SCOPE ON THE BOWCASTER, deliberately, and for the reason the
+			# WOOKIEE kit already forbids it: zero spread collapses all three
+			# quarrels onto one point and the pellet gun stops being one.
+			"sight": Loadout.Sight.RED_DOT, "cooling": true,
+			"grip": true, "foregrip": true,
+			"gadget": Loadout.Gadget.SHIELD,
+			"gadget2": Loadout.Gadget.GRENADE_FRAG,
+			"gadget3": Loadout.Gadget.FURY,
 		},
 	},
 
@@ -143,25 +220,38 @@ const REWARDS: Array[Dictionary] = [
 		"name": "SPARTAN HEADHUNTER", "kills": KILLS_SIGNATURE, "kind": Kind.BECOME,
 		"blurb": "Mjolnir plate and a shield that comes back",
 		"factions": {Loadout.Universe.HALO: [0]},
-		"overshield": 300.0,
+		"overshield": 726.0,
 		"preset": {
 			"name": "SPARTAN HEADHUNTER", "kit": Loadout.Kit.SPARTAN,
 			"primary": Weapon.Class.M247_HMG, "sidearm": Weapon.Class.M6D,
 			"armor": 3, "style": CharacterModel.Style.SPARTAN,
-			"unit_health": 2.1, "unit_speed": 1.05, "unit_stature": 1.10,
+			"unit_health": 3.19, "unit_speed": 1.05, "unit_stature": 1.10,
+			"sight": Loadout.Sight.RED_DOT, "cooling": true,
+			"grip": true, "foregrip": true,
+			"gadget": Loadout.Gadget.SENTRY_TURRET,
+			"gadget2": Loadout.Gadget.FRAG_GRENADE_UNSC,
+			"gadget3": Loadout.Gadget.OVERSHIELD,
 		},
 	},
 	{
 		"name": "SANGHEILI ZEALOT", "kills": KILLS_SIGNATURE, "kind": Kind.BECOME,
 		"blurb": "An energy sword and the speed to reach you with it",
 		"factions": {Loadout.Universe.HALO: [1]},
-		"overshield": 280.0,
+		"overshield": 660.0,
 		"preset": {
 			"name": "SANGHEILI ZEALOT", "kit": Loadout.Kit.SANGHEILI,
 			"primary": Weapon.Class.ENERGY_SWORD,
 			"sidearm": Weapon.Class.PLASMA_PISTOL,
 			"armor": 2, "style": CharacterModel.Style.ELITE_ULTRA,
-			"unit_health": 1.9, "unit_speed": 1.22, "unit_stature": 1.14,
+			"unit_health": 2.95, "unit_speed": 1.22, "unit_stature": 1.14,
+			# A MELEE SIGNATURE HIDES THE SIGHT/COOLING/GRIP ROWS, so its weapon
+			# buff goes on the SIDEARM instead: DUAL is two plasma pistols the
+			# moment it swaps off the blade, which is also the answer to the one
+			# thing a sword-only body cannot do — reach anybody.
+			"secondary_mod": Loadout.SecondaryMod.DUAL,
+			"gadget": Loadout.Gadget.PLASMA_CANNON,
+			"gadget2": Loadout.Gadget.PLASMA_GRENADE,
+			"gadget3": Loadout.Gadget.ACTIVE_CAMO,
 		},
 	},
 
@@ -170,52 +260,71 @@ const REWARDS: Array[Dictionary] = [
 		"name": "TERMINATOR", "kills": KILLS_SIGNATURE, "kind": Kind.BECOME,
 		"blurb": "Tactical Dreadnought armour and a heavy bolter",
 		"factions": {Loadout.Universe.WARHAMMER: [0]},
-		"overshield": 340.0,
+		"overshield": 825.0,
 		"preset": {
 			"name": "TERMINATOR", "kit": Loadout.Kit.ULTRAMARINE,
 			"primary": Weapon.Class.HEAVY_BOLTER,
 			"sidearm": Weapon.Class.BOLT_PISTOL,
 			"armor": 3, "style": CharacterModel.Style.ULTRAMARINE,
-			"unit_health": 2.6, "unit_speed": 0.70, "unit_stature": 1.16,
+			"unit_health": 4.01, "unit_speed": 0.70, "unit_stature": 1.16,
+			"sight": Loadout.Sight.RED_DOT, "cooling": true,
+			"grip": true, "foregrip": true,
+			"gadget": Loadout.Gadget.ASSAULT_CANNON,
+			"gadget2": Loadout.Gadget.KRAK_GRENADE,
+			"gadget3": Loadout.Gadget.IRON_HALO,
 		},
 	},
 	{
 		"name": "SANGUINARY EXEMPLAR", "kills": KILLS_SIGNATURE, "kind": Kind.BECOME,
 		"blurb": "Gold plate, a power sword and wings to arrive on",
 		"factions": {Loadout.Universe.WARHAMMER: [1]},
-		"overshield": 240.0,
+		"overshield": 660.0,
 		"preset": {
 			"name": "SANGUINARY EXEMPLAR", "kit": Loadout.Kit.BLOOD_ANGEL,
 			"primary": Weapon.Class.POWER_SWORD,
 			"sidearm": Weapon.Class.PLASMA_PISTOL_40K,
 			"armor": 2, "style": CharacterModel.Style.BLOOD_ANGEL,
-			"unit_health": 2.0, "unit_speed": 1.18, "unit_jump": 1.45,
+			"unit_health": 3.19, "unit_speed": 1.18, "unit_jump": 1.45,
 			"unit_stature": 1.12,
+			"secondary_mod": Loadout.SecondaryMod.DUAL,
+			# The wings are the whole read on this one, so they are the gadget on
+			# the button rather than a line in the blurb.
+			"gadget": Loadout.Gadget.JUMP_PACK,
+			"gadget2": Loadout.Gadget.MELTA_BOMB,
+			"gadget3": Loadout.Gadget.RED_THIRST,
 		},
 	},
 	{
 		"name": "NECRON OVERLORD", "kills": KILLS_SIGNATURE, "kind": Kind.BECOME,
 		"blurb": "A warscythe, and it gets back up",
 		"factions": {Loadout.Universe.WARHAMMER: [2]},
-		"overshield": 260.0,
+		"overshield": 693.0,
 		"preset": {
 			"name": "NECRON OVERLORD", "kit": Loadout.Kit.NECRON,
 			"primary": Weapon.Class.WARSCYTHE,
 			"sidearm": Weapon.Class.GAUSS_PISTOL,
 			"armor": 3, "style": CharacterModel.Style.NECRON_LORD,
-			"unit_health": 2.4, "unit_speed": 0.92, "unit_stature": 1.15,
+			"unit_health": 3.66, "unit_speed": 0.92, "unit_stature": 1.15,
+			"secondary_mod": Loadout.SecondaryMod.DUAL,
+			"gadget": Loadout.Gadget.TESLA_ARC,
+			"gadget2": Loadout.Gadget.TRANSLOCATION,
+			"gadget3": Loadout.Gadget.PHASE_SHIFT,
 		},
 	},
 	{
 		"name": "ORK WARBOSS", "kills": KILLS_SIGNATURE, "kind": Kind.BECOME,
 		"blurb": "A power klaw and the size to swing it",
 		"factions": {Loadout.Universe.WARHAMMER: [3]},
-		"overshield": 300.0,
+		"overshield": 759.0,
 		"preset": {
 			"name": "ORK WARBOSS", "kit": Loadout.Kit.ORK,
 			"primary": Weapon.Class.POWER_KLAW, "sidearm": Weapon.Class.SLUGGA,
 			"armor": 3, "style": CharacterModel.Style.ORK_NOB,
-			"unit_health": 2.7, "unit_speed": 0.95, "unit_stature": 1.20,
+			"unit_health": 4.13, "unit_speed": 0.95, "unit_stature": 1.20,
+			"secondary_mod": Loadout.SecondaryMod.DUAL,
+			"gadget": Loadout.Gadget.ROKKIT_PACK,
+			"gadget2": Loadout.Gadget.STIKKBOMB,
+			"gadget3": Loadout.Gadget.WAAAGH,
 		},
 	},
 
@@ -229,6 +338,21 @@ const REWARDS: Array[Dictionary] = [
 		"blurb": "A master of the Force takes the field",
 		"factions": {Loadout.Universe.STAR_WARS: [0, 1, 2, 3]},
 		"shared": true,
+		# WATCHED, NOT LOOKED THROUGH. Everything a Force Master does happens to
+		# the BODY — a two-metre blade on an arc, a guard across the chest, a
+		# shove, a leap — and a camera 30 cm from the hilt is aimed at the one
+		# part of that which cannot be seen. It is safe HERE specifically because
+		# this body's weapons are an arc, a cone and a sidearm rather than a
+		# precision ray; see `Player.third_person` for why that is the deciding
+		# question and not a matter of taste.
+		"third_person": true,
+		# THE TOP RUNG MUST NOT BE THE SQUISHIEST THING ON THE LADDER, and it was:
+		# on a LIGHT FRAME with no second pool it stood up at 208 effective health
+		# against the ten-kill Terminator's 795, so the four-kill climb from the
+		# signature to the master was a downgrade in everything but flair. It keeps
+		# the light frame — a Force adept is fast because it has to close — and
+		# takes the pool as a SHIELD instead, which is the one that gets spent.
+		"overshield": 858.0,
 		"preset_by_team": {
 			0: {"name": "JEDI MASTER", "style": CharacterModel.Style.JEDI},
 			3: {"name": "JEDI MASTER", "style": CharacterModel.Style.JEDI},
@@ -242,7 +366,7 @@ const REWARDS: Array[Dictionary] = [
 			"gadget": Loadout.Gadget.FORCE_LIGHTNING,
 			"gadget2": Loadout.Gadget.FORCE_PUSH,
 			"gadget3": Loadout.Gadget.FURY,
-			"unit_health": 2.6, "unit_speed": 1.18, "unit_jump": 1.35,
+			"unit_health": 4.01, "unit_speed": 1.18, "unit_jump": 1.35,
 		},
 	},
 ]
@@ -311,3 +435,23 @@ static func become_preset(row: Dictionary, team: int) -> Dictionary:
 ## room; the blurb is for the announcement line under it.
 static func announce(row: Dictionary) -> String:
 	return str(row.get("name", "REWARD"))
+
+
+## The line under the name on the OFFER prompt.
+##
+## A BECOME states the cost as well as the prize, because DECLINE is only a real
+## answer if you are told what you are agreeing to — and the cost here is the one
+## thing no amount of looking at the body would tell you. It is appended in ONE
+## place rather than written into nine blurbs, so the rule and the sentence
+## describing it cannot drift apart: `Player._no_regen` is set for every BECOME
+## and for nothing else, and so is this.
+const NO_REGEN_NOTE := "No health regeneration"
+
+
+static func offer_blurb(row: Dictionary) -> String:
+	var text := str(row.get("blurb", ""))
+	if int(row.get("kind", -1)) != Kind.BECOME:
+		return text
+	if text == "":
+		return NO_REGEN_NOTE
+	return "%s — %s" % [text, NO_REGEN_NOTE]

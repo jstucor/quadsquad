@@ -17,9 +17,11 @@ extends Control
 ## wrong.
 
 const GAME_SCENE := "res://scenes/main.tscn"
+const MENU_SCENE := "res://scenes/menu.tscn"
 const TEAM_SELECT_SCENE := "res://scenes/team_select.tscn"
 const SETTINGS_SCENE := "res://scenes/settings.tscn"
 const LOBBY_SCENE := "res://scenes/lobby.tscn"
+const FRONT_SCENE := "res://scenes/front.tscn"
 
 const BG_COLOR := Color(0.06, 0.07, 0.09)
 const ACCENT := Color(0.45, 0.72, 1.0)
@@ -27,6 +29,21 @@ const DIM := Color(0.62, 0.66, 0.72)
 const FAINT := Color(0.42, 0.46, 0.52)
 const PANEL := Color(0.10, 0.12, 0.15, 0.9)
 const PANEL_EDGE := Color(0.24, 0.30, 0.38)
+
+## THE GRID. Every settings row on this screen sits on the SAME four columns.
+##
+## It used to be three grids of two, three and four columns, each auto-sized to
+## its own contents and each centred — so the three blocks were 420, 640 and 880
+## wide stacked on top of each other, and the whole screen zig-zagged with none
+## of the labels lining up. Nothing was WRONG with any one row, which is why it
+## survived: the fault only exists between them.
+##
+## One column width and one column count is the whole fix, and it is also what
+## lets a block be read as a block rather than as six loose controls.
+const COLS := 4
+const CELL_W := 208
+const CELL_GAP := 12
+const GRID_W := COLS * CELL_W + (COLS - 1) * CELL_GAP
 
 var _summary: Label
 var _refresh_all: Callable
@@ -49,6 +66,9 @@ func _ready() -> void:
 	# so this is safe to repeat.
 	Audio.play_music("menu")
 	set_anchors_preset(Control.PRESET_FULL_RECT)
+	# The setup this machine last used, read back — the same file the playlist
+	# screen keeps, because they are two ways of editing one match configuration.
+	GameState.load_setup()
 	GameState.chosen_teams = []   # a fresh visit re-picks teams from scratch
 	# `-- --host` / `-- --join` walk straight into the lobby, already in a
 	# session. Checked here rather than in an autoload's _ready because it CHANGES
@@ -79,14 +99,18 @@ func _build() -> void:
 	column.alignment = BoxContainer.ALIGNMENT_CENTER
 	add_child(column)
 
-	column.add_child(_label("QUADSQUAD", 52, ACCENT))
+	# THE MASTHEAD. A wordmark, a rule under it and a line saying what this is —
+	# the rule is doing the work, because a title floating over a stack of
+	# dropdowns reads as the first row of the stack rather than as a header.
+	column.add_child(_label("QUADSQUAD", 60, ACCENT))
+	column.add_child(_rule())
+	column.add_child(_label("FOUR-PLAYER SPLIT SCREEN", 14, FAINT))
+	column.add_child(_spacer(6))
 
 	# MAP and MODE are DROPDOWNS now too, matching the settings below — one press
 	# lands on any map instead of clicking through the whole roster.
-	var top := GridContainer.new()
-	top.columns = 2
-	top.add_theme_constant_override("h_separation", 10)
-	top.add_theme_constant_override("v_separation", 8)
+	column.add_child(_heading("BATTLEFIELD"))
+	var top := _grid()
 	column.add_child(top)
 	var map_dd := _dropdown(top, "MAP")
 	var mode_dd := _dropdown(top, "GAME MODE")
@@ -105,10 +129,17 @@ func _build() -> void:
 	# TIME TO KILL is next to it because the two answer the same question — what
 	# kind of fight is this — and both change how every gun in the game feels.
 	var ttk_dd := _dropdown(top, "TIME TO KILL")
+	# The block is six controls on a four-wide grid, so the second row is padded
+	# rather than left to centre itself under the first — a half row that centres
+	# is the raggedness this grid exists to remove.
+	_pad(top, 2)
 
 	# The selected map + mode described in one line, since a dropdown shows only
 	# the name.
-	var blurb := _label("", 15, Color(0.62, 0.66, 0.72))
+	# ALIGNED TO THE GRID, not centred on the screen. It is a caption for the
+	# block above it, and a centred line under a left-aligned block reads as
+	# belonging to neither.
+	var blurb := _caption()
 	column.add_child(blurb)
 
 	# The match settings, as labelled DROPDOWNS. They used to be chips you
@@ -116,22 +147,21 @@ func _build() -> void:
 	# go back one you went all the way round. A dropdown shows the whole range at
 	# once and lets you land on any of it in one press, which matters most for
 	# TEAMS and TEAM SIZE — the two settings people actually shop between.
-	var settings := GridContainer.new()
-	settings.columns = 3
-	settings.add_theme_constant_override("h_separation", 10)
-	settings.add_theme_constant_override("v_separation", 8)
+	column.add_child(_heading("MATCH"))
+	var settings := _grid()
 	column.add_child(settings)
 	var players_dd := _dropdown(settings, "PLAYERS")
 	var teams_dd := _dropdown(settings, "TEAMS")
 	var size_dd := _dropdown(settings, "TEAM SIZE")
-	var victory_dd := _dropdown(settings, "VICTORY")
-	var skill_dd := _dropdown(settings, "AI SKILL")
-	var assist_dd := _dropdown(settings, "AIM ASSIST")
 	# CLASSES is where the gear comes from, and it is deliberately independent of
 	# the mode: faction rosters in deathmatch and the buy screen in Conquest are
 	# both perfectly good matches. Selecting a mode SEEDS it (Conquest opens on
 	# faction, everything else on custom) and you are free to change it after.
+	var victory_dd := _dropdown(settings, "VICTORY")
+	var skill_dd := _dropdown(settings, "AI SKILL")
+	var assist_dd := _dropdown(settings, "AIM ASSIST")
 	var classes_dd := _dropdown(settings, "CLASSES")
+	_pad(settings, 1)
 
 	# --- WHO EACH SIDE IS, AND WHAT COLOUR THEY WEAR ------------------------
 	#
@@ -143,20 +173,23 @@ func _build() -> void:
 	# the same rule every other row on this screen follows — an option that
 	# vanishes is one nobody learns exists, and here it would also make the whole
 	# grid reflow every time TEAMS changed.
-	column.add_child(_label("SIDES", 13, FAINT))
-	var sides := GridContainer.new()
-	sides.columns = 4
-	sides.add_theme_constant_override("h_separation", 10)
-	sides.add_theme_constant_override("v_separation", 8)
+	column.add_child(_heading("SIDES"))
+	var sides := _grid()
 	column.add_child(sides)
 	for t in GameState.MAX_TEAMS:
 		_faction_dd.append(_dropdown(sides, "SIDE %d" % (t + 1)))
 		_tint_dd.append(_dropdown(sides, "SIDE %d COLOUR" % (t + 1)))
 
-	_summary = _label("", 17, Color(0.68, 0.72, 0.78))
+	_summary = _caption(16)
 	column.add_child(_summary)
+	column.add_child(_spacer(4))
 
-	var start := _wide_button("START MATCH", 28)
+	# THE ONE THING ON THE SCREEN THAT IS NOT A SETTING, so it is the one thing
+	# that does not look like one: filled in the accent rather than framed in it.
+	# It was a dark box the same weight as MAP ROTATION and QUIT beneath it,
+	# which is a primary action a player has to go looking for.
+	var start := _wide_button("START MATCH", 30)
+	_make_primary(start)
 	start.pressed.connect(_start.bind(false))
 	column.add_child(start)
 
@@ -173,7 +206,15 @@ func _build() -> void:
 	net_btn.pressed.connect(_open_lobby)
 	var controls_btn := _chip(row, "CONTROLS")
 	controls_btn.pressed.connect(func() -> void:
+		GameState.settings_return = MENU_SCENE
 		get_tree().change_scene_to_file(SETTINGS_SCENE))
+	# BACK, not QUIT-only. This screen is one press in from the front screen now
+	# (see `front.gd`), and a setup screen whose only way out is closing the game
+	# is a dead end — the commonest thing a player does here is realise they
+	# picked LOCAL when they meant ONLINE.
+	var back_btn := _chip(row, "BACK")
+	back_btn.pressed.connect(func() -> void:
+		get_tree().change_scene_to_file(FRONT_SCENE))
 	var quit_btn := _chip(row, "QUIT")
 	quit_btn.pressed.connect(func() -> void: get_tree().quit())
 
@@ -191,7 +232,7 @@ func _build() -> void:
 		[classes_dd],
 	] + side_rows + [
 		[start],
-		[rotate_btn, net_btn, controls_btn, quit_btn],
+		[rotate_btn, net_btn, controls_btn, back_btn, quit_btn],
 	])
 
 	column.add_child(_label(
@@ -205,8 +246,14 @@ func _build() -> void:
 		map_dd.disabled = GameState.massive()
 		_fill(mode_dd, _mode_items(), GameState.mode)
 		_fill(universe_dd, _universe_items(), GameState.universe)
-		_fill(planet_dd, _planet_items(), GameState.planet + 1)   # RANDOM is item 0
-		planet_dd.disabled = not GameState.map_is_procedural()
+		# The PLANET row now only means anything for the ROLLED generated map:
+		# every world is its own map row, so on one of those this control would be
+		# a second opinion about which world gets built. It shows the map's own
+		# answer and goes dead, rather than lying.
+		var stated := GameState.map_planet()
+		_fill(planet_dd, _planet_items(),
+			stated + 1 if stated >= 0 else GameState.planet + 1)   # RANDOM is item 0
+		planet_dd.disabled = not GameState.map_is_procedural() or stated >= 0
 		_fill(time_dd, _time_items(), GameState.time_of_day)
 		time_dd.disabled = not GameState.map_is_procedural()
 		_fill(ttk_dd, _ttk_items(), GameState.ttk)
@@ -640,6 +687,7 @@ func _open_lobby() -> void:
 
 func _start(rotate: bool) -> void:
 	Audio.play("ui_accept")
+	GameState.save_setup()   # what was set up here is what this machine opens on next
 	Net.leave()   # a local match is a local match, whatever was open before
 	GameState.rotate_maps = rotate
 	GameState.chosen_teams = []   # cleared; team-select fills it, FFA leaves it
@@ -654,13 +702,76 @@ func _start(rotate: bool) -> void:
 ## One labelled setting dropdown: a caption above the control so the value
 ## itself does not have to carry its own name ("TEAMS  3" in a button caption
 ## reads as one string and is unreadable at a glance across a room).
+## One settings block's grid. Every block uses the SAME four columns and the
+## same cell width, which is the whole of why the screen lines up (see COLS).
+## A caption line under a block, on the grid's own left edge and width.
+func _caption(size := 15) -> Label:
+	var l := _label("", size, Color(0.64, 0.68, 0.75))
+	l.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+	l.custom_minimum_size = Vector2(GRID_W, 0)
+	return l
+
+
+func _grid() -> GridContainer:
+	var g := GridContainer.new()
+	g.columns = COLS
+	g.add_theme_constant_override("h_separation", CELL_GAP)
+	g.add_theme_constant_override("v_separation", 10)
+	return g
+
+
+## Fill out the tail of a block's last row so it does not centre itself under
+## the row above.
+func _pad(grid: GridContainer, cells: int) -> void:
+	for _i in cells:
+		var blank := Control.new()
+		blank.custom_minimum_size = Vector2(CELL_W, 0)
+		blank.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		grid.add_child(blank)
+
+
+## A block heading. Left-aligned to the grid rather than centred, because it
+## labels the block under it — a centred caption over a left-aligned grid reads
+## as a title for the whole screen.
+func _heading(text: String) -> Control:
+	var box := VBoxContainer.new()
+	box.custom_minimum_size = Vector2(GRID_W, 0)
+	box.add_theme_constant_override("separation", 3)
+	var l := _label(text, 13, ACCENT)
+	l.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+	box.add_child(l)
+	var line := ColorRect.new()
+	line.color = Color(ACCENT, 0.22)
+	line.custom_minimum_size = Vector2(GRID_W, 1)
+	line.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	box.add_child(line)
+	return box
+
+
+## The rule under the wordmark.
+func _rule() -> Control:
+	var line := ColorRect.new()
+	line.color = Color(ACCENT, 0.45)
+	line.custom_minimum_size = Vector2(GRID_W * 0.42, 2)
+	line.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	line.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	return line
+
+
+func _spacer(h: int) -> Control:
+	var c := Control.new()
+	c.custom_minimum_size = Vector2(0, h)
+	c.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	return c
+
+
 func _dropdown(parent: GridContainer, caption: String) -> OptionButton:
 	var cell := VBoxContainer.new()
 	cell.add_theme_constant_override("separation", 2)
 	parent.add_child(cell)
 	cell.add_child(_label(caption, 13, FAINT))
 	var b := OptionButton.new()
-	b.custom_minimum_size = Vector2(196, 38)
+	b.custom_minimum_size = Vector2(CELL_W, 38)
 	b.add_theme_font_size_override("font_size", 16)
 	b.alignment = HORIZONTAL_ALIGNMENT_CENTER
 	b.fit_to_longest_item = false   # a fixed width, so the row never reflows
@@ -689,10 +800,30 @@ func _chip(parent: HBoxContainer, text: String) -> Button:
 	return b
 
 
+## Fill a button in the accent instead of framing it. Reserved for the ONE
+## action a screen exists to perform — two primaries is no primary.
+func _make_primary(b: Button) -> void:
+	b.add_theme_color_override("font_color", Color(0.05, 0.07, 0.10))
+	b.add_theme_color_override("font_focus_color", Color(0.03, 0.05, 0.08))
+	b.add_theme_color_override("font_hover_color", Color(0.03, 0.05, 0.08))
+	for state in ["normal", "hover", "focus", "pressed"]:
+		var sb := StyleBoxFlat.new()
+		sb.bg_color = ACCENT if state == "normal" else ACCENT.lightened(0.18)
+		sb.set_corner_radius_all(5)
+		sb.set_content_margin_all(10)
+		# Focus is carried by a BRIGHTER fill and a light edge rather than by the
+		# frame colour every other control uses — on a filled button an accent
+		# border against an accent fill is invisible.
+		if state != "normal":
+			sb.border_color = Color(1, 1, 1, 0.85)
+			sb.set_border_width_all(2)
+		b.add_theme_stylebox_override(state, sb)
+
+
 func _wide_button(text: String, size: int) -> Button:
 	var b := _framed(Button.new())
 	b.text = text
-	b.custom_minimum_size = Vector2(824, 52)   # both picker boxes plus the gap
+	b.custom_minimum_size = Vector2(GRID_W, 56)   # exactly the settings grid
 	b.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	b.add_theme_font_size_override("font_size", size)
 	return b

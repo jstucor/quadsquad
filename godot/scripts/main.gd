@@ -20,6 +20,8 @@ const MINIMAP := preload("res://scripts/minimap.gd")
 const KILL_FEED := preload("res://scripts/kill_feed.gd")
 const SETTINGS_OVERLAY := preload("res://scripts/settings_overlay.gd")
 const SPAWN_SCREEN := preload("res://scripts/spawn_screen.gd")
+const GUNNER_HUD := preload("res://scripts/gunner_hud.gd")
+const HIT_DIRECTION := preload("res://scripts/hit_direction.gd")
 const CONQUEST := preload("res://scripts/conquest.gd")
 const STORM := preload("res://scripts/storm.gd")
 const PICKUP := preload("res://scripts/pickup.gd")
@@ -30,6 +32,10 @@ const ROYALE_PICKUPS_PER_HA := 9.0   # items per hectare of playable ground
 const ROYALE_MIN_PICKUPS := 24
 const ROYALE_MAX_PICKUPS := 220
 const MENU_SCENE := "res://scenes/menu.tscn"
+## Where a finished match goes when a PLAYLIST was driving it — back to the
+## screen that built the queue, so the accounts stay signed in and the next
+## night's rounds are one press from the last one's.
+const PLAYLIST_SCENE := "res://scenes/playlist.tscn"
 const LOBBY_SCENE := "res://scenes/lobby.tscn"
 const AI_RESPAWN_DELAY := 4.0  # team AI come back, unlike a player's bought squad
 const MATCH_START_COUNTDOWN := 3  # seconds of GET READY once everyone has deployed
@@ -163,10 +169,12 @@ func _ready() -> void:
 
 		var player: Player = PLAYER_SCENE.instantiate()
 		player.player_index = i
-		# Everyone is on a pad: P1..P4 are joypads 0..3. The one exception is the
-		# debug flag (`-- --debug`), which puts P1 on the keyboard and mouse so
-		# the game can be played at a desk with no controller plugged in.
-		player.input_device = -1 if (GameState.debug_kbm and i == 0) else i
+		# WHICH CONTROLLER DRIVES THIS BODY is the sign-in screen's answer when
+		# there was one — a player who claimed pad 3 steers pad 3, wherever they
+		# are sitting. With no sign-in (a test, the lobby, `-- --debug`) it falls
+		# back to the old rule, which `device_for_player` owns so this line and
+		# team select cannot disagree about it.
+		player.input_device = GameState.device_for_player(i)
 		player.team = GameState.team_for_player(i)
 		level.add_child(player)
 		var spawn := GameState.get_spawn_point(player.team, _team_slot(i))
@@ -230,6 +238,9 @@ func _ready() -> void:
 	# score/victory wiring below, so the connection dies with the map instead of
 	# outliving it the way a lambda would.
 	get_tree().process_frame.connect(_tick_overlays)
+	# A PAD FALLING OUT IS THE COUCH FAILURE MODE, and nothing was watching for
+	# it. See `_on_pad_changed`.
+	Input.joy_connection_changed.connect(_on_pad_changed)
 	GameState.match_countdown.connect(_show_countdown)
 	GameState.zone_state.connect(_refresh_zone)
 	GameState.zone_moved.connect(_announce_zone_move)
@@ -277,11 +288,13 @@ func _place_vehicles() -> void:
 		if spawn == null:
 			continue
 		var v: Vehicle = VEHICLE_SCENE.instantiate()
-		level.add_child(v)
 		# The HULL comes from the faction's own slot; the TEAM is who owns it, and
-		# the two are no longer the same number.
-		v.setup(int(f["side"]))
+		# the two are no longer the same number. Both stated BEFORE it enters the
+		# tree, so `_ready` builds the right machine once instead of building a
+		# default one and having it replaced on the next line.
 		v.team = t
+		v.spawn_hull_side = int(f["side"])
+		level.add_child(v)
 		v.set_team_color(GameState.team_colors[t])
 		# Off to the side of the marker and lifted clear: a speeder standing ON a
 		# spawn point is a body-blocked spawn every respawn, and one dropped at
@@ -523,12 +536,20 @@ func _on_team_bot_lost(team: int) -> void:
 		_spawn_team_bot.bind(team, GameState.massive()))
 
 
-func _on_match_won(_team: int) -> void:
+func _on_match_won(team: int) -> void:
+	# THE CAREER RECORD IS WRITTEN ONCE, HERE. `GameState.player_stats` has been
+	# counting all match; this is the moment it becomes part of who somebody is —
+	# and the only moment that knows whether they WON, which is a fact about the
+	# whole match and not about any kill in it. Nothing happens for a player who
+	# never signed in, so a test or a lobby match writes nothing.
+	if not Net.online() or Net.is_host():
+		GameState.record_results(team)
 	get_tree().create_timer(MATCH_END_DELAY).timeout.connect(_next_map)
 
 
-## After the victory banner: rotation mode moves to the next map on the roster,
-## a single-map pick drops back to the menu so someone can choose again.
+## After the victory banner: the PLAYLIST moves to the round it queued next,
+## rotation mode moves to the next map on the roster, and a single map drops
+## back to the setup screen so someone can choose again.
 func _next_map() -> void:
 	# NETWORKED, EVERYBODY GOES BACK TO THE LOBBY. Rotating would need all four
 	# machines to load the same next map at the same moment and re-handshake
@@ -537,6 +558,18 @@ func _next_map() -> void:
 	# it does it with a screen in front of it saying so.
 	if Net.online():
 		get_tree().change_scene_to_file(LOBBY_SCENE)
+		return
+	# A PLAYLIST IS PLAYED THROUGH WITHOUT ANYBODY GETTING UP. The next round's
+	# whole configuration — map, mode, sides, size, time to kill — is applied by
+	# `playlist_advance` and the scene is simply reloaded onto it, exactly as the
+	# map rotation reloads onto a new map index. Sides stay as they were picked:
+	# team select is a conversation between people who can see each other, and
+	# having it again between every round is the thing a playlist exists to stop.
+	if GameState.playlist_active():
+		if GameState.playlist_advance():
+			get_tree().reload_current_scene()
+		else:
+			get_tree().change_scene_to_file(PLAYLIST_SCENE)
 		return
 	if not GameState.rotate_maps:
 		get_tree().change_scene_to_file(MENU_SCENE)
@@ -551,11 +584,36 @@ func _build_hud(player: Player) -> Control:
 	var hud := Control.new()
 	hud.set_anchors_preset(Control.PRESET_FULL_RECT)
 	hud.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var color: Color = PLAYER_COLORS[player.player_index]
+	# THE GAMEPLAY HUD WEARS THE SIDE'S COLOUR, NOT THE SEAT'S.
+	#
+	# It used to be `PLAYER_COLORS[player.player_index]` — P1 red, P2 blue, P3
+	# green, P4 yellow — so the minimap ring, the health bar, the ability gauges
+	# and the weapon readout all announced WHICH CONTROLLER you were holding. That
+	# is the one thing a player already knows. What the HUD is read for mid-fight
+	# is which side everything belongs to: the contacts on the minimap, the posts,
+	# the bolts coming past your head and the armour on the men in front of you are
+	# all in faction colours, and the frame around them was in a colour that
+	# matched none of it. A Republic player and the Separatist they were shooting
+	# at could be reading the same red HUD.
+	#
+	# This is the same answer the character select already gives (see
+	# `_add_spawn_screen`): on the screens and gauges that talk about the WAR, the
+	# side is the identity. It also follows a chosen tint for free, because
+	# `team_color` is already "the colour this side was given on the menu".
+	#
+	# THE COST IS REAL AND IT IS ACCEPTED. Four players on one team now read four
+	# identically coloured quadrants, and finding your own screen by colour stops
+	# working. What still calls it is the P1..P4 TAG, which keeps its text and its
+	# place under the minimap — the label says which seat you are, it is just no
+	# longer the only thing on screen doing so.
+	var color: Color = GameState.team_color(player.team)
 
 	_add_minimap(hud, player, color)
 	_add_player_tag(hud, player, color)
 	_add_reticle(hud, player)
+	_add_gunner_sight(hud, player)
+	_add_signature_banner(hud, player)
+	_add_pad_banner(hud, player)
 	_add_scoreboard(hud)
 	_add_health(hud, player, color)
 	_add_weapon_readout(hud, player, color)
@@ -564,6 +622,7 @@ func _build_hud(player: Player) -> Control:
 	_add_streak_reward(hud, player)
 	_add_killed_by(hud, player)
 	_add_damage_flash(hud, player)
+	_add_hit_direction(hud, player)
 	_add_kill_feed(hud)
 	if GameState.mode == GameState.Mode.ROYALE:
 		_add_storm_readout(hud, player)
@@ -574,8 +633,17 @@ func _build_hud(player: Player) -> Control:
 	# mode's: faction rosters are pickable in deathmatch and the buy screen works
 	# in Conquest. Both are the same box mechanic (see BoxScreen).
 	if GameState.faction_classes():
+		# THE CHARACTER SELECT WEARS THE SIDE'S COLOUR, NOT THE PLAYER'S.
+		#
+		# Everywhere else on a four-way split, that player's own colour is how
+		# they find their quadrant — but this screen is the one place the answer
+		# to "who am I" is the ARMY rather than the seat, and it already names
+		# the faction out loud. Two players on the Republic were reading a red
+		# screen and a green one while picking from the same roster, which says
+		# the seat matters and the side does not. The quadrant is still called by
+		# the P1..P4 tag and the health bar, both in the player's colour.
 		var spawn: Control = SPAWN_SCREEN.new()
-		spawn.setup(player, color)
+		spawn.setup(player, GameState.team_color(player.team))
 		hud.add_child(spawn)
 	else:
 		hud.add_child(_build_buy_screen(player, color))
@@ -670,6 +738,251 @@ func _add_map(hud: Control, player: Player) -> void:
 ## Crosshair and scope overlay, built together because they are mutually
 ## exclusive: the bloom crosshair is the hip-fire reticle, the scope replaces it
 ## on scoped weapons, and neither belongs on screen while you're dead.
+## WHERE THAT CAME FROM. Built for every player and drawing nothing until
+## something hurts them — the same shape as the gunner sight and the pad banner,
+## and for the same reason: a HUD is assembled once at map load and the moment
+## you are first shot at is the worst possible frame to be allocating Controls
+## into a live viewport.
+func _add_hit_direction(hud: Control, player: Player) -> void:
+	var marks: Control = HIT_DIRECTION.new()
+	marks.setup(player)
+	_hit_directions.append(marks)
+	hud.add_child(marks)
+
+
+## WHILE YOU ARE A SIGNATURE, THE HUD SAYS SO. Ten kills buys a body that hits
+## harder, stands up to far more and does not heal, and none of those are things
+## the ordinary HUD can express — the health bar just gets longer, which reads as
+## a bigger number rather than as being something else.
+##
+## Two lines, in the side's own colour, over that player's own viewport: what you
+## became, and the one rule that comes with it. The NO-REGEN line is the half that
+## matters. It is the counterweight the whole buff rests on (see `Streaks`), it is
+## invisible — nothing about a body that does not heal looks different — and a
+## player who does not know about it will play a signature like a trooper, break
+## contact expecting to come back full, and die of a rule nobody told them.
+##
+## Driven by a SIGNAL rather than a per-frame poll: this changes twice a life at
+## most. It is a METHOD of the label's own lifetime through a bound Callable, so
+## the connection dies with the HUD (house rule 11).
+## --- A CONTROLLER FALLING OUT -------------------------------------------------
+##
+## THIS IS THE FAILURE MODE A COUCH GAME ACTUALLY HAS, and nothing in the project
+## was watching for it. Batteries die mid-match, a cable gets kicked, somebody
+## leans on the guide button. What happened then was nothing at all: that
+## player's `Controls.held(device, ...)` calls simply started returning false, so
+## the body stopped moving and stood in the open being shot, with no message
+## anywhere and no way to tell it apart from the game having frozen or crashed.
+##
+## What it does now is the smallest honest thing: SAY SO, on that player's own
+## viewport, and at one player stop the match until the pad comes back.
+##
+## WHY IT DOES NOT PAUSE AT MORE THAN ONE PLAYER. The same argument the settings
+## overlay is built on: one player's screen is their own and the other three keep
+## playing. Freezing a four-player match because one battery died punishes three
+## people for a fourth's AA cells, and the round is already a shared thing they
+## agreed to start. Solo there is nobody to be unfair to, so it genuinely stops —
+## which also means a player who wanders off with a dying pad comes back to their
+## match rather than to a corpse.
+##
+## RECONNECTING CLEARS IT WITHOUT A PRESS. Godot hands a reconnected pad the same
+## device index in the ordinary case, and asking the player to press something to
+## dismiss a banner about their controller not working is a joke the game should
+## not make.
+var _pad_banners: Array = []      # [{label: Label, player: Player}]
+## WHICH DEVICES WE BELIEVE ARE GONE, tracked from the signal rather than
+## re-derived from `Input.get_connected_joypads()` on every question.
+##
+## The engine list is the right answer to "is this plugged in NOW" and the wrong
+## one to ask here, because this code runs DURING the change it is reacting to:
+## `tests/match_exit.gd` caught a player who had just been handed a working
+## controller being moved onto the next one to arrive, because the list had not
+## yet agreed that their new pad existed. The signal is ordered and authoritative
+## — a device is gone when it says so and back when it says so — and a set built
+## from it cannot disagree with itself mid-frame.
+var _pads_down := {}
+
+
+func _on_pad_changed(device: int, connected: bool) -> void:
+	if connected:
+		_pads_down.erase(device)
+	else:
+		_pads_down[device] = true
+	# A PAD ARRIVING THAT NOBODY OWNS IS OFFERED TO WHOEVER IS WITHOUT ONE. This
+	# is the couch case that actually happens: the batteries died and somebody
+	# picked up a DIFFERENT controller, which without this is an input nothing is
+	# listening to while its owner sits in front of a match they cannot play.
+	# Asked AFTER the set above is updated, or it decides on last frame's truth.
+	if connected:
+		_offer_spare_pad(device)
+	# The keyboard player (-1) is not a pad and cannot fall out of anything.
+	var affected := false
+	for entry in _pad_banners:
+		var p: Player = entry["player"]
+		if not is_instance_valid(p) or p.input_device != device:
+			continue
+		affected = true
+		_paint_pad_banner(entry["label"], device, connected)
+	if not affected:
+		return
+	# The hold is keyed by DEVICE, so two pads dying keeps the match stopped until
+	# both are back — the same reason `GameState._holds` is a set.
+	if GameState.may_pause():
+		GameState.hold("pad:%d" % device, not connected)
+	if not connected:
+		Audio.play("ui_deny")
+
+
+## Hand a newly-connected pad to a player whose own has gone, if there is one.
+##
+## ORDER MATTERS AND IT IS VIEWPORT ORDER: with two pads dead and one plugged
+## back in, the lowest-numbered player without a controller gets it. Any rule
+## would be arbitrary; this one is at least the one people can predict from where
+## they are sitting.
+##
+## It refuses if the device is already somebody's, which is what makes the
+## ordinary reconnect path (Godot handing back the same index) fall through to
+## the banner logic below untouched rather than being treated as a spare.
+func _offer_spare_pad(device: int) -> void:
+	for entry in _pad_banners:
+		var p: Player = entry["player"]
+		if is_instance_valid(p) and p.input_device == device:
+			return          # already spoken for
+	for entry in _pad_banners:
+		var p: Player = entry["player"]
+		if not is_instance_valid(p) or p.input_device < 0:
+			continue
+		if not _pads_down.has(p.input_device):
+			continue        # their own pad is fine
+		var lost := p.input_device
+		p.adopt_device(device)
+		# The hold was taken against the DEAD device and has to be released
+		# against that one — releasing "pad:<new>" would leave the match stopped
+		# forever by a controller that is never coming back.
+		GameState.hold("pad:%d" % lost, false)
+		var label: Label = entry["label"]
+		if is_instance_valid(label):
+			label.visible = false
+		Audio.play("ui_accept")
+		return
+
+
+## What the banner says, in one place, so the startup check and the live signal
+## cannot word it differently.
+func _paint_pad_banner(label: Label, device: int, connected: bool) -> void:
+	if not is_instance_valid(label):
+		return
+	label.visible = not connected
+	if not connected:
+		label.text = "CONTROLLER DISCONNECTED\nconnect %s to play" \
+			% Controls.device_label(device)
+
+
+## The banner itself, built for every player and hidden. Built up front rather
+## than when a pad drops, because the moment a pad drops is the moment you cannot
+## afford to be allocating Controls into a live viewport — and because a player
+## whose controller has just died is not in a position to wait for anything.
+func _add_pad_banner(hud: Control, player: Player) -> void:
+	var label := Label.new()
+	# BELOW THE MIDDLE, and that is a layout decision rather than a taste one.
+	# Dead centre is already spoken for three times over — the countdown sits at
+	# -60 of it, the victory banner is on it, and the reticle is the middle by
+	# definition. Shot over a real match (`tests/pause_look.tscn`), a centred
+	# disconnect banner printed straight through "GET READY 3", which is the
+	# failure mode `hud_frame` exists to catch: nothing is wrong with either
+	# widget, the fault only exists BETWEEN them.
+	#
+	# Below the reticle and above the bottom row (health left, weapon right) is
+	# the one band on this HUD with nothing else in it.
+	label.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
+	label.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	label.grow_vertical = Control.GROW_DIRECTION_BOTH
+	label.position.y = -190.0
+	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	label.add_theme_font_size_override("font_size", 19)
+	label.add_theme_color_override("font_color", Color(1.0, 0.62, 0.45))
+	label.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.9))
+	label.add_theme_constant_override("outline_size", 6)
+	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	# IT HAS TO BE READABLE WHILE THE TREE IS PAUSED, which solo it will be.
+	label.process_mode = Node.PROCESS_MODE_ALWAYS
+	hud.add_child(label)
+	if player.input_device < 0:
+		label.visible = false
+		return
+	_pad_banners.append({"label": label, "player": player})
+	# A PAD CAN BE ABSENT BEFORE THE MATCH EVER STARTS — four players set up on
+	# three controllers, or one that never woke up. `joy_connection_changed` only
+	# fires on a CHANGE, so without this nothing would ever tell that player why
+	# their body does not move.
+	#
+	# IT SHOWS THE BANNER AND DELIBERATELY DOES NOT TAKE A HOLD, which is the
+	# distinction between a SETUP problem and an INTERRUPTION. A pad that was
+	# never there is the first kind: there is nothing to pause, nobody has lost
+	# anything, and the answer is to plug one in — which `_offer_spare_pad` then
+	# hands straight to this player. Routing it through `_on_pad_changed` instead
+	# meant that starting the game solo with no controller plugged in PAUSED the
+	# match against a pad that had never existed, so the game froze on its own
+	# first frame showing a message about reconnecting something you had not
+	# connected. (`tests/vehicles.gd` found it, by booting real matches headless,
+	# where there are never any joypads at all.)
+	var here := Input.get_connected_joypads().has(player.input_device)
+	if not here:
+		_pads_down[player.input_device] = true
+	_paint_pad_banner(label, player.input_device, here)
+
+
+func _add_signature_banner(hud: Control, player: Player) -> void:
+	var box := VBoxContainer.new()
+	box.set_anchors_preset(Control.PRESET_CENTER_TOP)
+	box.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	box.position.y = 52.0
+	box.alignment = BoxContainer.ALIGNMENT_CENTER
+	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	box.visible = false
+
+	var chip := GameState.team_color(player.team)
+	var title := Label.new()
+	title.add_theme_font_size_override("font_size", 20)
+	title.add_theme_color_override("font_color", chip)
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	box.add_child(title)
+
+	var rule := Label.new()
+	rule.add_theme_font_size_override("font_size", 12)
+	rule.add_theme_color_override("font_color", Color(1, 1, 1, 0.72))
+	rule.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	rule.text = "THIS BODY DOES NOT REGENERATE"
+	box.add_child(rule)
+
+	hud.add_child(box)
+	player.signature_changed.connect(
+		_refresh_signature_banner.bind(box, title, player))
+
+
+func _refresh_signature_banner(box: Control, title: Label, player: Player) -> void:
+	if not is_instance_valid(box) or not is_instance_valid(player):
+		return
+	var name := player.signature_name
+	box.visible = name != ""
+	if box.visible:
+		title.text = name
+
+
+## The ball turret's sight. Built for EVERY player rather than when one earns a
+## gunship: a HUD is assembled once at map load and a reward arrives mid-match,
+## so the alternative is building a Control into a live viewport at the exact
+## moment the player is being handed the thing. It draws nothing and costs a
+## visibility test per frame until it is ridden.
+##
+## IN THE SIDE'S COLOUR, like the rest of the gameplay HUD.
+func _add_gunner_sight(hud: Control, player: Player) -> void:
+	var sight: Control = GUNNER_HUD.new()
+	sight.setup(player, GameState.team_color(player.team))
+	_gunner_sights.append(sight)
+	hud.add_child(sight)
+
+
 func _add_reticle(hud: Control, player: Player) -> void:
 	# Four ticks whose gap tracks the live spread cone (grows as you spray,
 	# recovers when you stop, tight when aimed).
@@ -1521,6 +1834,12 @@ var _minimaps: Array = []              # [Control] — untyped so should_redraw(
 var _thermal_overlays: Array = []      # [{c: Control, player: Player}]
 var _thermal_was_live := false
 var _bloom_ticks: Array = []           # [{c: Control, player: Player, at: float}]
+## The ball turret sights, one per viewport. Untyped for the same reason the
+## minimaps are: `tick()` is duck-typed and a typed array would bind the class.
+var _gunner_sights: Array = []
+## The hit-direction wedges, one per viewport. Untyped like the rest, so `tick`
+## stays duck-typed.
+var _hit_directions: Array = []
 var _slow_labels: Array = []           # [{label: Label, at: int}] — royale readouts
 ## The deploy screens, one per human. Held here rather than each connecting its
 ## own lambda to process_frame, so they are torn down with the match.
@@ -1540,6 +1859,8 @@ func _tick_overlays() -> void:
 	_tick_scans()
 	_tick_thermal()
 	_tick_bloom()
+	_tick_gunner_sights()
+	_tick_hit_directions()
 	_tick_minimaps()
 	_tick_buy_screens()
 	_tick_killed_by()
@@ -1606,14 +1927,48 @@ func _tick_thermal() -> void:
 func _tick_bloom() -> void:
 	for entry in _bloom_ticks:
 		var c: Control = entry["c"]
-		if not is_instance_valid(c) or not c.visible:
+		if not is_instance_valid(c):
 			continue
 		var player: Player = entry["player"]
+		# THE RIFLE'S CROSSHAIR HAS NOTHING TO SAY WHILE YOU ARE IN A MOUNT. It
+		# is drawn from `Weapon.current_spread_deg()` — the cone of the gun in
+		# this player's HANDS — and mounting hides that gun and fires the
+		# vehicle's instead. Left up, it drew a cone belonging to a weapon that
+		# was not shooting, directly on top of the sight of the one that was.
+		var mounted := player.in_vehicle()
+		if c.visible == mounted:
+			c.visible = not mounted
+		if mounted or not c.visible:
+			continue
 		var now: float = player.weapon.current_spread_deg()
 		if absf(now - float(entry["at"])) < 0.005:
 			continue
 		entry["at"] = now
 		c.queue_redraw()
+
+
+## The ball turret's sight, one per viewport. Ticked here with every other
+## overlay so the HUD's per-frame cost stays visible in one function.
+## THE ONLY OVERLAY THAT IS TICKED WITH A DELTA, because it is the only one
+## whose markers age. `process_frame` carries no delta, so it is taken from the
+## engine rather than passed — the same source `_tick_overlays`' callers use.
+func _tick_hit_directions() -> void:
+	var delta := _delta_now()
+	for h in _hit_directions:
+		if is_instance_valid(h):
+			h.tick(delta)
+
+
+## Seconds since the last drawn frame. Read here rather than plumbed through,
+## since `process_frame` is a signal and hands nothing over.
+func _delta_now() -> float:
+	return get_process_delta_time()
+
+
+func _tick_gunner_sights() -> void:
+	for g in _gunner_sights:
+		if is_instance_valid(g):
+			g.tick()
 
 
 func _draw_scan(c: Control, player: Player) -> void:

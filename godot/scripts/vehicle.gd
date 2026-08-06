@@ -223,14 +223,34 @@ static func vehicle_name(vehicle_team: int) -> String:
 	return String(VEHICLES.get(vehicle_team, {}).get("name", "SPEEDER"))
 
 
+## WHICH MACHINE TO BE, stated BEFORE the node enters the tree so the model is
+## built exactly ONCE.
+##
+## `_ready` has to build something — a vehicle dropped into a look test or a cost
+## harness must have a body without anybody remembering to ask, the same as the
+## turret. But both real callers wanted something other than the default, and the
+## only way to say so was to let `_ready` build a Republic BARC and then call
+## `setup*` to throw it away and build again. A speeder is cheap enough that
+## nobody noticed; an AT-ST is not, and it is built at the exact moment a player
+## has earned it, which is the worst possible frame to spend twice.
+##
+## `spawn_row_id` names a STREAK_VEHICLES row; `spawn_hull_side` names the
+## faction slot whose speeder to wear (the hull comes from the faction, the
+## colours from the team flying it, and those are no longer the same number).
+var spawn_row_id := ""
+var spawn_hull_side := -1
+
+
 func _ready() -> void:
 	GameState.register_combatant(self)
 	weapon.shooter = self
-	# Built here rather than in setup() so a vehicle dropped into a look test or a
-	# cost harness has a body without anybody remembering to ask, exactly like the
-	# turret. setup() only re-tints and re-arms.
 	if _row.is_empty():
-		setup(team)
+		if spawn_row_id != "":
+			setup_as(spawn_row_id, team)
+		else:
+			_setup_row(team, VEHICLES.get(
+				spawn_hull_side if spawn_hull_side >= 0 else team,
+				VEHICLES[REPUBLIC]))
 	_mount.body_entered.connect(_on_body_entered)
 	_mount.body_exited.connect(_on_body_exited)
 
@@ -260,6 +280,7 @@ func _setup_row(vehicle_team: int, row: Dictionary) -> void:
 	shape.size = size
 	_hull.shape = shape
 	_hull.position.y = size.y * 0.5 + 0.1
+	_fit_mount_volume(size)
 	_build_model()
 	weapon.set_class(_row["gun"])
 	# A world object, not a viewmodel: every camera sees this gun. The same stamp
@@ -267,6 +288,56 @@ func _setup_row(vehicle_team: int, row: Dictionary) -> void:
 	# viewmodel layer its owner would have put them on.
 	for mi in weapon.find_children("*", "MeshInstance3D", true, false):
 		mi.layers = 1
+
+
+## HOW FAR OUT YOU MAY STAND AND STILL BOARD, per side, beyond the hull.
+const BOARD_MARGIN := 1.9
+## Slack below the ground line, so a machine parked across a slope or riding its
+## hover spring a few centimetres high is still boardable.
+const BOARD_SLACK := 0.4
+## And a floor on the volume's height, so even a machine with no hover and a flat
+## hull presents something a standing capsule can actually intersect.
+const BOARD_MIN_HEIGHT := 2.4
+
+
+## THE MOUNT VOLUME MUST REACH THE GROUND THE MACHINE IS STANDING OVER, and that
+## is a function of the ROW rather than a constant — which is what the scene file
+## could not express and why the AT-ST could not be boarded at all.
+##
+## `MountArea` was authored once, for a speeder: a 2.6 m sphere at local y 0.9.
+## A speeder's origin rides 0.9 m up, so that sphere reaches from 1.7 m BELOW the
+## ground to 3.5 m above it and a walking player is thoroughly inside it. The
+## walker holds its origin at LEG LENGTH — 4.6 m — because its hover height is
+## how it stands up. Nothing scaled the sphere with it, so the same volume now
+## floated between 2.9 m and 8.1 m above the ground, and a trooper capsule tops
+## out around 1.8. **The area a player has to touch to be offered the seat was a
+## metre over their head**, `_on_body_entered` never fired for anybody, and
+## `pickup_in_reach` was therefore never set — no prompt, no press, no error, and
+## nothing anywhere to say the reward could not be used. That is "I got the AT-ST
+## and could not enter it".
+##
+## So it is built from the row exactly as the hull is, spanning from the ground
+## line up past the top of the hull. A BOX and not a sphere: what makes a machine
+## boardable is standing NEXT TO IT, and a sphere sized to reach the ground of a
+## walker would also reach half way across the map horizontally.
+##
+## A FRESH shape every time, never the scene's. Sub-resources in a `.tscn` are
+## shared across every instance of it, so writing to the authored `MountShape`
+## would resize the mount on every other vehicle on the field — the same reason
+## the hull above builds its own.
+func _fit_mount_volume(size: Vector3) -> void:
+	var cs: CollisionShape3D = _mount.get_node("CollisionShape3D")
+	# Ground sits at -hover in local space, because `hover` IS the clearance the
+	# repulsor (or the leg) holds between this origin and the floor.
+	var floor_y: float = -float(_row.get("hover", 1.0)) - BOARD_SLACK
+	var top_y: float = maxf(size.y + 0.4, floor_y + BOARD_MIN_HEIGHT)
+	var box := BoxShape3D.new()
+	box.size = Vector3(
+		size.x + BOARD_MARGIN * 2.0,
+		top_y - floor_y,
+		size.z + BOARD_MARGIN * 2.0)
+	cs.shape = box
+	cs.position.y = (top_y + floor_y) * 0.5
 
 
 ## --- the combatant contract ---------------------------------------------------

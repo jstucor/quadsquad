@@ -58,6 +58,15 @@ const MIX := {
 	"death":         {"db": -7.0, "spread": 0.04},
 	"deploy":        {"db": -7.0, "spread": 0.02},
 	"pickup":        {"db": -9.0, "spread": 0.02},
+	# A slide is close, physical and yours; the pitch spread keeps a firefight
+	# full of them from reading as one sample on repeat.
+	"slide":         {"db": -10.0, "spread": 0.05},
+	# THE QUIETEST ROWS IN THE TABLE, and the widest pitch spread. A footfall
+	# fires several times a second per body and there are up to a hundred bodies;
+	# without a real spread it is instantly recognisable as one sample on a loop,
+	# which is worse than silence because the ear locks onto it.
+	"footstep":      {"db": -19.0, "spread": 0.16},
+	"land":          {"db": -13.0, "spread": 0.10},
 	"ui_move":       {"db": -16.0, "spread": 0.02},
 	"ui_accept":     {"db": -12.0, "spread": 0.0},
 	"ui_back":       {"db": -13.0, "spread": 0.0},
@@ -197,15 +206,25 @@ func play(sound: String, extra_db := 0.0) -> void:
 ## is from it and dropped entirely if that is far enough. Bots have no ears and
 ## no camera, so a firefight on the far side of the map is silent — which is also
 ## what stops two dozen AI saturating every voice in the pool.
-func play_at(sound: String, at: Vector3, extra_db := 0.0) -> void:
+## NOT EVERYTHING CARRIES AS FAR AS A RIFLE, hence `max_range`. `HEARING` is
+## sized for gunfire and explosions — the things you are meant to notice across a
+## map — and applying it to BOOTS would be both wrong and expensive: a hundred
+## bodies at a walk is well over a hundred footfalls a second, and with a 90 m
+## radius most of them would be audible and every one of them would be competing
+## with the gunfire for a voice in a pool of a fixed size. You hear a rifle
+## across the field and boots in the next room, which is true and also happens to
+## be the cheap answer.
+func play_at(sound: String, at: Vector3, extra_db := 0.0,
+		max_range := HEARING) -> void:
 	if not bank_ready:
 		return
+	var reach: float = minf(max_range, HEARING)
 	var gap := _nearest_human(at)
-	if gap > HEARING:
+	if gap > reach:
 		return
 	# Linear in dB with distance: -22 dB across the audible range, which reads as
 	# a smooth fall rather than the inverse-square cliff a real 3D player gives.
-	var k: float = clampf((gap - NEAR) / (HEARING - NEAR), 0.0, 1.0)
+	var k: float = clampf((gap - NEAR) / maxf(reach - NEAR, 0.01), 0.0, 1.0)
 	play(sound, extra_db - 22.0 * k)
 
 

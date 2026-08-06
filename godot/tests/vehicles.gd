@@ -33,6 +33,7 @@ func _ready() -> void:
 	await _test_damage_and_wreck()
 	await _test_real_matches()
 	await _test_war_machines()
+	await _test_boarding_reach()
 
 	print("\n==== %s ====" % ("VEHICLES WORK" if _fails.is_empty()
 		else "%d FAILURE(S):\n  %s" % [_fails.size(), "\n  ".join(_fails)]))
@@ -351,6 +352,82 @@ func _test_war_machines() -> void:
 					% [row["name"], lowest])
 		print("    %-14s clearance %.2f m, lowest geometry %.2f m"
 			% [row["name"], clearance, lowest])
+		v.queue_free()
+		await get_tree().physics_frame
+
+
+## CAN A MAN STANDING ON THE GROUND BESIDE IT ACTUALLY BOARD IT?
+##
+## Every other check here measures the machine. This one measures the ONE
+## interaction it exists for, from the only position a player is ever in — feet
+## on the floor, next to the hull — and it is the check that was missing when the
+## AT-ST shipped unboardable.
+##
+## The fault was invisible to all of the above. The walker's hull was right, its
+## clearance was right, its feet were on the ground, it registered as a combatant
+## and it took damage. What was wrong was the `MountArea` volume, which is
+## authored ONCE in the scene for a speeder that rides 0.9 m up and was never
+## resized for a machine standing on 4.6 m legs — so the trigger a player must
+## touch sat about a metre above the tallest point of their capsule. No prompt,
+## no press, no error.
+##
+## So it walks a REAL Player capsule to a real offset beside each machine and
+## asks whether `pickup_in_reach` came back pointing at it. Geometry would not do
+## it: the question is whether two physics volumes overlap, and that is a
+## question only physics can answer.
+func _test_boarding_reach() -> void:
+	print("\n== boarding, from the ground ==")
+	# `_test_real_matches` above boots real matches, and `reset_match` leaves
+	# `match_live` false — with it false a Vehicle's `_physics_process` returns
+	# before `_claim_waiting_driver` and nothing can ever be boarded. Re-arming it
+	# here rather than depending on what the test before this one left behind.
+	GameState.match_live = true
+	var rows: Array = []
+	for t: int in Vehicle.VEHICLES:
+		rows.append({"id": "", "side": t, "row": Vehicle.VEHICLES[t]})
+	for id: String in Vehicle.STREAK_VEHICLES:
+		rows.append({"id": id, "side": 0, "row": Vehicle.STREAK_VEHICLES[id]})
+
+	for entry: Dictionary in rows:
+		var row: Dictionary = entry["row"]
+		var v: Vehicle = VEHICLE_SCENE_new()
+		v.team = 0
+		if str(entry["id"]) != "":
+			v.spawn_row_id = str(entry["id"])
+		else:
+			v.spawn_hull_side = int(entry["side"])
+		add_child(v)
+		v.global_position = Vector3(0, float(row["hover"]) + 3.0, 0)
+		v.reset_physics_interpolation()
+		for i in 150:
+			await get_tree().physics_frame
+
+		# Beside it, on the floor — just outside the hull's own half-width, which
+		# is where somebody walking up to board would actually stop.
+		var hull: Vector3 = row["hull"]
+		var p: Player = PLAYER.instantiate()
+		p.input_device = -1
+		p.team = 0
+		add_child(p)
+		p.global_position = Vector3(hull.x * 0.5 + 1.0, 1.0, 0.0)
+		p.reset_physics_interpolation()
+		for i in 30:
+			await get_tree().physics_frame
+
+		var reached: bool = p.pickup_in_reach == v
+		_expect(reached, "%s can be boarded from the ground beside it"
+			% row["name"])
+		# And the seat has to actually take them, since the advertisement and the
+		# ACTION are deliberately two separate gates.
+		if reached:
+			p.pickup_pressed = true
+			for i in 6:
+				await get_tree().physics_frame
+			_expect(v.driver == p, "%s seats the player who pressed" % row["name"])
+		print("    %-18s hover %.2f m  ·  %s"
+			% [row["name"], float(row["hover"]),
+				"boards" if reached else "OUT OF REACH"])
+		p.queue_free()
 		v.queue_free()
 		await get_tree().physics_frame
 

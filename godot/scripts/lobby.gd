@@ -19,7 +19,7 @@ extends Control
 ## which side we are on — and that is not a thing four people press separately.
 ## Per-seat choices happen on the deploy screen, in the match, where they belong.
 
-const MENU_SCENE := "res://scenes/menu.tscn"
+const FRONT_SCENE := "res://scenes/front.tscn"
 const GAME_SCENE := "res://scenes/main.tscn"
 
 const BG_COLOR := Color(0.06, 0.07, 0.09)
@@ -337,13 +337,17 @@ func _to_choose() -> void:
 
 
 func _back() -> void:
-	Audio.play("ui_cancel")
+	Audio.play("ui_back")
 	if _page == Page.SESSION:
 		Net.leave()
 		_page = Page.CHOOSE
 		_build()
 		return
-	get_tree().change_scene_to_file(MENU_SCENE)
+	# OUT TO THE FRONT SCREEN, which is where ONLINE PLAY is entered from. It
+	# used to go to the match-setup menu, which is a screen an online player has
+	# never seen — a BACK that lands somewhere new reads as the game having got
+	# lost rather than as having gone back.
+	get_tree().change_scene_to_file(FRONT_SCENE)
 
 
 # --- Net callbacks -----------------------------------------------------------
@@ -363,7 +367,7 @@ func _on_session_failed(reason: String) -> void:
 	_build()
 	_status.text = reason
 	_status.add_theme_color_override("font_color", WARN)
-	Audio.play("ui_cancel")
+	Audio.play("ui_back")
 
 
 func _on_browse_result(servers: Array) -> void:

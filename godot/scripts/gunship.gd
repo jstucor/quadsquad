@@ -38,7 +38,18 @@ const BANK := 0.42
 ## THE TURRET IS ON THE INSIDE OF THE TURN, which is not a detail — the whole
 ## reason a circling gunship works is that its guns stay pointed at the middle,
 ## so the gunner is looking at the battle for the entire lap instead of half of it.
-const TURRET_SIDE := -1.0
+##
+## AND THE SIGN WAS WRONG, so it was doing the exact opposite. `_place` faces the
+## hull along the tangent, which puts the ship's +X at the centre of the circuit;
+## at -1.0 the ball hung off -X, on the OUTSIDE, and aiming at the battle meant
+## aiming back across the fuselage. Measured (`tests/warmachine_feel.gd`): the
+## ball was inboard of the hull on 0 of 24 samples right round the circuit — so
+## for essentially the whole ride the gunner was looking at the gunship.
+##
+## It also fixes the BANK, which is derived from it (`BANK * -TURRET_SIDE`): a
+## ship rolls INTO its turn, and at the old sign it rolled away from the centre.
+## Two faults, one character.
+const TURRET_SIDE := 1.0
 const TURRET_ARM := 2.35       # how far out the ball hangs from the hull
 const TURRET_DROP := 0.55
 
@@ -58,11 +69,39 @@ const SPLASH := 3.4
 const SPLASH_DAMAGE := 46.0
 const RANGE := 260.0
 const BEAM_LIFE := 0.09
-const SPREAD := deg_to_rad(0.7)
+
+## A CONE IS PRICED AT THE RANGE IT IS FIRED AT, NOT IN DEGREES. This gun shoots
+## at the ground from 46 m up and 62 m out, so a round travels about 124 m — and
+## at 124 m the old 0.7 degrees put the AVERAGE round 2.25 m from the point it
+## was aimed at, against a body half a metre wide. Measured, not guessed
+## (`tests/warmachine_feel.gd`): that is a gun which cannot hit a man on purpose,
+## and it is most of what "the LAAT is useless" was.
+##
+## The AREA is what `SPLASH` is for. The cone's job is only to stop the beam
+## looking like a laser pointer, so it is now the width of the target rather than
+## four times it — about 0.5 m at fighting range.
+const SPREAD := deg_to_rad(0.13)
+
+## HOW FAST THE RETICLE CROSSES THE GROUND, as a share of the look input's own
+## angle. 1.0 means the aim point moves at the rate the player's head would have
+## turned, which is what makes a stabilised turret feel like looking around
+## rather than like driving a crane.
+const SLEW_GAIN := 1.0
+## ...and how far from the middle it may be pushed. The gunship orbits the centre
+## of the map; past this the turret would be asking for angles outside its own
+## arc every lap.
+const AIM_LEASH := 150.0
+## How hard the ball chases the point. Fast enough to feel bolted to the reticle,
+## slow enough that the hull's own motion is smoothed out of it.
+const TRACK_RATE := 12.0
 
 var team := 0
 
 var _gunner: Node3D
+## How far BELOW the seat the gunner's body root has to sit so their EYE lands on
+## it. See `Player.seat_is_eye` — a turret you sit inside anchors the camera, not
+## the boots.
+var _eye_offset := Vector3.ZERO
 var _return_to := Vector3.ZERO
 var _left := 0.0
 var _angle := 0.0
@@ -72,6 +111,9 @@ var _turret: Node3D          # yaws
 var _ball: Node3D            # pitches, and carries the muzzle
 var _muzzle: Node3D
 var _seat: Node3D
+## The pieces of the ball that surround the seat. Hidden from whoever is sitting
+## in it and from nobody else.
+var _shell: Array[MeshInstance3D] = []
 var _beams: Array[MeshInstance3D] = []
 var _beam_life: Array[float] = []
 var _mats := {}
@@ -85,23 +127,87 @@ func begin(by: Node3D, for_team: int, seconds: float) -> void:
 	_gunner = by
 	team = for_team
 	_left = seconds
+	_total = maxf(seconds, 0.001)
 	_return_to = by.global_position
 	# Start the circuit on the side of the map the caller is on, so the gunship
 	# arrives over them rather than behind them.
 	var here: Vector3 = by.global_position - _centre()
 	_angle = atan2(here.z, here.x)
+	# OPEN LOOKING AT THE FIGHT. The gunner is dropped into the ball already
+	# tracking the middle of the map, which is both where the battle is and the
+	# one point this turret can hold with no effort at all.
+	_aim_at = _centre()
 	_build()
 	_place(0.0)
 	# A HANDOVER IS A TELEPORT, both ways (house rule 10).
 	reset_physics_interpolation()
+	# THE SEAT IS AN EYE POSITION HERE, not a foot position — set BEFORE the
+	# mount, because `enter_vehicle` is what does the first placement and a body
+	# anchored by its feet puts the camera a metre and a half above the ball.
+	if "seat_is_eye" in by:
+		by.seat_is_eye = true
 	if by.has_method("enter_vehicle"):
 		by.enter_vehicle(self)
+	# Resolved ONCE, here, rather than asked every frame: the answer cannot change
+	# during a ride (the mount stands the body up and nothing moves the head
+	# afterwards), and a duck-typed call in `_physics_process` would be a check
+	# per frame for a constant.
+	_eye_offset = by.seat_anchor_offset() if by.has_method("seat_anchor_offset") \
+		else Vector3.ZERO
+	# THE BALL OWNS THE VIEW from here until it gives the body back. Set after
+	# `enter_vehicle`, which is the call that could refuse the mount.
+	if "vehicle_owns_view" in by:
+		by.vehicle_owns_view = true
+	_hide_shell_from(by)
+
+
+## SHOW THE GUNNER THE BATTLE, NOT THE INSIDE OF THE BUBBLE.
+##
+## The seat is inside the ball — that is the whole idea and it is the shot in the
+## reference — but it means the camera sits inside a 0.62 m opaque sphere with a
+## 1.95 m cradle band straight across its eyeline and a glass shell around the
+## lot. What the gunner should see is the two cannon barrels running away from
+## them and the ground underneath; what they saw was the ball.
+##
+## It reuses the mechanism that already hides a player's own body from their own
+## camera: each player's camera clears render layer `2 + player_index`, so a mesh
+## put on that layer is invisible to exactly one person and unchanged for
+## everyone else. The BARRELS are deliberately left alone — they are the framing
+## that makes the shot, and they are in front of the camera rather than round it.
+func _hide_shell_from(by: Node3D) -> void:
+	if not ("player_index" in by):
+		return
+	var bit: int = 1 << (1 + int(by.player_index))
+	for mi in _shell:
+		if is_instance_valid(mi):
+			mi.layers = bit
 
 
 ## Where the gunner sits. Asked for by `Player.enter_vehicle` rather than pathed
 ## to, because this one is nested inside a turret that moves.
 func seat() -> Node3D:
 	return _seat
+
+
+## THE NAME ON THE SIGHT. The gunner's HUD says what they are riding, and the
+## airframe is the thing that knows.
+const CALLSIGN := "LAAT/i GUNSHIP"
+## The ride's full length, kept so the clock on the sight has a denominator. It
+## is set by `begin` and never derived, because the reward row is free to hand
+## out a different duration and a bar that assumed one would silently lie.
+var _total := 1.0
+
+
+## What the gunner's sight draws. ASKED rather than pushed: the HUD ticks once a
+## frame anyway (`Main._tick_overlays`), and a push would mean this file knowing
+## about a Control it has no other reason to.
+func gunner_readout() -> Dictionary:
+	return {
+		"name": CALLSIGN,
+		"left": maxf(_left, 0.0),
+		"total": _total,
+		"ready": _cool <= 0.0,
+	}
 
 
 func _centre() -> Vector3:
@@ -112,6 +218,7 @@ func _physics_process(delta: float) -> void:
 	if not GameState.match_live:
 		return
 	_age_beams(delta)
+	_age_flash(delta)
 	_left -= delta
 	if _left <= 0.0 or not _gunner_ok():
 		_finish()
@@ -122,7 +229,9 @@ func _physics_process(delta: float) -> void:
 	# THE GUNNER RIDES THE SEAT, written every frame. The camera follows the head,
 	# the head follows the body and the body follows the seat — the same chain a
 	# speeder's driver hangs off, and the reason no second camera is needed.
-	_gunner.global_position = _seat.global_position
+	# Offset so the EYE lands on the seat rather than the feet (see
+	# `Player.seat_is_eye`); without it the camera rides above the ball.
+	_gunner.global_position = _seat.global_position - _eye_offset
 	_shoot(delta)
 
 
@@ -153,20 +262,80 @@ func _place(delta: float) -> void:
 			clampf(delta * 2.5, 0.0, 1.0))
 
 
-## The gunner's look drives the ball, inside its arc. Read off the player's own
-## aim rather than a control of its own — they are already looking with the right
-## stick and the ball should simply follow their eyes.
+## THE BALL TRACKS A POINT ON THE GROUND, AND THE STICK MOVES THE POINT.
+##
+## The first version read the gunner's own world yaw and differenced it against
+## the hull's, which is the natural thing to write and is wrong in a way that is
+## invisible in the code and fatal in the hand. The hull turns a full circle every
+## twenty seconds, so that difference changes at 17 degrees a second on its own:
+## a player holding NOTHING watched the gun sweep 30 m of ground every second and
+## then pin against its yaw stop, where it stayed for the rest of the ride. On top
+## of that the camera was never slaved to the ball at all — only the gunner's
+## POSITION was written — so the view and the gun pointed in unrelated directions
+## and there was no crosshair to speak of.
+##
+## Tracking a POINT fixes all of it at once, and it is also the right model for
+## the machine: an orbiting gunship's turret is continuously counter-rotating to
+## stay on a target, and the reason the guns sit on the inside of the turn is that
+## a point near the middle of the circle needs almost no counter-rotation to hold.
+## Aim at the fight and the turret is steady; slew out to the rim and it works for
+## its living. That is a real trade the player can feel, rather than a bug.
+var _aim_at := Vector3.ZERO
+
+
 func _aim(delta: float) -> void:
-	if _turret == null or not _gunner.has_method("vehicle_look"):
+	if _turret == null:
 		return
-	# `aim_angles` is the body yaw and head pitch the player is already holding.
-	var want_yaw: float = wrapf(_gunner.rotation.y - rotation.y, -PI, PI)
-	var want_pitch: float = _gunner.get("_look_pitch")
-	var step := clampf(delta * 7.0, 0.0, 1.0)
-	_turret.rotation.y = lerpf(_turret.rotation.y,
-		clampf(want_yaw, -YAW_LIMIT, YAW_LIMIT), step)
-	_ball.rotation.x = lerpf(_ball.rotation.x,
+	_slew(delta)
+	# Solve the two joints onto the point. Yaw in the turret's parent frame, then
+	# pitch in the BALL's — done in that order and off the updated transform, so
+	# the 2.35 m the ball hangs out on its arm is accounted for rather than being
+	# a degree of built-in error at fighting range.
+	var step := clampf(delta * TRACK_RATE, 0.0, 1.0)
+	var p: Vector3 = _body.global_transform.affine_inverse() * _aim_at - _turret.position
+	_turret.rotation.y = lerp_angle(_turret.rotation.y,
+		clampf(atan2(-p.x, -p.z), -YAW_LIMIT, YAW_LIMIT), step)
+	var q: Vector3 = _turret.global_transform.affine_inverse() * _aim_at - _ball.position
+	var want_pitch := atan2(q.y, Vector2(q.x, q.z).length())
+	_ball.rotation.x = lerp_angle(_ball.rotation.x,
 		clampf(want_pitch, PITCH_MIN, PITCH_MAX), step)
+	_drive_view()
+
+
+## Push the ground point around with the look input. Scaled by the RANGE it is
+## being looked at from, so the reticle crosses the screen at one rate whatever
+## the altitude — the alternative is a point that crawls when you are high and
+## snaps when you are low.
+func _slew(delta: float) -> void:
+	if not _gunner.has_method("take_view_delta"):
+		return
+	var look: Vector2 = _gunner.take_view_delta()
+	var from: Vector3 = _ball.global_position
+	var flat := _aim_at - from
+	flat.y = 0.0
+	flat = flat.normalized() if flat.length() > 0.5 else Vector3.FORWARD
+	var right := flat.cross(Vector3.UP)
+	var reach := maxf(20.0, from.distance_to(_aim_at))
+	_aim_at += (right * -look.x + flat * look.y) * reach * SLEW_GAIN
+	_aim_at.y = 0.0
+	# ...and it stays over the battlefield.
+	var off := _aim_at - _centre()
+	if off.length() > AIM_LEASH:
+		_aim_at = _centre() + off.normalized() * AIM_LEASH
+	# `delta` is unused on purpose: the look input is already a per-frame delta,
+	# so scaling it by time again would make sensitivity depend on frame rate.
+
+
+## THE CAMERA LOOKS DOWN THE BARRELS, which is the whole point of sitting in the
+## ball. Written as yaw and pitch and never as a basis, so the gunner's horizon
+## stays LEVEL — the turret hangs off a body banked 24 degrees into its turn, and
+## the seat inherited 7.8 degrees of that cant permanently (measured), which also
+## rotated the axes the stick was working in.
+func _drive_view() -> void:
+	if not _gunner.has_method("set_view_angles"):
+		return
+	var fwd: Vector3 = -_muzzle.global_transform.basis.z
+	_gunner.set_view_angles(atan2(-fwd.x, -fwd.z), asin(clampf(fwd.y, -1.0, 1.0)))
 
 
 func _shoot(delta: float) -> void:
@@ -200,6 +369,50 @@ func _shoot(delta: float) -> void:
 	_splash(land)
 	_beam(from, land)
 	Audio.play_at("explosion", land, -6.0)
+	# AND THE GUN ITSELF, AT THE GUN. The impact was the only sound this weapon
+	# made, which means the gunner — the one person who cannot see the round leave
+	# and is 75 m from where it lands — heard a distant thud a moment after
+	# pressing the trigger and nothing at the muzzle. A cannon a metre in front of
+	# your face is the loudest thing in a gunner's world; without it the trigger
+	# has no answer and the gun reads as broken.
+	Audio.play_at("blaster_heavy", from, -2.0)
+	_flash()
+
+
+## THE MUZZLE FLASH IS A REAL LIGHT, built ONCE and toggled — never allocated per
+## shot (house rule 2; this fires four and a half times a second for twenty
+## seconds). It is worth more here than on any infantry weapon: the gunner is
+## sealed in a dark ball at altitude with the barrels filling the bottom of the
+## frame, so the flash is the only thing on screen that answers the trigger.
+const FLASH_RANGE := 9.0
+const FLASH_TIME := 0.06
+
+var _flash_light: OmniLight3D
+var _flash_left := 0.0
+
+
+func _flash() -> void:
+	if _flash_light == null:
+		_flash_light = OmniLight3D.new()
+		_flash_light.omni_range = FLASH_RANGE
+		_flash_light.light_color = GREEN
+		_flash_light.light_energy = 0.0
+		# Shadows off, like every other muzzle flash in the game: a shadow-casting
+		# light that lives for 60 ms is a full shadow pass for one frame of
+		# something nobody can resolve.
+		_flash_light.shadow_enabled = false
+		_muzzle.add_child(_flash_light)
+	_flash_left = FLASH_TIME
+	_flash_light.light_energy = 3.2
+
+
+## Decayed rather than switched off — a hard cut reads as a dropped frame.
+func _age_flash(delta: float) -> void:
+	if _flash_left <= 0.0:
+		return
+	_flash_left = maxf(0.0, _flash_left - delta)
+	if _flash_light != null:
+		_flash_light.light_energy = 3.2 * (_flash_left / FLASH_TIME)
 
 
 func _splash(at: Vector3) -> void:
@@ -372,9 +585,15 @@ func _build_turret(steel: Material, poly: Material, trim: Material,
 	_ball.position = Vector3(TURRET_SIDE * TURRET_ARM, -0.10, 0)
 	# The glass sphere, and a darker cradle round its middle so it reads as a
 	# ball in a mount rather than as a bubble stuck on a stick.
-	_sphere(0.92, Vector3.ZERO, glass, _ball)
-	_sphere(0.62, Vector3(0, -0.10, 0), poly, _ball)
-	_box(Vector3(1.95, 0.20, 0.24), Vector3(0, 0.05, 0), trim, _ball)
+	#
+	# ALL THREE OF THESE ENCLOSE THE SEAT, which is the point of a ball turret and
+	# a problem for the man in it: the camera sits inside a 0.62 m opaque sphere
+	# with a 1.95 m cradle band straight across its eyeline. They are collected so
+	# the GUNNER can be shown the view instead of the inside of the bubble — see
+	# `_hide_shell_from`. Everyone else goes on seeing a ball.
+	_shell.append(_sphere(0.92, Vector3.ZERO, glass, _ball))
+	_shell.append(_sphere(0.62, Vector3(0, -0.10, 0), poly, _ball))
+	_shell.append(_box(Vector3(1.95, 0.20, 0.24), Vector3(0, 0.05, 0), trim, _ball))
 	# The twin cannon barrels, forward out of the ball.
 	for sy: float in [-1.0, 1.0]:
 		_box(Vector3(0.14, 0.14, 1.70), Vector3(sy * 0.22, -0.06, -1.15), poly, _ball)
@@ -404,15 +623,16 @@ func _ball_shell(side: float, steel: Material, trim: Material,
 	_box(Vector3(1.95, 0.20, 0.24), Vector3(side * TURRET_ARM, -0.05, 0), trim, arm)
 
 
-func _box(size: Vector3, pos: Vector3, mat: Material, into: Node3D) -> void:
+func _box(size: Vector3, pos: Vector3, mat: Material, into: Node3D) -> MeshInstance3D:
 	var mi := MeshInstance3D.new()
 	mi.mesh = Meshes.chamfer_box(size)
 	mi.position = pos
 	mi.material_override = mat
 	into.add_child(mi)
+	return mi
 
 
-func _sphere(radius: float, pos: Vector3, mat: Material, into: Node3D) -> void:
+func _sphere(radius: float, pos: Vector3, mat: Material, into: Node3D) -> MeshInstance3D:
 	var mi := MeshInstance3D.new()
 	var s := SphereMesh.new()
 	s.radius = radius
@@ -425,6 +645,7 @@ func _sphere(radius: float, pos: Vector3, mat: Material, into: Node3D) -> void:
 	mi.position = pos
 	mi.material_override = mat
 	into.add_child(mi)
+	return mi
 
 
 func _surface(albedo: Color, roughness: float, spec: float) -> StandardMaterial3D:

@@ -7,7 +7,7 @@ extends Node3D
 ##   godot --headless --path godot tests/guard_pose.tscn
 
 const CLIPS := ["idle", "walk", "run", "walk_back", "strafe_l", "strafe_r",
-	"crouch_idle", "crouch_walk", "guard_idle", "guard_walk"]
+	"crouch_idle", "crouch_walk", "guard_idle", "guard_walk", "slide"]
 
 
 func _ready() -> void:

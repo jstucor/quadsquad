@@ -11,7 +11,12 @@ extends Node3D
 ##
 ## Shots land in user:// (~/.local/share/godot/app_userdata/QuadSquad/).
 
-const CLIPS := ["walk", "walk_back", "strafe_l", "strafe_r"]
+## THE SIDESTEPS ARE NOT HERE ANY MORE. Nothing selects `strafe_l`/`strafe_r`
+## since the hips learned to swivel (`Locomotion.swivel_for`) — sideways travel
+## is now the forward stride with the legs turned — so photographing them would
+## be a contact sheet of two clips the game never plays. They are still in the
+## library; `tests/swivel_look.tscn` is the sheet for what replaced them.
+const CLIPS := ["walk", "walk_back"]
 const SPACING := 1.35
 ## Two moments of the cycle: the legs at full reach and the legs passing. A clip
 ## caught only at its extreme can be a static pose that never moves.

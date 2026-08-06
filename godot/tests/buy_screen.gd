@@ -49,10 +49,16 @@ func _ready() -> void:
 		p.pending.row_label(p.buy_row)])
 	_expect(p.buy_inside, "A opens the box the selector is on")
 	_expect(p.buy_row == Loadout.Row.KIT, "and parks on its first line")
-	var kit_before := p.pending.kit
+	# THE CLASS ROW WALKS CHARACTERS, NOT KIT ARCHETYPES (see
+	# Loadout.custom_classes), so what has to change is the CLASS ON SCREEN —
+	# `kit` is derived and two neighbours on the row share one (a Clone Trooper
+	# and a Clone Engineer are both the CLONE kit). Asserting on `kit` was
+	# asserting on the old meaning of the row and passed for the wrong reason.
+	var class_before := p.pending.class_name_shown()
 	_nudge(p, Vector2i.RIGHT)
-	print("  right -> kit %s" % p.pending.kit_name())
-	_expect(p.pending.kit != kit_before, "inside the box, left/right DOES change it")
+	print("  right -> class %s" % p.pending.class_name_shown())
+	_expect(p.pending.class_name_shown() != class_before,
+		"inside the box, left/right DOES change it")
 
 	print("\n== closing it again ==")
 	_press_back(p)
@@ -116,6 +122,57 @@ func _ready() -> void:
 		l.adopt_kit(kit)
 		_expect(l.row_available(Loadout.Row.GADGET2),
 			"%s has a second gadget slot" % l.kit_name())
+
+	# --- HOW BIG THE POOL IS ------------------------------------------------
+	#
+	# The point of the row is that it reaches every character the universe has.
+	# It used to offer the KIT archetypes — five in Star Wars, four in Warhammer
+	# — while thirty-two authored classes sat one screen away in FACTION mode,
+	# and nothing anywhere reported that as a fault because the row worked
+	# perfectly. A count is the only thing that catches it.
+	print("\n== the size of the pool ==")
+	for u in [Loadout.Universe.STAR_WARS, Loadout.Universe.HALO,
+			Loadout.Universe.WARHAMMER]:
+		GameState.universe = u
+		GameState.class_mode = GameState.ClassMode.CUSTOM
+		var pool := Loadout.custom_classes(u)
+		var authored := 0
+		for side in Loadout.FACTION_ROSTERS[u]:
+			authored += side.size()
+		print("  %-14s class row %d, authored %d"
+			% [Loadout.UNIVERSES[u]["name"], pool.size(), authored])
+		_expect(pool.size() == authored,
+			"the class row reaches every one of %s's characters" % Loadout.UNIVERSES[u]["name"])
+
+		# ...and the cursor must be able to WALK all of them. A pool the cursor
+		# cannot cross is the same bug wearing a bigger number: `step` refuses
+		# anything over BUDGET, so a class whose own guns cost more than 200
+		# would strand it.
+		var l := Loadout.starter()
+		var walked := 1
+		while l.step(Loadout.Row.KIT, 1):
+			walked += 1
+		_expect(walked == pool.size(),
+			"the cursor walks all %d of them (reached %d)" % [pool.size(), walked])
+
+		# ...and each one can reach the universe's ordinary catalogue, which is
+		# what `Loadout.custom_pool` is for. The Wookiee could hold TWO primaries.
+		var narrowest := 999
+		var worst := ""
+		for i in pool.size():
+			var b := Loadout.starter()
+			b.adopt_character(i)
+			var n := 0
+			for w in Loadout.WEAPONS.size():
+				if b.allows(Loadout.Row.WEAPON, w):
+					n += 1
+			if n < narrowest:
+				narrowest = n
+				worst = b.class_name_shown()
+		print("    narrowest character is %s with %d primaries" % [worst, narrowest])
+		_expect(narrowest >= 15,
+			"%s can only reach %d primaries in CUSTOM" % [worst, narrowest])
+	GameState.universe = Loadout.Universe.STAR_WARS
 
 	print("\n==== %s ====" % ("BUY SCREEN WORKS" if _fails.is_empty()
 		else "%d FAILURE(S):\n  %s" % [_fails.size(), "\n  ".join(_fails)]))

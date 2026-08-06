@@ -32,7 +32,12 @@ const SPAWN_WAIT := Color(0.55, 0.58, 0.62)
 ## The boxes have to fit whatever slice of the screen this player owns. At four
 ## players a viewport is a quarter of the window and the full-size layout runs
 ## off both edges of it, so the metrics are picked off the player count.
-const WIDE := {"name": 150, "value": 150, "text": 14, "head": 12, "title": 22}
+## SOLO IS A WHOLE SCREEN AND WAS BEING DRAWN LIKE A QUARTER OF ONE. At one
+## player the deploy screens are the only thing on a 1080p display and they were
+## a 480 px panel adrift in the middle of it — legible, and reading as a dialog
+## box rather than as the screen you are about to join an army from. The numbers
+## are the same shape, just sized for the space they actually own.
+const WIDE := {"name": 210, "value": 210, "text": 19, "head": 15, "title": 34}
 const TIGHT := {"name": 104, "value": 96, "text": 11, "head": 9, "title": 16}
 
 

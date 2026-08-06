@@ -14,10 +14,21 @@ const MAIN := preload("res://scenes/main.tscn")
 
 
 func _ready() -> void:
-	GameState.human_players = 1
+	# SHOOT THE SPLIT TOO. The metrics are picked off the player count
+	# (BoxScreen.metrics) precisely because the full-size layout runs off both
+	# edges of a quarter-screen viewport — so a screen judged only at one player
+	# is a screen judged in the case that cannot fail.
+	#   QS_VIEWS=4 godot --path godot ... tests/select_look.tscn
+	GameState.human_players = maxi(1, int(OS.get_environment("QS_VIEWS")))
 	GameState.mode = GameState.Mode.CONQUEST
 	GameState.class_mode = GameState.ClassMode.FACTION
 	GameState.map_index = 0
+	# ONE SIDE ON ITS FACTION COLOUR AND ONE ON A CHOSEN ONE, because those are
+	# two different code paths into `team_colors` (`refresh_sides` folds the
+	# faction's own chip and the menu's tint into the same array) and only a
+	# picture proves the SCREEN reads the folded answer rather than the seat.
+	GameState.team_tint = [0, _purple_tint(), 0, 0]
+	GameState.refresh_sides()
 	var main: Node = MAIN.instantiate()
 	add_child(main)
 	# The map lays its command posts on the first physics frame, and the spawn
@@ -66,3 +77,11 @@ func _grab(tag: String) -> void:
 func _frames(n: int) -> void:
 	for _i in n:
 		await get_tree().process_frame
+
+
+## The first tint that is not a side's own colour, so the shot is unambiguous.
+func _purple_tint() -> int:
+	for i in range(1, Loadout.TEAM_TINTS.size()):
+		if str(Loadout.TEAM_TINTS[i]["name"]) == "PURPLE":
+			return i
+	return 1

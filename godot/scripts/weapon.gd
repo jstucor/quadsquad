@@ -82,12 +82,72 @@ enum Class {
 	M319,           # UNSC grenade launcher
 	SPIKER,         # Brute spiker
 	E11D,           # death trooper's rifle — see below
+
+	# =========================================================================
+	# THE LIGHT MACHINE GUNS. Appended, so no index moved (house rule 8).
+	#
+	# There were three sustained-fire guns in the whole catalogue and all three
+	# were the same idea at three rates: a lot of small rounds through a wide
+	# cone. That is ONE weapon, and it left the whole slow-and-heavy half of the
+	# category empty — the gun you brace, fire in fours, and kill in three hits
+	# with. These four spread the class across the rate/damage axis instead of
+	# stacking on one end of it, and every setting gets one so an LMG player is
+	# not forced into Star Wars.
+	#
+	# What they SHARE is the LMG contract, and it is what makes them different
+	# from rifles rather than better ones: very stable while braced (low
+	# `cam_recoil` — see the note on machine-gun stability), a deep heat pool,
+	# and a hip-fire cone bad enough that they are useless on the move.
+	RT97C,          # Star Wars: the slow one. Fewest rounds, hardest hit.
+	DLT19D,         # Star Wars: the middle. A suppressor you walk fire with.
+	M739_SAW,       # Halo: the fast one. Least damage a round, most of them.
+	GAUSS_CANNON,   # 40k Necron: slow, heavy, and it does not miss.
 }
 enum FireMode { AUTO, SEMI, BURST }
 
+# THE GUN KICKS AS MUCH AS THE SCREEN KICKS, AND THAT IS ONE NUMBER, NOT TWO.
+#
+# There used to be a `recoil` key for the viewmodel beside `cam_recoil` for the
+# camera, and being separate they disagreed: the ratio between them ran from 5.9
+# on the sniper to 12.0 on the rifle, so some guns flipped hard while the view
+# behind them barely moved and others did the opposite. That is the single most
+# common reason a shooter feels "off" — the weapon in your hands is telling you
+# one thing about the shot and the sight picture is telling you another, and the
+# eye believes the sight picture.
+#
+# So the viewmodel's climb is DERIVED from the camera's (`VIEW_KICK_PER_RAD`).
+# One number per gun decides what a shot does, and the two can never drift.
+const VIEW_KICK_PER_RAD := 8.0
+
+## HOW HEAVY THE GUN IS IN THE HANDS — one number, and it is the whole of a
+## weapon's HANDLING.
+##
+## Everything about these guns was a statement about what a round DOES: damage,
+## reach, cone, heat, kick. Nothing said what the weapon is like to CARRY, so a
+## Gauss Cannon came up to the eye exactly as fast as a holdout pistol and left a
+## sprint exactly as fast — which is why the catalogue could be spread across
+## every ballistic axis and still have all sixty guns feel like one gun.
+##
+## `handling` multiplies every TIME the weapon costs you: raising the sights
+## (`Player.ads_time`) and recovering from a sprint (`SPRINT_RAISE_TIME`). Above
+## 1.0 is slower. 1.0 is the DC-15, which is the rifle everything else in this
+## file is already read against, and **no key means 1.0** — the same rule as
+## `VOICES` and the universe keys, so only the exceptions are stated and an
+## ordinary rifle says nothing.
+##
+## It is deliberately NOT derived from damage or weight-by-proxy. A derivation
+## that is right for forty guns and wrong for twenty is worse than a column,
+## because the twenty are invisible.
+const HANDLING_DEFAULT := 1.0
+
+
+func handling() -> float:
+	return maxf(0.05, float(_profile.get("handling", HANDLING_DEFAULT)))
+
 # spread = fire-cone half-angle (deg); zoom_fov = FOV while aiming; heat_per_shot
-# / cool_rate are fractions of the 0..1 heat pool; recoil = viewmodel kick;
-# cam_recoil = camera pitch kick (radians). Optional keys default via .get():
+# / cool_rate are fractions of the 0..1 heat pool;
+# cam_recoil = camera pitch kick (radians), and the gun's own visible kick is
+# derived from it. Optional keys default via .get():
 # mode (AUTO), burst_count/burst_interval (BURST), projectile/splash* (RPG),
 # kick_back (m/s the shot shoves the shooter backwards — big guns only).
 #
@@ -101,61 +161,75 @@ const PROFILES := {
 		"name": "DC-15 Rifle", "fire_interval": 0.14, "damage": 20.0,
 		"range": 120.0, "hip_spread": 2.5, "ads_spread": 0.4, "zoom_fov": 48.0,
 		"heat_per_shot": 0.085, "cool_rate": 0.26, "scope": false,
-		"recoil": 0.55, "cam_recoil": 0.046,
+		"cam_recoil": 0.046,
 	},
 	Class.SNIPER: {
 		"name": "NT-242 Sniper", "fire_interval": 1.1, "damage": 95.0,
 		"range": 400.0, "hip_spread": 7.0, "ads_spread": 0.0, "zoom_fov": 20.0,
 		"heat_per_shot": 0.45, "cool_rate": 0.28, "scope": true,
-		"recoil": 1.5, "cam_recoil": 0.20, "kick_back": 3.0,
+		"handling": 1.60, "cam_recoil": 0.20, "kick_back": 3.0,
 		"mode": FireMode.SEMI,
 	},
 	Class.HEAVY: {
 		"name": "Z-6 Repeater", "fire_interval": 0.075, "damage": 11.0,
 		"range": 85.0, "hip_spread": 4.5, "ads_spread": 2.0, "zoom_fov": 62.0,
 		"heat_per_shot": 0.06, "cool_rate": 0.22, "scope": false,
-		"recoil": 0.34, "cam_recoil": 0.032,
+		"handling": 1.45, "cam_recoil": 0.018,
 	},
 	Class.REVOLVER: {
 		"name": "SE-14 Revolver", "fire_interval": 0.42, "damage": 55.0,
 		"range": 100.0, "hip_spread": 1.5, "ads_spread": 0.3, "zoom_fov": 55.0,
 		"heat_per_shot": 0.22, "cool_rate": 0.3, "scope": false,
-		"recoil": 1.3, "cam_recoil": 0.22, "kick_back": 1.6,
+		"handling": 0.78, "cam_recoil": 0.22, "kick_back": 1.6,
 		"mode": FireMode.SEMI,
 	},
+	# A MACHINE GUN IS THE STEADIEST THING YOU CAN CARRY, AND IT WAS THE WORST.
+	#
+	# Steady climb is `cam_recoil / (fire_interval * Player.RECOIL_RECOVER)`, and
+	# on that measure the T-21 was running at 7.6 degrees a second against the
+	# DC-15's 3.1 — the belt-fed weapon braced on a bipod climbed two and a half
+	# times as fast as a rifle held in two hands. Every one of these guns was
+	# therefore a three-round weapon with a very long tail of wasted rounds, and
+	# the whole reason to carry one is the twentieth round.
+	#
+	# They are the most CONTROLLABLE guns in the game now (T-21 3.6 deg/s, Z-6
+	# 2.3, R-90 3.6, all under the rifle) and they still pay for it everywhere
+	# else — the widest cones in the catalogue, the worst hip fire, and the
+	# weight. Range and rate buy nothing if the sight leaves the target.
+	#
 	# The HMG's cooling is double every other gun's relative to its output: it is
 	# the one weapon meant to keep firing, so the lockout it earns is short.
 	Class.HMG: {
 		"name": "T-21 HMG", "fire_interval": 0.05, "damage": 13.0,
 		"range": 110.0, "hip_spread": 5.5, "ads_spread": 2.5, "zoom_fov": 60.0,
 		"heat_per_shot": 0.042, "cool_rate": 0.36, "scope": false,
-		"recoil": 0.42, "cam_recoil": 0.040,
+		"handling": 1.70, "cam_recoil": 0.019,
 	},
 	Class.BURST: {
 		"name": "EL-16 Burst", "fire_interval": 0.42, "damage": 24.0,
 		"range": 140.0, "hip_spread": 1.6, "ads_spread": 0.15, "zoom_fov": 50.0,
 		"heat_per_shot": 0.09, "cool_rate": 0.3, "scope": false,
-		"recoil": 0.75, "cam_recoil": 0.080,
+		"handling": 1.05, "cam_recoil": 0.055,
 		"mode": FireMode.BURST, "burst_count": 3, "burst_interval": 0.06,
 	},
 	Class.SEMI: {
 		"name": "A280 Semi", "fire_interval": 0.2, "damage": 42.0,
 		"range": 200.0, "hip_spread": 1.0, "ads_spread": 0.0, "zoom_fov": 45.0,
 		"heat_per_shot": 0.11, "cool_rate": 0.3, "scope": false,
-		"recoil": 0.9, "cam_recoil": 0.105, "kick_back": 1.0,
+		"handling": 1.10, "cam_recoil": 0.105, "kick_back": 1.0,
 		"mode": FireMode.SEMI,
 	},
 	Class.PISTOL: {
 		"name": "DL-44 Pistol", "fire_interval": 0.26, "damage": 32.0,
 		"range": 90.0, "hip_spread": 1.8, "ads_spread": 0.35, "zoom_fov": 56.0,
 		"heat_per_shot": 0.13, "cool_rate": 0.34, "scope": false,
-		"recoil": 0.95, "cam_recoil": 0.118, "mode": FireMode.SEMI,
+		"handling": 0.70, "cam_recoil": 0.118, "mode": FireMode.SEMI,
 	},
 	Class.HOLDOUT: {
 		"name": "RK-3 Holdout", "fire_interval": 0.16, "damage": 19.0,
 		"range": 70.0, "hip_spread": 2.4, "ads_spread": 0.7, "zoom_fov": 58.0,
 		"heat_per_shot": 0.075, "cool_rate": 0.4, "scope": false,
-		"recoil": 0.6, "cam_recoil": 0.061,
+		"handling": 0.68, "cam_recoil": 0.061,
 	},
 	# The rotary gadget's gun: enormous sustained output, but it has to spin up
 	# first and it sprays, and carrying it slows you to a walk.
@@ -163,7 +237,7 @@ const PROFILES := {
 		"name": "R-90 Rotary", "fire_interval": 0.04, "damage": 12.0,
 		"range": 95.0, "hip_spread": 4.0, "ads_spread": 2.2, "zoom_fov": 64.0,
 		"heat_per_shot": 0.022, "cool_rate": 0.20, "scope": false,
-		"recoil": 0.32, "cam_recoil": 0.028, "spinup": 0.7,
+		"handling": 1.85, "cam_recoil": 0.015, "spinup": 0.7,
 	},
 	# What a placed turret shoots with. It's bolted to the floor, so it has a
 	# viewmodel kick nobody sees and no camera kick or shove at all.
@@ -171,13 +245,13 @@ const PROFILES := {
 		"name": "E-Web Turret", "fire_interval": 0.18, "damage": 18.0,
 		"range": 60.0, "hip_spread": 1.2, "ads_spread": 1.2, "zoom_fov": 70.0,
 		"heat_per_shot": 0.05, "cool_rate": 0.28, "scope": false,
-		"recoil": 0.45, "cam_recoil": 0.0,
+		"cam_recoil": 0.0,
 	},
 	Class.RPG: {
 		"name": "PLX-1 RPG", "fire_interval": 1.6, "damage": 0.0,
 		"range": 300.0, "hip_spread": 0.5, "ads_spread": 0.0, "zoom_fov": 60.0,
 		"heat_per_shot": 0.6, "cool_rate": 0.3, "scope": false,
-		"recoil": 1.8, "cam_recoil": 0.30, "kick_back": 5.5,
+		"handling": 1.60, "cam_recoil": 0.30, "kick_back": 5.5,
 		"mode": FireMode.SEMI,
 		"projectile": true, "splash": 4.5, "splash_damage": 95.0,
 	},
@@ -187,14 +261,14 @@ const PROFILES := {
 		"name": "Westar M5 SMG", "fire_interval": 0.07, "damage": 12.0,
 		"range": 55.0, "hip_spread": 3.6, "ads_spread": 1.4, "zoom_fov": 64.0,
 		"heat_per_shot": 0.05, "cool_rate": 0.30, "scope": false,
-		"recoil": 0.3, "cam_recoil": 0.030,
+		"handling": 0.74, "cam_recoil": 0.030,
 	},
 	# Between the SMG and the DC-15: a shorter, faster rifle that gives up range.
 	Class.CARBINE: {
 		"name": "DC-15S Carbine", "fire_interval": 0.11, "damage": 16.0,
 		"range": 90.0, "hip_spread": 2.2, "ads_spread": 0.35, "zoom_fov": 52.0,
 		"heat_per_shot": 0.07, "cool_rate": 0.28, "scope": false,
-		"recoil": 0.45, "cam_recoil": 0.038,
+		"handling": 0.88, "cam_recoil": 0.038,
 	},
 	# Pellets, not a bullet: devastating inside a room and near-useless past it.
 	# `pellets` rolls the spread cone once per pellet — see _fire_hitscan.
@@ -209,7 +283,7 @@ const PROFILES := {
 		"name": "FWMB-10 Scatter", "fire_interval": 0.85, "damage": 12.0,
 		"range": 26.0, "hip_spread": 3.2, "ads_spread": 2.0, "zoom_fov": 66.0,
 		"heat_per_shot": 0.30, "cool_rate": 0.34, "scope": false,
-		"recoil": 1.4, "cam_recoil": 0.175, "kick_back": 2.2,
+		"handling": 1.15, "cam_recoil": 0.175, "kick_back": 2.2,
 		"mode": FireMode.SEMI, "pellets": 7,
 	},
 	# Scoped as issued, so it is pinpoint on the glass without buying a sight —
@@ -218,7 +292,7 @@ const PROFILES := {
 		"name": "A280-CFE Marksman", "fire_interval": 0.55, "damage": 62.0,
 		"range": 250.0, "hip_spread": 2.4, "ads_spread": 0.0, "zoom_fov": 32.0,
 		"heat_per_shot": 0.30, "cool_rate": 0.30, "scope": true,
-		"recoil": 1.1, "cam_recoil": 0.140, "kick_back": 1.4,
+		"handling": 1.30, "cam_recoil": 0.140, "kick_back": 1.4,
 		"mode": FireMode.SEMI,
 	},
 	# Sidearms. The DH-17 is the only automatic one, which is what makes it the
@@ -227,13 +301,13 @@ const PROFILES := {
 		"name": "DH-17 Sidearm", "fire_interval": 0.17, "damage": 17.0,
 		"range": 60.0, "hip_spread": 2.6, "ads_spread": 0.8, "zoom_fov": 58.0,
 		"heat_per_shot": 0.075, "cool_rate": 0.36, "scope": false,
-		"recoil": 0.5, "cam_recoil": 0.049,
+		"handling": 0.72, "cam_recoil": 0.049,
 	},
 	Class.BRYAR: {
 		"name": "Bryar Pistol", "fire_interval": 0.5, "damage": 58.0,
 		"range": 120.0, "hip_spread": 1.2, "ads_spread": 0.1, "zoom_fov": 50.0,
 		"heat_per_shot": 0.28, "cool_rate": 0.32, "scope": false,
-		"recoil": 1.15, "cam_recoil": 0.160, "kick_back": 1.2,
+		"handling": 0.80, "cam_recoil": 0.160, "kick_back": 1.2,
 		"mode": FireMode.SEMI,
 	},
 	# The lightsaber: the Force adept's only primary, and the only MELEE weapon.
@@ -248,7 +322,7 @@ const PROFILES := {
 		"name": "Lightsaber", "fire_interval": 0.40, "damage": 55.0,
 		"range": 3.4, "hip_spread": 0.0, "ads_spread": 0.0, "zoom_fov": 75.0,
 		"heat_per_shot": 0.0, "cool_rate": 1.0, "scope": false,
-		"recoil": 1.1, "cam_recoil": 0.022, "melee": true,
+		"cam_recoil": 0.022, "melee": true,
 	},
 	# The Wookiee's sidearm: a crossbow that throws a spread of energy quarrels.
 	# Three pellets through one cone, which is the scattergun's mechanism and
@@ -269,7 +343,7 @@ const PROFILES := {
 		"name": "Bowcaster", "fire_interval": 0.9, "damage": 26.0,
 		"range": 60.0, "hip_spread": 2.2, "ads_spread": 0.9, "zoom_fov": 58.0,
 		"heat_per_shot": 0.34, "cool_rate": 0.30, "scope": false,
-		"recoil": 1.5, "cam_recoil": 0.19, "kick_back": 2.6,
+		"handling": 1.10, "cam_recoil": 0.19, "kick_back": 2.6,
 		"mode": FireMode.SEMI, "pellets": 3,
 	},
 	# The Super Battle Droid's arm gun (Conquest): an HMG's weight of fire on an
@@ -281,7 +355,7 @@ const PROFILES := {
 		"name": "Wrist Cannon", "fire_interval": 0.09, "damage": 16.0,
 		"range": 115.0, "hip_spread": 1.8, "ads_spread": 0.5, "zoom_fov": 54.0,
 		"heat_per_shot": 0.06, "cool_rate": 0.24, "scope": false,
-		"recoil": 0.38, "cam_recoil": 0.03,
+		"handling": 0.90, "cam_recoil": 0.03,
 	},
 	# The Magna Guard's ELECTROSTAFF (Conquest): a melee weapon like the saber —
 	# hitscan with a `melee` flag that simply cannot reach past its range, so it
@@ -292,7 +366,7 @@ const PROFILES := {
 		"name": "Electrostaff", "fire_interval": 0.45, "damage": 78.0,
 		"range": 4.3, "hip_spread": 0.0, "ads_spread": 0.0, "zoom_fov": 75.0,
 		"heat_per_shot": 0.0, "cool_rate": 1.0, "scope": false,
-		"recoil": 1.1, "cam_recoil": 0.02, "melee": true, "staff": true,
+		"cam_recoil": 0.02, "melee": true, "staff": true,
 	},
 
 	# =========================================================================
@@ -306,40 +380,40 @@ const PROFILES := {
 		"name": "MA5B Assault Rifle", "fire_interval": 0.085, "damage": 14.0,
 		"range": 70.0, "hip_spread": 3.4, "ads_spread": 1.2, "zoom_fov": 62.0,
 		"heat_per_shot": 0.048, "cool_rate": 0.30, "scope": false,
-		"recoil": 0.38, "cam_recoil": 0.034,
+		"handling": 0.95, "cam_recoil": 0.034,
 	},
 	Class.BR55: {
 		"name": "BR55 Battle Rifle", "fire_interval": 0.36, "damage": 22.0,
 		"range": 150.0, "hip_spread": 1.5, "ads_spread": 0.12, "zoom_fov": 44.0,
 		"heat_per_shot": 0.085, "cool_rate": 0.30, "scope": false,
-		"recoil": 0.72, "cam_recoil": 0.074,
+		"handling": 1.05, "cam_recoil": 0.050,
 		"mode": FireMode.BURST, "burst_count": 3, "burst_interval": 0.055,
 	},
 	Class.M7_SMG: {
 		"name": "M7 SMG", "fire_interval": 0.06, "damage": 10.0,
 		"range": 45.0, "hip_spread": 4.2, "ads_spread": 1.7, "zoom_fov": 66.0,
 		"heat_per_shot": 0.042, "cool_rate": 0.32, "scope": false,
-		"recoil": 0.28, "cam_recoil": 0.028,
+		"handling": 0.74, "cam_recoil": 0.028,
 	},
 	Class.M90_SHOTGUN: {
 		"name": "M90 Shotgun", "fire_interval": 0.82, "damage": 13.0,
 		"range": 22.0, "hip_spread": 3.4, "ads_spread": 2.2, "zoom_fov": 68.0,
 		"heat_per_shot": 0.30, "cool_rate": 0.34, "scope": false,
-		"recoil": 1.45, "cam_recoil": 0.185, "kick_back": 2.4,
+		"handling": 1.15, "cam_recoil": 0.185, "kick_back": 2.4,
 		"mode": FireMode.SEMI, "pellets": 8,
 	},
 	Class.SRS99: {
 		"name": "SRS99 Sniper", "fire_interval": 1.15, "damage": 100.0,
 		"range": 400.0, "hip_spread": 7.5, "ads_spread": 0.0, "zoom_fov": 19.0,
 		"heat_per_shot": 0.46, "cool_rate": 0.28, "scope": true,
-		"recoil": 1.6, "cam_recoil": 0.22, "kick_back": 3.2,
+		"handling": 1.60, "cam_recoil": 0.22, "kick_back": 3.2,
 		"mode": FireMode.SEMI,
 	},
 	Class.SPNKR: {
 		"name": "M41 SPNKr", "fire_interval": 1.5, "damage": 0.0,
 		"range": 300.0, "hip_spread": 0.6, "ads_spread": 0.0, "zoom_fov": 60.0,
 		"heat_per_shot": 0.58, "cool_rate": 0.30, "scope": false,
-		"recoil": 1.8, "cam_recoil": 0.30, "kick_back": 5.2,
+		"handling": 1.60, "cam_recoil": 0.30, "kick_back": 5.2,
 		"mode": FireMode.SEMI,
 		"projectile": true, "splash": 4.6, "splash_damage": 95.0,
 	},
@@ -347,19 +421,19 @@ const PROFILES := {
 		"name": "M6D Magnum", "fire_interval": 0.30, "damage": 36.0,
 		"range": 95.0, "hip_spread": 1.6, "ads_spread": 0.25, "zoom_fov": 46.0,
 		"heat_per_shot": 0.16, "cool_rate": 0.34, "scope": false,
-		"recoil": 1.05, "cam_recoil": 0.135, "mode": FireMode.SEMI,
+		"handling": 0.74, "cam_recoil": 0.135, "mode": FireMode.SEMI,
 	},
 	Class.M247_HMG: {
 		"name": "M247 Machine Gun", "fire_interval": 0.055, "damage": 14.0,
 		"range": 105.0, "hip_spread": 5.6, "ads_spread": 2.6, "zoom_fov": 60.0,
 		"heat_per_shot": 0.044, "cool_rate": 0.34, "scope": false,
-		"recoil": 0.44, "cam_recoil": 0.042,
+		"handling": 1.70, "cam_recoil": 0.042,
 	},
 	Class.M392_DMR: {
 		"name": "M392 DMR", "fire_interval": 0.35, "damage": 40.0,
 		"range": 190.0, "hip_spread": 2.0, "ads_spread": 0.0, "zoom_fov": 36.0,
 		"heat_per_shot": 0.18, "cool_rate": 0.30, "scope": true,
-		"recoil": 0.95, "cam_recoil": 0.118, "mode": FireMode.SEMI,
+		"handling": 1.25, "cam_recoil": 0.118, "mode": FireMode.SEMI,
 	},
 	# The one gun in the game that has to be CHARGED. `spinup` already exists for
 	# the rotary's barrels, and a charge is the same thing said backwards: hold
@@ -371,7 +445,7 @@ const PROFILES := {
 		"name": "M6 Spartan Laser", "fire_interval": 1.6, "damage": 180.0,
 		"range": 320.0, "hip_spread": 0.0, "ads_spread": 0.0, "zoom_fov": 34.0,
 		"heat_per_shot": 0.85, "cool_rate": 0.22, "scope": true,
-		"recoil": 1.7, "cam_recoil": 0.24, "kick_back": 2.0, "spinup": 1.2,
+		"handling": 1.70, "cam_recoil": 0.24, "kick_back": 2.0, "spinup": 1.2,
 	},
 
 	# =========================================================================
@@ -382,14 +456,14 @@ const PROFILES := {
 		"name": "Plasma Rifle", "fire_interval": 0.10, "damage": 15.0,
 		"range": 60.0, "hip_spread": 2.8, "ads_spread": 1.0, "zoom_fov": 62.0,
 		"heat_per_shot": 0.075, "cool_rate": 0.26, "scope": false,
-		"recoil": 0.26, "cam_recoil": 0.020,
+		"handling": 0.95, "cam_recoil": 0.020,
 	},
 	Class.PLASMA_PISTOL: {
 		"flash": Color(0.45, 0.85, 0.7),
 		"name": "Plasma Pistol", "fire_interval": 0.22, "damage": 21.0,
 		"range": 50.0, "hip_spread": 2.0, "ads_spread": 0.55, "zoom_fov": 58.0,
 		"heat_per_shot": 0.11, "cool_rate": 0.30, "scope": false,
-		"recoil": 0.4, "cam_recoil": 0.030, "mode": FireMode.SEMI,
+		"handling": 0.72, "cam_recoil": 0.030, "mode": FireMode.SEMI,
 	},
 	# The needler's crystals track, which this engine has no room for — so what
 	# makes it a needler here is VOLUME on a very tight cone: it is the only
@@ -400,28 +474,28 @@ const PROFILES := {
 		"name": "Type-33 Needler", "fire_interval": 0.075, "damage": 11.0,
 		"range": 50.0, "hip_spread": 1.3, "ads_spread": 0.5, "zoom_fov": 64.0,
 		"heat_per_shot": 0.05, "cool_rate": 0.28, "scope": false,
-		"recoil": 0.22, "cam_recoil": 0.016,
+		"handling": 0.92, "cam_recoil": 0.016,
 	},
 	Class.COV_CARBINE: {
 		"flash": Color(0.65, 1.0, 0.55),
 		"name": "Covenant Carbine", "fire_interval": 0.24, "damage": 30.0,
 		"range": 165.0, "hip_spread": 1.4, "ads_spread": 0.1, "zoom_fov": 40.0,
 		"heat_per_shot": 0.13, "cool_rate": 0.28, "scope": false,
-		"recoil": 0.8, "cam_recoil": 0.090, "mode": FireMode.SEMI,
+		"handling": 1.00, "cam_recoil": 0.090, "mode": FireMode.SEMI,
 	},
 	Class.BEAM_RIFLE: {
 		"flash": Color(0.55, 0.75, 1.0),
 		"name": "Particle Beam Rifle", "fire_interval": 1.0, "damage": 92.0,
 		"range": 400.0, "hip_spread": 6.5, "ads_spread": 0.0, "zoom_fov": 18.0,
 		"heat_per_shot": 0.50, "cool_rate": 0.24, "scope": true,
-		"recoil": 1.2, "cam_recoil": 0.14, "mode": FireMode.SEMI,
+		"handling": 1.50, "cam_recoil": 0.14, "mode": FireMode.SEMI,
 	},
 	Class.FUEL_ROD: {
 		"flash": Color(0.55, 1.0, 0.35),
 		"name": "Fuel Rod Cannon", "fire_interval": 1.1, "damage": 0.0,
 		"range": 220.0, "hip_spread": 1.2, "ads_spread": 0.4, "zoom_fov": 60.0,
 		"heat_per_shot": 0.34, "cool_rate": 0.26, "scope": false,
-		"recoil": 1.5, "cam_recoil": 0.24, "kick_back": 3.4,
+		"handling": 1.55, "cam_recoil": 0.24, "kick_back": 3.4,
 		"mode": FireMode.SEMI,
 		"projectile": true, "splash": 3.8, "splash_damage": 72.0,
 	},
@@ -429,7 +503,7 @@ const PROFILES := {
 		"name": "Brute Shot", "fire_interval": 0.75, "damage": 0.0,
 		"range": 150.0, "hip_spread": 1.8, "ads_spread": 0.8, "zoom_fov": 62.0,
 		"heat_per_shot": 0.26, "cool_rate": 0.30, "scope": false,
-		"recoil": 1.3, "cam_recoil": 0.19, "kick_back": 2.2,
+		"handling": 1.35, "cam_recoil": 0.19, "kick_back": 2.2,
 		"mode": FireMode.SEMI,
 		"projectile": true, "splash": 3.0, "splash_damage": 55.0,
 	},
@@ -437,7 +511,7 @@ const PROFILES := {
 		"name": "Mauler", "fire_interval": 0.55, "damage": 11.0,
 		"range": 18.0, "hip_spread": 3.0, "ads_spread": 2.0, "zoom_fov": 66.0,
 		"heat_per_shot": 0.26, "cool_rate": 0.34, "scope": false,
-		"recoil": 1.2, "cam_recoil": 0.16, "kick_back": 1.6,
+		"handling": 0.80, "cam_recoil": 0.16, "kick_back": 1.6,
 		"mode": FireMode.SEMI, "pellets": 5,
 	},
 	# The energy sword is the saber's mechanism with a different blade: a melee
@@ -447,7 +521,7 @@ const PROFILES := {
 		"name": "Energy Sword", "fire_interval": 0.55, "damage": 95.0,
 		"range": 4.0, "hip_spread": 0.0, "ads_spread": 0.0, "zoom_fov": 75.0,
 		"heat_per_shot": 0.0, "cool_rate": 1.0, "scope": false,
-		"recoil": 1.2, "cam_recoil": 0.026, "melee": true,
+		"cam_recoil": 0.026, "melee": true,
 		"blade_core": Color(0.72, 0.94, 1.0), "blade_glow": Color(0.20, 0.75, 1.0),
 		"blade_len": 0.62, "blade_width": 0.055,
 	},
@@ -455,7 +529,7 @@ const PROFILES := {
 		"name": "Gravity Hammer", "fire_interval": 0.85, "damage": 120.0,
 		"range": 4.4, "hip_spread": 0.0, "ads_spread": 0.0, "zoom_fov": 75.0,
 		"heat_per_shot": 0.0, "cool_rate": 1.0, "scope": false,
-		"recoil": 1.6, "cam_recoil": 0.05, "melee": true,
+		"cam_recoil": 0.05, "melee": true,
 		"blade_core": Color(0.55, 0.42, 0.30), "blade_glow": Color(0.95, 0.55, 0.15),
 		"blade_len": 0.22, "blade_width": 0.17, "hilt_len": 0.55, "blade_energy": 0.0,
 	},
@@ -471,19 +545,19 @@ const PROFILES := {
 		"name": "Godwyn Bolter", "fire_interval": 0.16, "damage": 24.0,
 		"range": 110.0, "hip_spread": 2.6, "ads_spread": 0.5, "zoom_fov": 50.0,
 		"heat_per_shot": 0.075, "cool_rate": 0.26, "scope": false,
-		"recoil": 0.85, "cam_recoil": 0.062,
+		"handling": 1.10, "cam_recoil": 0.062,
 	},
 	Class.HEAVY_BOLTER: {
 		"name": "Heavy Bolter", "fire_interval": 0.115, "damage": 21.0,
 		"range": 125.0, "hip_spread": 4.8, "ads_spread": 2.4, "zoom_fov": 60.0,
 		"heat_per_shot": 0.055, "cool_rate": 0.32, "scope": false,
-		"recoil": 0.9, "cam_recoil": 0.070, "kick_back": 0.8,
+		"handling": 1.75, "cam_recoil": 0.070, "kick_back": 0.8,
 	},
 	Class.STALKER_BOLT: {
 		"name": "Stalker Bolt Rifle", "fire_interval": 0.42, "damage": 58.0,
 		"range": 240.0, "hip_spread": 2.2, "ads_spread": 0.0, "zoom_fov": 30.0,
 		"heat_per_shot": 0.26, "cool_rate": 0.30, "scope": true,
-		"recoil": 1.15, "cam_recoil": 0.150, "kick_back": 1.4,
+		"handling": 1.20, "cam_recoil": 0.150, "kick_back": 1.4,
 		"mode": FireMode.SEMI,
 	},
 	# Three shots and it is locked out: the plasma gun is a weapon you spend
@@ -493,7 +567,7 @@ const PROFILES := {
 		"name": "Plasma Gun", "fire_interval": 0.70, "damage": 72.0,
 		"range": 150.0, "hip_spread": 1.4, "ads_spread": 0.1, "zoom_fov": 44.0,
 		"heat_per_shot": 0.36, "cool_rate": 0.18, "scope": false,
-		"recoil": 1.3, "cam_recoil": 0.175, "kick_back": 1.2,
+		"handling": 1.25, "cam_recoil": 0.175, "kick_back": 1.2,
 		"mode": FireMode.SEMI,
 	},
 	Class.MELTAGUN: {
@@ -501,7 +575,7 @@ const PROFILES := {
 		"name": "Meltagun", "fire_interval": 1.2, "damage": 145.0,
 		"range": 18.0, "hip_spread": 0.8, "ads_spread": 0.0, "zoom_fov": 56.0,
 		"heat_per_shot": 0.48, "cool_rate": 0.26, "scope": false,
-		"recoil": 1.5, "cam_recoil": 0.20, "kick_back": 1.8,
+		"handling": 1.30, "cam_recoil": 0.20, "kick_back": 1.8,
 		"mode": FireMode.SEMI,
 	},
 	# THE FLAME FAMILY — this one, the Incinerator and the Burna — is three rows
@@ -524,13 +598,13 @@ const PROFILES := {
 		"name": "Flamer", "fire_interval": 0.085, "damage": 6.5,
 		"range": 14.0, "hip_spread": 7.0, "ads_spread": 6.0, "zoom_fov": 70.0,
 		"heat_per_shot": 0.030, "cool_rate": 0.28, "scope": false,
-		"recoil": 0.2, "cam_recoil": 0.010, "pellets": 3,
+		"handling": 1.30, "cam_recoil": 0.010, "pellets": 3,
 	},
 	Class.BOLT_PISTOL: {
 		"name": "Bolt Pistol", "fire_interval": 0.32, "damage": 33.0,
 		"range": 70.0, "hip_spread": 2.0, "ads_spread": 0.4, "zoom_fov": 54.0,
 		"heat_per_shot": 0.16, "cool_rate": 0.32, "scope": false,
-		"recoil": 1.0, "cam_recoil": 0.130, "mode": FireMode.SEMI,
+		"handling": 0.80, "cam_recoil": 0.130, "mode": FireMode.SEMI,
 	},
 	# Named for the chapter rather than the weapon, because Halo has a plasma
 	# pistol too and two rows sharing a display name is how a leak between
@@ -540,14 +614,14 @@ const PROFILES := {
 		"name": "Astartes Plasma Pistol", "fire_interval": 0.60, "damage": 52.0,
 		"range": 85.0, "hip_spread": 1.5, "ads_spread": 0.2, "zoom_fov": 50.0,
 		"heat_per_shot": 0.32, "cool_rate": 0.22, "scope": false,
-		"recoil": 1.25, "cam_recoil": 0.170, "kick_back": 1.0,
+		"handling": 0.82, "cam_recoil": 0.170, "kick_back": 1.0,
 		"mode": FireMode.SEMI,
 	},
 	Class.GRENADE_LAUNCHER: {
 		"name": "Auxiliary Launcher", "fire_interval": 1.3, "damage": 0.0,
 		"range": 180.0, "hip_spread": 1.4, "ads_spread": 0.5, "zoom_fov": 58.0,
 		"heat_per_shot": 0.40, "cool_rate": 0.28, "scope": false,
-		"recoil": 1.4, "cam_recoil": 0.22, "kick_back": 2.0,
+		"handling": 1.30, "cam_recoil": 0.22, "kick_back": 2.0,
 		"mode": FireMode.SEMI,
 		"projectile": true, "splash": 4.0, "splash_damage": 78.0,
 	},
@@ -559,7 +633,7 @@ const PROFILES := {
 		"name": "Chainsword", "fire_interval": 0.34, "damage": 60.0,
 		"range": 3.6, "hip_spread": 0.0, "ads_spread": 0.0, "zoom_fov": 75.0,
 		"heat_per_shot": 0.0, "cool_rate": 1.0, "scope": false,
-		"recoil": 1.0, "cam_recoil": 0.024, "melee": true,
+		"cam_recoil": 0.024, "melee": true,
 		# Steel, not energy: zero emission is what tells the viewmodel to build a
 		# dull blade instead of a lit one.
 		"blade_core": Color(0.62, 0.63, 0.68), "blade_glow": Color(0.35, 0.30, 0.28),
@@ -569,7 +643,7 @@ const PROFILES := {
 		"name": "Power Sword", "fire_interval": 0.45, "damage": 88.0,
 		"range": 3.9, "hip_spread": 0.0, "ads_spread": 0.0, "zoom_fov": 75.0,
 		"heat_per_shot": 0.0, "cool_rate": 1.0, "scope": false,
-		"recoil": 1.15, "cam_recoil": 0.026, "melee": true,
+		"cam_recoil": 0.026, "melee": true,
 		"blade_core": Color(0.85, 0.90, 1.0), "blade_glow": Color(0.35, 0.45, 1.0),
 		"blade_len": 0.80, "blade_width": 0.052,
 	},
@@ -577,7 +651,7 @@ const PROFILES := {
 		"name": "Thunder Hammer", "fire_interval": 0.95, "damage": 135.0,
 		"range": 4.1, "hip_spread": 0.0, "ads_spread": 0.0, "zoom_fov": 75.0,
 		"heat_per_shot": 0.0, "cool_rate": 1.0, "scope": false,
-		"recoil": 1.7, "cam_recoil": 0.055, "melee": true,
+		"cam_recoil": 0.055, "melee": true,
 		"blade_core": Color(0.48, 0.52, 0.60), "blade_glow": Color(0.40, 0.70, 1.0),
 		"blade_len": 0.24, "blade_width": 0.19, "hilt_len": 0.60, "blade_energy": 0.0,
 	},
@@ -593,41 +667,41 @@ const PROFILES := {
 		"name": "Gauss Flayer", "fire_interval": 0.13, "damage": 18.0,
 		"range": 95.0, "hip_spread": 2.4, "ads_spread": 0.6, "zoom_fov": 54.0,
 		"heat_per_shot": 0.065, "cool_rate": 0.24, "scope": false,
-		"recoil": 0.4, "cam_recoil": 0.028,
+		"handling": 1.00, "cam_recoil": 0.028,
 	},
 	Class.GAUSS_BLASTER: {
 		"flash": Color(0.45, 1.0, 0.55),
 		"name": "Gauss Blaster", "fire_interval": 0.20, "damage": 27.0,
 		"range": 135.0, "hip_spread": 1.8, "ads_spread": 0.3, "zoom_fov": 46.0,
 		"heat_per_shot": 0.10, "cool_rate": 0.24, "scope": false,
-		"recoil": 0.6, "cam_recoil": 0.048,
+		"handling": 1.40, "cam_recoil": 0.048,
 	},
 	Class.TESLA_CARBINE: {
 		"flash": Color(0.55, 0.95, 1.0),
 		"name": "Tesla Carbine", "fire_interval": 0.12, "damage": 16.0,
 		"range": 80.0, "hip_spread": 3.0, "ads_spread": 1.1, "zoom_fov": 58.0,
 		"heat_per_shot": 0.055, "cool_rate": 0.30, "scope": false,
-		"recoil": 0.35, "cam_recoil": 0.026,
+		"handling": 1.00, "cam_recoil": 0.026,
 	},
 	Class.SYNAPTIC_DISINTEGRATOR: {
 		"flash": Color(0.50, 1.0, 0.60),
 		"name": "Synaptic Disintegrator", "fire_interval": 1.0, "damage": 88.0,
 		"range": 380.0, "hip_spread": 5.5, "ads_spread": 0.0, "zoom_fov": 20.0,
 		"heat_per_shot": 0.42, "cool_rate": 0.26, "scope": true,
-		"recoil": 1.0, "cam_recoil": 0.10, "mode": FireMode.SEMI,
+		"handling": 1.45, "cam_recoil": 0.10, "mode": FireMode.SEMI,
 	},
 	Class.HEAT_RAY: {
 		"flash": Color(1.0, 0.60, 0.25),
 		"name": "Heat Ray", "fire_interval": 0.09, "damage": 22.0,
 		"range": 30.0, "hip_spread": 1.6, "ads_spread": 0.8, "zoom_fov": 64.0,
 		"heat_per_shot": 0.075, "cool_rate": 0.22, "scope": false,
-		"recoil": 0.3, "cam_recoil": 0.020,
+		"handling": 1.60, "cam_recoil": 0.020,
 	},
 	Class.TRANSDIMENSIONAL_BEAMER: {
 		"name": "Transdimensional Beamer", "fire_interval": 1.7, "damage": 0.0,
 		"range": 300.0, "hip_spread": 0.4, "ads_spread": 0.0, "zoom_fov": 44.0,
 		"heat_per_shot": 0.60, "cool_rate": 0.26, "scope": false,
-		"recoil": 1.4, "cam_recoil": 0.20, "kick_back": 2.0,
+		"handling": 1.40, "cam_recoil": 0.20, "kick_back": 2.0,
 		"mode": FireMode.SEMI,
 		"projectile": true, "splash": 4.2, "splash_damage": 88.0,
 	},
@@ -636,21 +710,21 @@ const PROFILES := {
 		"name": "Gauss Pistol", "fire_interval": 0.30, "damage": 34.0,
 		"range": 80.0, "hip_spread": 1.7, "ads_spread": 0.35, "zoom_fov": 54.0,
 		"heat_per_shot": 0.15, "cool_rate": 0.30, "scope": false,
-		"recoil": 0.7, "cam_recoil": 0.080, "mode": FireMode.SEMI,
+		"handling": 0.76, "cam_recoil": 0.080, "mode": FireMode.SEMI,
 	},
 	# A polearm, so it uses the electrostaff's silhouette rather than the saber's.
 	Class.WARSCYTHE: {
 		"name": "Warscythe", "fire_interval": 0.55, "damage": 98.0,
 		"range": 4.5, "hip_spread": 0.0, "ads_spread": 0.0, "zoom_fov": 75.0,
 		"heat_per_shot": 0.0, "cool_rate": 1.0, "scope": false,
-		"recoil": 1.2, "cam_recoil": 0.028, "melee": true, "staff": true,
+		"cam_recoil": 0.028, "melee": true, "staff": true,
 		"blade_core": Color(0.70, 1.0, 0.72), "blade_glow": Color(0.20, 0.95, 0.35),
 	},
 	Class.STAFF_OF_LIGHT: {
 		"name": "Staff of Light", "fire_interval": 0.42, "damage": 74.0,
 		"range": 4.2, "hip_spread": 0.0, "ads_spread": 0.0, "zoom_fov": 75.0,
 		"heat_per_shot": 0.0, "cool_rate": 1.0, "scope": false,
-		"recoil": 1.0, "cam_recoil": 0.022, "melee": true, "staff": true,
+		"cam_recoil": 0.022, "melee": true, "staff": true,
 		"blade_core": Color(0.75, 1.0, 0.80), "blade_glow": Color(0.30, 1.0, 0.50),
 	},
 
@@ -664,25 +738,25 @@ const PROFILES := {
 		"name": "Shoota", "fire_interval": 0.085, "damage": 16.0,
 		"range": 55.0, "hip_spread": 5.2, "ads_spread": 2.4, "zoom_fov": 66.0,
 		"heat_per_shot": 0.05, "cool_rate": 0.30, "scope": false,
-		"recoil": 0.55, "cam_recoil": 0.044,
+		"handling": 1.00, "cam_recoil": 0.044,
 	},
 	Class.BIG_SHOOTA: {
 		"name": "Big Shoota", "fire_interval": 0.055, "damage": 15.0,
 		"range": 75.0, "hip_spread": 6.4, "ads_spread": 3.4, "zoom_fov": 66.0,
 		"heat_per_shot": 0.040, "cool_rate": 0.34, "scope": false,
-		"recoil": 0.6, "cam_recoil": 0.050, "kick_back": 0.6,
+		"handling": 1.70, "cam_recoil": 0.050, "kick_back": 0.6,
 	},
 	Class.SLUGGA: {
 		"name": "Slugga", "fire_interval": 0.26, "damage": 30.0,
 		"range": 45.0, "hip_spread": 3.2, "ads_spread": 1.2, "zoom_fov": 62.0,
 		"heat_per_shot": 0.14, "cool_rate": 0.34, "scope": false,
-		"recoil": 1.0, "cam_recoil": 0.115, "mode": FireMode.SEMI,
+		"handling": 0.74, "cam_recoil": 0.115, "mode": FireMode.SEMI,
 	},
 	Class.ROKKIT_LAUNCHA: {
 		"name": "Rokkit Launcha", "fire_interval": 1.8, "damage": 0.0,
 		"range": 260.0, "hip_spread": 2.5, "ads_spread": 1.4, "zoom_fov": 62.0,
 		"heat_per_shot": 0.62, "cool_rate": 0.30, "scope": false,
-		"recoil": 2.0, "cam_recoil": 0.34, "kick_back": 6.0,
+		"handling": 1.55, "cam_recoil": 0.34, "kick_back": 6.0,
 		"mode": FireMode.SEMI,
 		"projectile": true, "splash": 5.0, "splash_damage": 100.0,
 	},
@@ -691,7 +765,7 @@ const PROFILES := {
 		"name": "Kustom Mega-Blasta", "fire_interval": 0.9, "damage": 78.0,
 		"range": 120.0, "hip_spread": 2.6, "ads_spread": 0.9, "zoom_fov": 52.0,
 		"heat_per_shot": 0.44, "cool_rate": 0.18, "scope": false,
-		"recoil": 1.5, "cam_recoil": 0.21, "kick_back": 1.6,
+		"handling": 1.55, "cam_recoil": 0.21, "kick_back": 1.6,
 		"mode": FireMode.SEMI,
 	},
 	# Tuned with the rest of the flame family — see the note on Class.FLAMER.
@@ -700,13 +774,13 @@ const PROFILES := {
 		"name": "Burna", "fire_interval": 0.09, "damage": 6.9,
 		"range": 15.0, "hip_spread": 7.5, "ads_spread": 6.5, "zoom_fov": 70.0,
 		"heat_per_shot": 0.030, "cool_rate": 0.28, "scope": false,
-		"recoil": 0.22, "cam_recoil": 0.012, "pellets": 3,
+		"handling": 1.30, "cam_recoil": 0.012, "pellets": 3,
 	},
 	Class.CHOPPA: {
 		"name": "Choppa", "fire_interval": 0.36, "damage": 68.0,
 		"range": 3.6, "hip_spread": 0.0, "ads_spread": 0.0, "zoom_fov": 75.0,
 		"heat_per_shot": 0.0, "cool_rate": 1.0, "scope": false,
-		"recoil": 1.05, "cam_recoil": 0.026, "melee": true,
+		"cam_recoil": 0.026, "melee": true,
 		"blade_core": Color(0.58, 0.56, 0.52), "blade_glow": Color(0.30, 0.26, 0.22),
 		"blade_len": 0.66, "blade_width": 0.085, "blade_energy": 0.0,
 	},
@@ -714,7 +788,7 @@ const PROFILES := {
 		"name": "Power Klaw", "fire_interval": 0.80, "damage": 118.0,
 		"range": 3.5, "hip_spread": 0.0, "ads_spread": 0.0, "zoom_fov": 75.0,
 		"heat_per_shot": 0.0, "cool_rate": 1.0, "scope": false,
-		"recoil": 1.5, "cam_recoil": 0.048, "melee": true,
+		"cam_recoil": 0.048, "melee": true,
 		"blade_core": Color(0.55, 0.50, 0.42), "blade_glow": Color(0.20, 0.85, 0.95),
 		"blade_len": 0.30, "blade_width": 0.15, "hilt_len": 0.28, "blade_energy": 0.0,
 	},
@@ -733,7 +807,7 @@ const PROFILES := {
 		"name": "DC-15S Carbine", "fire_interval": 0.11, "damage": 17.0,
 		"range": 62.0, "hip_spread": 2.6, "ads_spread": 0.85, "zoom_fov": 62.0,
 		"heat_per_shot": 0.055, "cool_rate": 0.52, "scope": false,
-		"recoil": 0.55, "cam_recoil": 0.011,
+		"handling": 0.88, "cam_recoil": 0.011,
 	},
 	# The ARC's pistol. Alone it is a fast sidearm; the class carries TWO (the
 	# dual-wield mod), which is the whole reason it is a separate gun.
@@ -741,7 +815,7 @@ const PROFILES := {
 		"name": "DC-17 Blaster", "fire_interval": 0.14, "damage": 22.0,
 		"range": 48.0, "hip_spread": 2.2, "ads_spread": 0.9, "zoom_fov": 66.0,
 		"heat_per_shot": 0.09, "cool_rate": 0.55, "scope": false,
-		"recoil": 0.7, "cam_recoil": 0.016,
+		"handling": 0.70, "cam_recoil": 0.016,
 	},
 	# The commando rifle: three-round burst, and the most accurate automatic in
 	# the Republic's hands. Bursts reward the trigger discipline the unit is
@@ -750,14 +824,14 @@ const PROFILES := {
 		"name": "DC-17m Rifle", "fire_interval": 0.075, "damage": 21.0,
 		"range": 86.0, "hip_spread": 1.5, "ads_spread": 0.24, "zoom_fov": 55.0,
 		"heat_per_shot": 0.075, "cool_rate": 0.40, "scope": false,
-		"recoil": 0.55, "cam_recoil": 0.013,
+		"handling": 0.95, "cam_recoil": 0.013,
 		"mode": FireMode.BURST, "burst_count": 3, "burst_interval": 0.34,
 	},
 	Class.DC15X: {
 		"name": "DC-15x Sniper", "fire_interval": 1.25, "damage": 118.0,
 		"range": 260.0, "hip_spread": 5.0, "ads_spread": 0.0, "zoom_fov": 22.0,
 		"heat_per_shot": 0.42, "cool_rate": 0.30, "scope": true,
-		"recoil": 2.1, "cam_recoil": 0.26, "kick_back": 1.6,
+		"handling": 1.45, "cam_recoil": 0.26, "kick_back": 1.6,
 	},
 
 	# --- SEPARATIST -----------------------------------------------------------
@@ -767,13 +841,13 @@ const PROFILES := {
 		"name": "E-5 Blaster", "fire_interval": 0.135, "damage": 15.0,
 		"range": 58.0, "hip_spread": 3.4, "ads_spread": 1.15, "zoom_fov": 64.0,
 		"heat_per_shot": 0.06, "cool_rate": 0.46, "scope": false,
-		"recoil": 0.6, "cam_recoil": 0.013,
+		"handling": 0.86, "cam_recoil": 0.013,
 	},
 	Class.E5S: {
 		"name": "E-5s Sniper", "fire_interval": 1.35, "damage": 110.0,
 		"range": 240.0, "hip_spread": 5.5, "ads_spread": 0.0, "zoom_fov": 24.0,
 		"heat_per_shot": 0.45, "cool_rate": 0.28, "scope": true,
-		"recoil": 2.0, "cam_recoil": 0.25, "kick_back": 1.4,
+		"handling": 1.45, "cam_recoil": 0.25, "kick_back": 1.4,
 	},
 	# THE DESTROYER'S TWIN REPEATERS: the highest sustained output in the game
 	# and a heat pool that punishes holding the trigger. Paired with the personal
@@ -782,7 +856,7 @@ const PROFILES := {
 		"name": "Twin Repeaters", "fire_interval": 0.055, "damage": 13.0,
 		"range": 70.0, "hip_spread": 2.4, "ads_spread": 1.0, "zoom_fov": 68.0,
 		"heat_per_shot": 0.042, "cool_rate": 0.34, "scope": false,
-		"recoil": 0.42, "cam_recoil": 0.007,
+		"handling": 1.60, "cam_recoil": 0.007,
 		"alternate_muzzles": true, "muzzle_x": 0.24, "muzzle_y": -0.14, "muzzle_z": -0.34,
 	},
 	# Geonosian sonic: a slow projectile-feeling blast with real splash, which is
@@ -797,7 +871,7 @@ const PROFILES := {
 		"name": "Sonic Blaster", "fire_interval": 0.60, "damage": 46.0,
 		"range": 55.0, "hip_spread": 1.4, "ads_spread": 0.5, "zoom_fov": 62.0,
 		"heat_per_shot": 0.26, "cool_rate": 0.32, "scope": false,
-		"recoil": 1.3, "cam_recoil": 0.06,
+		"handling": 1.05, "cam_recoil": 0.06,
 		"splash": 3.2, "splash_damage": 34.0,
 	},
 	# The BX's blade. Shorter reach than a lightsaber and no guard behind it —
@@ -806,7 +880,7 @@ const PROFILES := {
 		"name": "Vibrosword", "fire_interval": 0.34, "damage": 74.0,
 		"range": 3.5, "hip_spread": 0.0, "ads_spread": 0.0, "zoom_fov": 75.0,
 		"heat_per_shot": 0.0, "cool_rate": 1.0, "scope": false,
-		"recoil": 1.05, "cam_recoil": 0.024, "melee": true,
+		"cam_recoil": 0.024, "melee": true,
 		"blade_core": Color(0.72, 0.74, 0.80), "blade_glow": Color(0.30, 0.34, 0.40),
 		"blade_len": 0.62, "blade_width": 0.048, "blade_energy": 0.0,
 	},
@@ -816,19 +890,19 @@ const PROFILES := {
 		"name": "E-11 Blaster", "fire_interval": 0.12, "damage": 18.0,
 		"range": 66.0, "hip_spread": 2.5, "ads_spread": 0.7, "zoom_fov": 60.0,
 		"heat_per_shot": 0.06, "cool_rate": 0.50, "scope": false,
-		"recoil": 0.6, "cam_recoil": 0.012,
+		"handling": 0.92, "cam_recoil": 0.012,
 	},
 	Class.DLT19: {
 		"name": "DLT-19 Heavy", "fire_interval": 0.095, "damage": 24.0,
 		"range": 92.0, "hip_spread": 3.6, "ads_spread": 0.9, "zoom_fov": 58.0,
 		"heat_per_shot": 0.055, "cool_rate": 0.34, "scope": false,
-		"recoil": 0.95, "cam_recoil": 0.022, "kick_back": 0.6,
+		"handling": 1.55, "cam_recoil": 0.022, "kick_back": 0.6,
 	},
 	Class.DLT20A: {
 		"name": "DLT-20A", "fire_interval": 0.62, "damage": 62.0,
 		"range": 150.0, "hip_spread": 2.4, "ads_spread": 0.0, "zoom_fov": 34.0,
 		"heat_per_shot": 0.24, "cool_rate": 0.38, "scope": true,
-		"recoil": 1.4, "cam_recoil": 0.10,
+		"handling": 1.40, "cam_recoil": 0.10,
 	},
 	# THE DEATH TROOPER'S RIFLE. The unit used to be listed as carrying the
 	# SE-14r, which is sold as a SIDEARM — so weapon_index returned NO_PRIMARY
@@ -840,7 +914,7 @@ const PROFILES := {
 		"name": "E-11D Rifle", "fire_interval": 0.105, "damage": 21.0,
 		"range": 74.0, "hip_spread": 2.0, "ads_spread": 0.42, "zoom_fov": 56.0,
 		"heat_per_shot": 0.062, "cool_rate": 0.46, "scope": false,
-		"recoil": 0.5, "cam_recoil": 0.010,
+		"handling": 0.90, "cam_recoil": 0.010,
 	},
 	# The death trooper's machine pistol: a shotgun's damage profile at a
 	# carbine's range, and the reason that unit is feared at any distance.
@@ -848,7 +922,7 @@ const PROFILES := {
 		"name": "SE-14r", "fire_interval": 0.07, "damage": 14.0,
 		"range": 44.0, "hip_spread": 2.0, "ads_spread": 0.8, "zoom_fov": 66.0,
 		"heat_per_shot": 0.055, "cool_rate": 0.50, "scope": false,
-		"recoil": 0.5, "cam_recoil": 0.009,
+		"handling": 0.72, "cam_recoil": 0.009,
 	},
 	# THE INCINERATOR: no reach, no aim, no miss. A cone of pellets at ten metres
 	# with a fast tick — the only gun in the game that cannot headshot and does
@@ -860,7 +934,7 @@ const PROFILES := {
 		"name": "Incinerator", "fire_interval": 0.09, "damage": 6.9,
 		"range": 11.0, "hip_spread": 7.0, "ads_spread": 6.0, "zoom_fov": 70.0,
 		"heat_per_shot": 0.030, "cool_rate": 0.30, "scope": false,
-		"recoil": 0.18, "cam_recoil": 0.003, "pellets": 3,
+		"handling": 1.30, "cam_recoil": 0.003, "pellets": 3,
 	},
 
 	# --- REBEL ALLIANCE -------------------------------------------------------
@@ -868,19 +942,19 @@ const PROFILES := {
 		"name": "A280-C", "fire_interval": 0.125, "damage": 20.0,
 		"range": 78.0, "hip_spread": 2.3, "ads_spread": 0.6, "zoom_fov": 58.0,
 		"heat_per_shot": 0.065, "cool_rate": 0.46, "scope": false,
-		"recoil": 0.7, "cam_recoil": 0.015,
+		"handling": 0.95, "cam_recoil": 0.015,
 	},
 	Class.CR2: {
 		"name": "CR-2 SMG", "fire_interval": 0.06, "damage": 13.0,
 		"range": 38.0, "hip_spread": 3.0, "ads_spread": 1.4, "zoom_fov": 68.0,
 		"heat_per_shot": 0.045, "cool_rate": 0.52, "scope": false,
-		"recoil": 0.45, "cam_recoil": 0.008,
+		"handling": 0.76, "cam_recoil": 0.008,
 	},
 	Class.DH447: {
 		"name": "DH-447 Sniper", "fire_interval": 1.15, "damage": 112.0,
 		"range": 250.0, "hip_spread": 5.0, "ads_spread": 0.0, "zoom_fov": 22.0,
 		"heat_per_shot": 0.40, "cool_rate": 0.32, "scope": true,
-		"recoil": 2.0, "cam_recoil": 0.25, "kick_back": 1.5,
+		"handling": 1.45, "cam_recoil": 0.25, "kick_back": 1.5,
 	},
 	# The Ewok's spear. The shortest reach and the highest melee damage in the
 	# game: it is a joke unit that genuinely kills people, which is exactly what
@@ -889,7 +963,7 @@ const PROFILES := {
 		"name": "Ewok Spear", "fire_interval": 0.42, "damage": 92.0,
 		"range": 4.0, "hip_spread": 0.0, "ads_spread": 0.0, "zoom_fov": 75.0,
 		"heat_per_shot": 0.0, "cool_rate": 1.0, "scope": false,
-		"recoil": 1.2, "cam_recoil": 0.028, "melee": true, "staff": true,
+		"cam_recoil": 0.028, "melee": true, "staff": true,
 		"blade_core": Color(0.62, 0.48, 0.30), "blade_glow": Color(0.40, 0.30, 0.18),
 		"blade_len": 0.34, "blade_width": 0.05, "hilt_len": 0.75,
 		"blade_energy": 0.0,
@@ -901,7 +975,7 @@ const PROFILES := {
 		"name": "M319 Grenadier", "fire_interval": 1.1, "damage": 58.0,
 		"range": 90.0, "hip_spread": 1.2, "ads_spread": 0.4, "zoom_fov": 58.0,
 		"heat_per_shot": 0.34, "cool_rate": 0.30, "scope": false,
-		"recoil": 1.7, "cam_recoil": 0.10, "projectile": true,
+		"handling": 1.30, "cam_recoil": 0.10, "projectile": true,
 		"splash": 4.4, "splash_damage": 62.0,
 	},
 	# Brute spiker: fast, brutal up close and wildly inaccurate past it.
@@ -909,7 +983,65 @@ const PROFILES := {
 		"name": "Spiker", "fire_interval": 0.08, "damage": 16.0,
 		"range": 42.0, "hip_spread": 3.8, "ads_spread": 1.8, "zoom_fov": 68.0,
 		"heat_per_shot": 0.05, "cool_rate": 0.48, "scope": false,
-		"recoil": 0.6, "cam_recoil": 0.012,
+		"handling": 0.86, "cam_recoil": 0.012,
+	},
+
+	# =========================================================================
+	# THE LIGHT MACHINE GUNS.
+	#
+	# WHAT AN LMG IS, AS A CONTRACT, and it is a shape no other row in this table
+	# has: it is the most CONTROLLABLE gun in the game while it is braced, and
+	# the worst one in every other situation. Low `cam_recoil` for the damage it
+	# puts out — a machine gun that climbs is a machine gun nobody fires past the
+	# third round, and the whole reason to carry the weight is that the twentieth
+	# round goes where the first one did. It pays for that in `hip_spread` (the
+	# widest cones here), in `ads_spread` that never quite reaches zero, and in a
+	# heat pool it is always somewhere inside.
+	#
+	# They are spread ALONG THE RATE/DAMAGE AXIS rather than clustered, because
+	# four guns that differ only in name is the failure this category already
+	# had. Rounds-to-kill on a 100 hp trooper, and seconds to get there:
+	#
+	#   RT-97C        3 rounds, 0.52 s   the slow one: 38 a round, rifle reach
+	#   Gauss Cannon  3 rounds, 0.56 s   ...and it ignores the cone entirely
+	#   DLT-19D       4 rounds, 0.45 s   the middle, and the one you walk fire with
+	#   M739 SAW      7 rounds, 0.36 s   the fast one: a hose with a deep pool
+	# =========================================================================
+
+	# THE SLOW ONE. Fires at a rifle's rate and hits like a marksman weapon, and
+	# it is the LMG for somebody who wants to fight at range: the tightest ADS
+	# cone of the four and the only one that reaches past 120 m.
+	Class.RT97C: {
+		"name": "RT-97C Heavy Blaster", "fire_interval": 0.175, "damage": 38.0,
+		"range": 145.0, "hip_spread": 4.8, "ads_spread": 0.34, "zoom_fov": 46.0,
+		"heat_per_shot": 0.058, "cool_rate": 0.30, "scope": false,
+		"handling": 1.65, "cam_recoil": 0.030,
+	},
+	# THE MIDDLE ONE, and the one that behaves most like the category's
+	# reputation: a suppressor you hold on a doorway and walk across a squad.
+	Class.DLT19D: {
+		"name": "DLT-19D Suppressor", "fire_interval": 0.115, "damage": 26.0,
+		"range": 120.0, "hip_spread": 5.2, "ads_spread": 0.85, "zoom_fov": 52.0,
+		"heat_per_shot": 0.040, "cool_rate": 0.32, "scope": false,
+		"handling": 1.60, "cam_recoil": 0.019,
+	},
+	# THE FAST ONE. Least damage a round of anything in the category and the
+	# deepest pool to spend, so it is the one that answers a rush rather than a
+	# rifleman. Its cone is the price.
+	Class.M739_SAW: {
+		"name": "M739 SAW", "fire_interval": 0.052, "damage": 15.0,
+		"range": 85.0, "hip_spread": 5.6, "ads_spread": 1.5, "zoom_fov": 60.0,
+		"heat_per_shot": 0.028, "cool_rate": 0.34, "scope": false,
+		"handling": 1.55, "cam_recoil": 0.014,
+	},
+	# THE NECRON ONE: slow, enormous per round, and it does not climb at all,
+	# because nothing about a gauss weapon is being held back by a man's
+	# shoulder. The trade is the slowest cooling of the four.
+	Class.GAUSS_CANNON: {
+		"name": "Gauss Cannon", "fire_interval": 0.19, "damage": 40.0,
+		"range": 135.0, "hip_spread": 4.4, "ads_spread": 0.30, "zoom_fov": 48.0,
+		"heat_per_shot": 0.068, "cool_rate": 0.26, "scope": false,
+		"handling": 1.75, "cam_recoil": 0.024,
 	},
 }
 # Purchased upgrades (Loadout.SIGHTS / UPGRADES) as multipliers on the base
@@ -1054,6 +1186,11 @@ func set_class(c: Class, upgrades := {}) -> void:
 	heat_changed.emit(_heat, _overheated)
 	if _viewmodel:
 		_viewmodel.configure(c, has_scope(), has_holo())
+		# THE GUN IS LIT IN THE TEAM'S COLOUR FROM THE MOMENT IT IS DRAWN, not
+		# from the first shot. `configure` rebuilds the weapon from scratch, so
+		# this is the one place that always runs after the materials exist — on
+		# deploy, on every swap, and on a class change.
+		_viewmodel.set_light_color(bolt_color())
 
 
 func _upgraded_profile(base: Dictionary, upgrades: Dictionary) -> Dictionary:
@@ -1097,10 +1234,10 @@ func _upgraded_profile(base: Dictionary, upgrades: Dictionary) -> Dictionary:
 	# GRIP steadies HIP FIRE only now; the front grip (below) took the recoil.
 	if upgrades.get("grip", false):
 		p["hip_spread"] = float(p["hip_spread"]) * GRIP_SPREAD_MULT
-	# FRONT GRIP tames the kick — the camera climb, the viewmodel kick, and the
-	# body shove of the heavy guns — and touches nothing about accuracy.
+	# FRONT GRIP tames the kick — the camera climb, the gun's own visible climb
+	# (derived from it) and the body shove of the heavy guns — and touches nothing
+	# about accuracy.
 	if upgrades.get("foregrip", false):
-		p["recoil"] = float(p["recoil"]) * FOREGRIP_RECOIL_MULT
 		p["cam_recoil"] = float(p["cam_recoil"]) * FOREGRIP_RECOIL_MULT
 		p["kick_back"] = float(p.get("kick_back", 0.0)) * FOREGRIP_RECOIL_MULT
 	return p
@@ -1366,6 +1503,27 @@ func update_fire(held: bool, pressed: bool) -> void:
 				_burst_left = _profile.get("burst_count", 3)
 
 
+## `cam_recoil` IS WHAT A TRIGGER PULL COSTS, NOT WHAT ONE ROUND COSTS, and for a
+## burst weapon those are three different things.
+##
+## A burst puts its rounds out 55-60 ms apart. Recoil settles at
+## `Player.RECOIL_RECOVER` (6/s), so across a whole burst barely 7% of the first
+## round's kick has decayed before the third lands — they stack almost perfectly.
+## Charging the full number three times meant the EL-16 threw the camera up 13.7
+## degrees on ONE PULL, and the learn-pattern's first-shot weighting pushed that
+## past 18. That is not a hard gun, it is a gun that cannot be fired twice at the
+## same target, and it is exactly what "the burst gun is unusable" was.
+##
+## So the number in the table is the cost of the PULL and the rounds share it.
+## That also makes the column comparable across fire modes for the first time:
+## the EL-16's 0.055 and the A280's semi-automatic 0.105 now mean the same thing.
+func _shot_recoil() -> float:
+	var kick := float(_profile["cam_recoil"])
+	if _profile.get("mode", FireMode.AUTO) == FireMode.BURST:
+		kick /= maxf(1.0, float(_profile.get("burst_count", 1)))
+	return kick
+
+
 func _can_fire() -> bool:
 	return _cooldown <= 0.0 and not _overheated
 
@@ -1398,6 +1556,7 @@ func _flash_muzzle(local_pos := Vector3(0.0, 0.0, -0.45)) -> void:
 	# The glow at the barrel tip is the shooter's own view of the same shot.
 	if _viewmodel:
 		_viewmodel.set_flash_color(col)
+		_viewmodel.set_light_color(col)
 	_muzzle_light.light_energy = _flash_energy
 	_muzzle_light.visible = true
 	_flash_left = _flash_time
@@ -1409,6 +1568,17 @@ func _flash_muzzle(local_pos := Vector3(0.0, 0.0, -0.45)) -> void:
 ##
 ## A blade ignores it — the saber and staff have their own pose path, and a
 ## melee weapon carried "not ready" is a distinction without a difference.
+## THE STOW AMOUNT, 0 up and 1 fully carried across the chest. Player owns the
+## timer because it decides whether the TRIGGER works (`Player.weapon_ready`),
+## and the viewmodel is handed the answer rather than running a second clock —
+## two timers is how the gun on screen and the gun in the rules come to disagree
+## about whether you can shoot.
+func set_sprint_amount(v: float) -> void:
+	if _viewmodel and "sprint_amount" in _viewmodel:
+		_viewmodel.sprint_amount = clampf(v, 0.0, 1.0)
+		_viewmodel.sprinting = v > 0.5
+
+
 func set_sprinting(on: bool) -> void:
 	if _viewmodel and "sprinting" in _viewmodel:
 		_viewmodel.sprinting = on and not is_melee()
@@ -1493,13 +1663,14 @@ func _fire_shot() -> void:
 	if _heat >= 1.0:
 		_overheated = true
 	heat_changed.emit(_heat, _overheated)
+	var kick := _shot_recoil()
 	if _viewmodel:
-		_viewmodel.kick(_profile["recoil"])
+		_viewmodel.kick(kick * VIEW_KICK_PER_RAD)
 	_flash_muzzle(flash_local)
 	Audio.play_at(_voice(), global_position)
 	if is_melee():
 		_swing_t = 1.0   # bends the hum for as long as the swing lasts
-	fired.emit(_profile["cam_recoil"], _profile.get("kick_back", 0.0))
+	fired.emit(kick, _profile.get("kick_back", 0.0))
 	# Hip fire blooms the cone; aiming down sights stays precise.
 	if not aiming:
 		_bloom = minf(_bloom + _profile["hip_spread"] * 0.4, _profile["hip_spread"] * 2.2)

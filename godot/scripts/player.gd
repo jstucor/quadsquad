@@ -26,6 +26,23 @@ signal hit_confirmed(headshot: bool, killed: bool)
 signal map_toggled(open: bool)   # the map screen opened or closed
 signal squad_changed(alive: int)  # squadmates mustered or lost
 signal block_changed(level: float, broken: bool)  # saber guard, for the HUD
+## This body became a signature (or stopped being one). The HUD names it.
+signal signature_changed()
+## SOMETHING HURT YOU, AND IT CAME FROM THERE. Carries the world position of
+## whatever did it, so the HUD can keep the bearing correct as you turn and move
+## rather than freezing it at the angle it arrived on.
+##
+## SEPARATE FROM `damaged` DELIBERATELY, and raised EARLIER. `damaged` fires only
+## once a hit has cost you health — the saber guard and a full overshield both
+## return before it — and "where is that coming from" is the question you most
+## need answered in exactly those cases: a shield eating a burst still means
+## somebody has line of sight on you and you still have to decide which way to
+## move. Being told where a hit came from is not the same information as being
+## told it hurt, so it is not the same signal.
+signal hit_from(source: Vector3)
+## This body is being driven by a different controller now. Anything that CACHED
+## `input_device` has to hear about it — see `adopt_device`.
+signal device_changed(device: int)
 
 const CORPSE_SCENE := preload("res://scenes/fx/corpse.tscn")
 const GRENADE_SCENE := preload("res://scenes/fx/grenade.tscn")
@@ -164,13 +181,91 @@ const ASSIST_PULL := 1.5               # radians/sec of nudge, dead on target
 const ASSIST_ADS_MULT := 1.4           # firmer once the sights are up
 const ASSIST_STICK_DEADZONE := 0.12    # below this you are not aiming, so no pull
 const BUY_DEADZONE := 0.6  # stick push that counts as one buy-screen step
-const AIM_FOV_LERP := 14.0  # per-second rate the camera eases toward zoom FOV
+## HOW LONG THE SIGHTS TAKE TO COME UP, and it is the gun's number rather than
+## one number for everything. `ADS_TIME_BASE` is the DC-15's; every other weapon
+## multiplies it by its own `handling` (see `Weapon.handling`). A holdout is at
+## the eye in 0.14 s and a Gauss Cannon takes 0.35.
+##
+## **The camera's zoom and the viewmodel's slide are eased over the SAME
+## duration.** They used to be a rate (14/s) and a duration (0.12 s) authored
+## separately, so the world finished magnifying at one moment and the sight
+## arrived at another — which is felt as mush rather than seen as a fault, and is
+## the reason a fast ADS can still feel slow.
+const ADS_TIME_BASE := 0.20
+## Aiming costs you ground. Without it ADS is strictly better than hip fire in
+## every situation, which removes a decision rather than adding an option.
+const ADS_SPEED_MULT := 0.58
+
+
+func ads_time() -> float:
+	return ADS_TIME_BASE * weapon.handling()
+
+
+## THE SPRINT-OUT, which is the dial that makes carrying a heavy gun mean
+## something outside a firefight as well as inside one.
+##
+## The weapon is stowed across the chest while you run — everyone else could
+## already see that — and coming back out of it TAKES TIME proportional to the
+## weapon (`SPRINT_RAISE_TIME * handling`). The trigger does nothing until it is
+## up (`weapon_ready`), which is the whole point: sprinting somewhere is now a
+## commitment you can be caught inside, and the SAW's 0.42 s is a real reason to
+## carry the carbine's 0.24.
+##
+## Stowing is NOT scaled by the gun — dropping a weapon is the same shrug
+## whatever it weighs, and only the recovery is work.
+const SPRINT_STOW_TIME := 0.16
+const SPRINT_RAISE_TIME := 0.26
+## How far back down the stow has to come before the gun will fire. Not zero:
+## the round should leave as the sights settle, not a beat after them.
+const FIRE_READY_AT := 0.30
+var _stow := 0.0
+
+
+## Step the stow and push it to both hands. Player owns this rather than the
+## viewmodel because it decides whether the TRIGGER works, and that is a physics
+## answer — a visual timer running on render frames would let the two disagree
+## about whether the gun is up, which is exactly the lie this is here to stop.
+func _update_stow(delta: float) -> void:
+	# Reaching for the trigger or the sights is itself the decision to stop
+	# sprinting, so both start the weapon coming up.
+	var want := 1.0 if (_is_running() and not _fire_held() and not _ads_held()) \
+		else 0.0
+	var dur := SPRINT_STOW_TIME if want > 0.0 \
+		else SPRINT_RAISE_TIME * weapon.handling()
+	_stow = move_toward(_stow, want, delta / maxf(0.01, dur))
+	weapon.set_sprint_amount(_stow)
+	weapon_off.set_sprint_amount(_stow)
+
+
+## Is the gun far enough out of the sprint carry to shoot?
+func weapon_ready() -> bool:
+	return _stow <= FIRE_READY_AT
+
+
+## 0 at the hip, 1 fully aimed, stepped over the weapon's own `ads_time()`. It
+## drives the camera zoom; the viewmodel eases its own slide over the same
+## duration, which is what keeps the two arriving together.
+var _ads_t := 0.0
 # Recoil. The camera kick always settles all the way back to where you were
 # looking, so a burst climbs and then hands your aim back rather than stealing
 # it — the cost of firing is the climb, not a permanent drift. Recovery is slow
 # enough that a fast gun is still climbing when its next round leaves.
 const RECOIL_RECOVER := 6.0   # per-second rate the camera recoil settles back
 const RECOIL_YAW_SHARE := 0.55  # sideways lean, as a share of the pitch kick
+# THE PATTERN (see `_on_weapon_fired`). A burst climbs hardest at the start and
+# settles; the sideways component weaves on a smooth curve you can learn instead
+# of jittering at random. The jitter that remains is small on purpose — enough
+# that two bursts are not pixel-identical, not enough to make the curve a lie.
+const RECOIL_FIRST_SHOT := 1.45   # first-round climb, as a multiple of the rest
+const RECOIL_SETTLE_SHOTS := 5.0  # rounds it takes to fall to the steady climb
+const RECOIL_WEAVE := 0.7         # radians of pattern phase per round fired
+const RECOIL_YAW_JITTER := 0.10   # the only random part left
+# How long off the trigger before the pattern starts again from the first round.
+# Shorter than a reload and longer than the gap between rounds of the slowest
+# automatic, so tapping resets the climb and holding does not.
+const RECOIL_PATTERN_RESET := 0.35
+var _recoil_step := 0
+var _recoil_idle := 0.0
 # Two ways to steady a gun, both things the player chooses in the moment.
 const ADS_RECOIL_MULT := 0.8
 const CROUCH_RECOIL_MULT := 0.6
@@ -263,6 +358,9 @@ var gadget3 := Loadout.Gadget.NONE
 var jet_fuel := 1.0
 
 var _anim: AnimationPlayer
+## THE ANIMATION MODULE for this body — one object, made with the rig and ticked
+## once a frame. See `Locomotion` for what it owns and why it is not static.
+var _loco: Locomotion
 var _gravity: float = ProjectSettings.get_setting("physics/3d/default_gravity")
 var _camera: Camera3D
 var _base_fov := 75.0
@@ -373,6 +471,12 @@ var _corpse: Node3D        # the flop spawned on death, freed on respawn
 func _ready() -> void:
 	GameState.register_combatant(self)  # spawn picking skips the markers we occupy
 	_anim = model.find_child("AnimationPlayer", true, false)
+	_loco = Locomotion.new()
+	_loco.setup(_anim, model)
+	# FOOT PLANTING IS BUILT BUT NOT ON — see `Locomotion.plant_feet` and
+	# `CharacterModel._solve_feet` for what it does and what is still wrong with
+	# it. Flip this to true to try it.
+	_loco.plant_feet = false
 	_stamp_model_layers()
 	# Put this player's viewmodel on its private layer (owner-only). Told to the
 	# WEAPON rather than stamped on the meshes here: there are none yet, and the
@@ -428,14 +532,179 @@ func _stamp_model_layers() -> void:
 
 
 func bind_camera(cam: Camera3D) -> void:
-	cam.cull_mask &= ~(1 << (1 + player_index))
 	# See only our own viewmodel: drop the whole viewmodel block, add ours back.
 	for j in VIEWMODEL_SLOTS:
 		cam.cull_mask &= ~(1 << (VIEWMODEL_BIT + j))
-	cam.cull_mask |= 1 << (VIEWMODEL_BIT + player_index)
 	remote_cam.remote_path = remote_cam.get_path_to(cam)
 	_camera = cam
 	_base_fov = cam.fov
+	_apply_view_mode()
+
+
+## --- THIRD PERSON ---------------------------------------------------------------
+##
+## A SABER DUELLIST IS WATCHED, NOT LOOKED THROUGH. A Force Master's whole
+## repertoire is things that happen to the BODY — a two-metre blade swung on an
+## arc, a guard raised across the chest, a leap, a shove — and a first-person
+## camera 30 cm from the hilt is pointed at the one part of all that which cannot
+## be seen. It is also the reward the player has climbed fourteen kills for, and
+## the transformation is invisible to the only person who earned it.
+##
+## THE PARALLAX QUESTION IS WHY THIS IS PER-REWARD AND NOT A SETTING. Moving the
+## camera off the head puts the crosshair and the gun on two different lines —
+## the same fault that made the LAAT's ball turret unusable, and there it was
+## fatal. Here it is not, and that is a property of THIS BODY rather than of
+## third person: the shot origin is the weapon (`Weapon._fire_hitscan` traces
+## from `global_position`, which is on the head), and a Force Master's weapons
+## are a melee ARC, a Force CONE and a sidearm. None of them is a precision ray
+## at range, so a camera half a metre off the aim line costs nothing measurable.
+## A trooper on a scoped rifle in this camera would be a different question, and
+## the answer would be no.
+var third_person := false
+
+## Behind and above, and only a LITTLE to the side. A hard over-the-shoulder
+## offset is the iconic look and it is also the one that costs the most parallax,
+## so this leans toward keeping the aim line and the sight line in nearly the same
+## vertical plane.
+const CHASE_BACK := 3.4
+const CHASE_UP := 0.45
+const CHASE_SIDE := 0.55
+## How fast the camera falls back on the transformation and returns on death. Not
+## instant: the pull-back IS most of the entry animation, and a cut would throw
+## the whole moment away.
+const CHASE_EASE := 3.2
+## The camera must not go through walls, so it is pulled in to whatever the sweep
+## hits. Kept a little off the surface, or a camera resting exactly on a wall
+## renders the inside of it.
+const CHASE_CLEARANCE := 0.30
+
+var _chase_t := 0.0        # 0 first person .. 1 fully out
+
+## --- SCREEN SHAKE ---------------------------------------------------------------
+##
+## THE WORLD HAD NO PHYSICAL EFFECT ON THE VIEW. A rocket could detonate at your
+## feet, a mortar could land beside you, an AT-ST could put a shell into the wall
+## you are behind, and the camera did not acknowledge any of it — the only things
+## that ever moved it were your own gun and your own legs. That is the difference
+## between explosions being events and being decals with a damage number on them.
+##
+## IT RIDES `remote_cam`, NOT THE HEAD, and that is the whole design constraint.
+## The weapon is a child of the head, so shake applied there would move the
+## SHOTS — a screen shake that spoils your aim is not a feel improvement, it is
+## an input bug. The RemoteTransform3D copies its OWN transform onto the camera,
+## so offsetting it moves what you SEE and nothing else. Same mechanism the chase
+## camera uses, for the same reason.
+##
+## MOSTLY ROLL, AND ONLY A LITTLE TRANSLATION. Roll is the one axis that is
+## completely boresight-neutral: rotating about the view axis cannot move where
+## the centre of the screen points, so the crosshair still covers exactly what
+## the gun will hit. Yaw and pitch shake would put the reticle and the barrel on
+## different lines, which is the fault that made the LAAT's ball turret unusable
+## and is not worth reintroducing for an effect. Translation is kept small for
+## the same reason (it is parallax, not angle, so it is far more forgiving).
+##
+## TRAUMA, NOT DISPLACEMENT. The stored value is squared when it is applied, so
+## a big hit reads as violently different from a small one rather than merely
+## larger — and it decays linearly, so it always ENDS rather than asymptotically
+## trailing off into a camera that never quite settles.
+const SHAKE_MAX := 1.0
+const SHAKE_DECAY := 1.9          # trauma per second
+const SHAKE_ROLL := 0.085         # radians at full trauma
+const SHAKE_SHIFT := 0.075        # metres at full trauma
+const SHAKE_FREQ := 24.0          # how fast it rattles
+
+var _shake := 0.0
+var _shake_t := 0.0
+
+
+## Add to this body's shake. `amount` is trauma, not displacement: 0.2 is a
+## grenade somewhere near, 1.0 is being stood on the thing that went off.
+##
+## ASKED OF THE PLAYER RATHER THAN PUSHED BY THE EXPLOSION, so a body that
+## cannot be shaken (a Bot, which has no camera) simply does not have the method
+## and the caller's duck-typed check skips it — the same shape as `apply_impulse`
+## and `on_hit_confirmed`.
+func add_shake(amount: float) -> void:
+	_shake = minf(_shake + amount, SHAKE_MAX)
+
+
+## Where the shake has pushed the camera this frame. Two offset sine chains at
+## unrelated frequencies rather than `randf`: noise re-rolled per frame at 60 Hz
+## reads as a broken cable, where a wobble at a fixed rate reads as a shock going
+## through a body. It is the same argument the recoil PATTERN makes about not
+## being random.
+func _shake_offset() -> Vector3:
+	if _shake <= 0.0:
+		return Vector3.ZERO
+	var k: float = _shake * _shake        # trauma is squared on the way out
+	return Vector3(
+		sin(_shake_t * SHAKE_FREQ) * SHAKE_SHIFT * k,
+		sin(_shake_t * SHAKE_FREQ * 1.37 + 1.1) * SHAKE_SHIFT * k,
+		0.0)
+
+
+## WHICH MESHES THIS PLAYER'S OWN CAMERA MAY SEE. One function for both modes, so
+## the body and the viewmodel can never both be on or both be off — which is what
+## "my gun is floating in front of my own face" and "I am invisible to myself"
+## each look like.
+func _apply_view_mode() -> void:
+	if _camera == null:
+		return
+	var body_bit := 1 << (1 + player_index)
+	var gun_bit := 1 << (VIEWMODEL_BIT + player_index)
+	if third_person:
+		_camera.cull_mask |= body_bit    # ...and now you can see yourself
+		_camera.cull_mask &= ~gun_bit    # the first-person gun would be inside you
+	else:
+		_camera.cull_mask &= ~body_bit
+		_camera.cull_mask |= gun_bit
+
+
+## Ease the camera out to the chase position and keep it out of the scenery.
+##
+## It rides `remote_cam.position` rather than a second camera or a new node: the
+## RemoteTransform3D already copies ITS OWN transform onto the camera, so moving
+## the transform back along the head's +Z IS a chase camera, and everything that
+## already drives the view — the look, the recoil, the landing dip, a vehicle
+## writing angles — keeps working untouched.
+func _update_chase(delta: float) -> void:
+	var want := 1.0 if third_person else 0.0
+	# NOT AN EARLY-OUT ANY MORE when the shake is live: this function is also
+	# what decays it and writes it, so returning here would freeze a shaking
+	# camera at whatever offset it happened to be at.
+	if is_equal_approx(_chase_t, want) and _chase_t <= 0.0 and _shake <= 0.0:
+		if remote_cam.position != Vector3.ZERO:
+			remote_cam.position = Vector3.ZERO
+			remote_cam.rotation.z = 0.0
+		return
+	_chase_t = move_toward(_chase_t, want, delta * CHASE_EASE)
+	var back := CHASE_BACK * _chase_t
+	if back > 0.01:
+		# Sweep from the head to where the camera wants to be. WORLD layer only:
+		# pulling the camera in because a teammate walked behind you would be a
+		# camera that lurches every time somebody runs past.
+		var from := head.global_position
+		var to := head.global_transform * Vector3(
+			CHASE_SIDE * _chase_t, CHASE_UP * _chase_t, back)
+		var q := PhysicsRayQueryParameters3D.create(from, to)
+		q.collision_mask = 1
+		q.exclude = [get_rid()]
+		var hit := get_world_3d().direct_space_state.intersect_ray(q)
+		if not hit.is_empty():
+			var room: float = from.distance_to(hit["position"]) - CHASE_CLEARANCE
+			back = clampf(room, 0.0, back)
+	# THE SHAKE COMPOSES WITH THE CHASE, rather than either overwriting the
+	# other — they are two different reasons for the camera to be somewhere other
+	# than on the head, and both can be true at once.
+	_shake = maxf(0.0, _shake - SHAKE_DECAY * delta)
+	_shake_t += delta
+	var jitter := _shake_offset()
+	remote_cam.position = Vector3(
+		CHASE_SIDE * _chase_t, CHASE_UP * _chase_t, back) + jitter
+	# ROLL ONLY. See the note on `SHAKE_ROLL` for why the other two axes are not
+	# touched: roll cannot move where the centre of the screen points.
+	remote_cam.rotation.z = sin(_shake_t * SHAKE_FREQ * 0.83) \
+		* SHAKE_ROLL * _shake * _shake
 
 
 func take_damage(amount: float, attacker: Node = null, headshot := false) -> void:
@@ -449,12 +718,26 @@ func take_damage(amount: float, attacker: Node = null, headshot := false) -> voi
 	if attacker != null and attacker != self and "team" in attacker \
 			and attacker.team == team:
 		return
+	# THE TRANSFORMATION CANNOT BE INTERRUPTED. A BECOME reward lands in the
+	# middle of a firefight by definition — that is what a ten-kill streak is —
+	# so without this the rounds already in the air arrive during the entry and
+	# the prize can be taken away in the second it is handed over. Just over a
+	# second, which is too short to walk anywhere behind.
+	if _entry_left > 0.0:
+		return
+	# WHERE IT CAME FROM, ANNOUNCED BEFORE ANYTHING CAN ABSORB IT. See `hit_from`:
+	# a blocked or shielded hit is still somebody shooting at you from somewhere,
+	# and the paths below return early for both.
+	if attacker != null and attacker != self and attacker is Node3D \
+			and is_instance_valid(attacker):
+		hit_from.emit((attacker as Node3D).global_position)
 	# The saber guard stops the whole hit while it has anything left to pay with,
 	# and spends itself doing it. Once it BREAKS, everything lands as normal —
 	# what the pool buys is a window, not a permanent shield.
 	amount = _absorb_with_guard(amount, attacker)
 	if amount <= 0.0:
 		return
+	_flinch(amount)
 	# BATTLE FURY takes the edge off everything while it lasts, and the
 	# OVERSHIELD eats what is left before your health does — spent rather than
 	# worn down, so what it buys is a fixed number of rounds. Neither suppresses
@@ -670,7 +953,7 @@ func _refresh_streaks() -> void:
 ##
 ## THE REASON IS THAT SOME OF THESE COST YOU SOMETHING. A BECOME reward replaces
 ## the build you chose and are in the middle of using — an ambusher on a scoped
-## rifle does not necessarily want to be a Juggernaut, and the gunship takes you
+## rifle does not necessarily want to be an Ork Warboss, and the gunship takes you
 ## off the ground for twenty seconds while your side is holding a post. Forcing
 ## those on somebody at the moment they are doing best is the opposite of a
 ## reward. So DECLINE is a real answer and not a politeness: it costs the reward
@@ -692,7 +975,10 @@ func _check_streak(before: int, after: int) -> void:
 	# no to, which is the most annoying possible prompt.
 	_streak_taken[row["name"]] = true
 	_offer = row
-	streak_offered.emit(str(row["name"]), str(row.get("blurb", "")))
+	# `offer_blurb` and not the raw blurb: a BECOME states its COST on the prompt,
+	# because declining is only a real answer if you were told what you are
+	# agreeing to, and "this body never heals" is not visible from looking at it.
+	streak_offered.emit(str(row["name"]), Streaks.offer_blurb(row))
 	Audio.play("streak")
 
 
@@ -769,9 +1055,12 @@ func _deliver_vehicle(row_id: String) -> void:
 	if row_id == "":
 		return
 	var v: Vehicle = VEHICLE_SCENE.instantiate()
+	# Stated before it enters the tree so the walker is built ONCE. It used to be
+	# added first, which built a Republic speeder, then re-setup twice — three
+	# full model builds on the single frame a player earns the thing.
+	v.team = team
+	v.spawn_row_id = row_id
 	get_tree().current_scene.add_child(v)
-	v.setup(team)
-	v.setup_as(row_id, team)
 	var back := Vector3.FORWARD.rotated(Vector3.UP, rotation.y) * -STREAK_VEHICLE_OFFSET
 	var at := global_position + back
 	# The ground under that spot rather than the player's own feet — they may be
@@ -792,8 +1081,8 @@ func _become(row: Dictionary) -> void:
 	# THE STREAK MUST SURVIVE THE TRANSFORMATION, and so must the record of what
 	# has already been handed over. `_apply_loadout` resets both, because it is
 	# also what a fresh DEPLOY calls — and here it is not one. Without the first,
-	# a Juggernaut's counter goes back to nothing and it can never reach the
-	# reward above it; without the second it re-earns ITSELF on its next kill,
+	# a transformed body's counter goes back to nothing and it can never reach
+	# the reward above it; without the second it re-earns ITSELF on its next kill,
 	# healing to full and re-issuing its own shield every time.
 	var keep_kills := kills_this_life
 	var keep_taken := _streak_taken.duplicate()
@@ -801,9 +1090,12 @@ func _become(row: Dictionary) -> void:
 	_apply_loadout()
 	kills_this_life = keep_kills
 	_streak_taken = keep_taken
+	# AND THE POOL DOES NOT COME BACK. See `_no_regen` for why this is the
+	# counterweight rather than a smaller number would be.
+	_no_regen = true
 	# The reward LIST is deliberately left as `_apply_loadout` just rebuilt it: a
 	# body that changed kit has changed which rewards are its own, which is what
-	# stops a Juggernaut being offered a Force master's.
+	# stops a transformed body being offered the reward it just became.
 	if row.has("overshield"):
 		_over_pool = float(row["overshield"])
 		# A LONG FINITE LIFETIME, NOT `INF`. The intent is "it lasts until it is
@@ -814,7 +1106,63 @@ func _become(row: Dictionary) -> void:
 		# pool is for.
 		_over_left = float(row.get("overshield_time", 90.0))
 		gear_changed.emit()
+	# WATCHED RATHER THAN LOOKED THROUGH, when the row asks for it. A TABLE KEY
+	# and not a test on the reward's name: the Force Master is the body this was
+	# written for, but nothing about the mechanism is Force-specific and a future
+	# saber signature should get it by stating one word.
+	third_person = bool(row.get("third_person", false))
+	_apply_view_mode()
+	# THE BANNER NAMES THE BODY, NOT THE ROW. They are deliberately different for
+	# the Force Master: one row, two units — `preset_by_team` resolves it to JEDI
+	# MASTER or SITH MASTER — so a HUD reading `row["name"]` would announce
+	# "FORCE MASTER" to a player who is visibly a Sith. `build_name` is what
+	# `_build_from` already resolved, so it is the answer that cannot disagree
+	# with the model standing on screen.
+	signature_name = loadout.build_name if loadout.build_name != "" \
+		else str(row.get("name", ""))
+	_signature_entry()
 	health_changed.emit(health)
+
+
+## --- THE TRANSFORMATION -----------------------------------------------------
+##
+## A BECOME REWARD HAS TO BE AN EVENT, and until now it was a statistic. The
+## body swapped between one frame and the next: same position, same footing, a
+## different silhouette and a much bigger number behind the health bar. Ten kills
+## bought you a quiet substitution that the player mostly noticed by reading the
+## HUD, and everyone around them noticed by dying.
+##
+## So it is announced, in the three places an event has to land:
+##
+##   ON THE SPOT   a shockwave at the feet, through `Blast.pop` — the same call
+##                 every explosion in the game already makes, so this costs no
+##                 new effect and cannot drift from how the rest of them look.
+##   OUT LOUD      the streak sting, at the body rather than on the HUD, so the
+##                 people about to have a problem hear where it came from.
+##   IN THE FRAME  the chase camera easing out (`_update_chase`) if this body is
+##                 watched, which is a second of the transformation being SHOWN
+##                 to the one person who earned it.
+##
+## AND IT BUYS A MOMENT OF COVER. `_entry_left` is brief invulnerability, and it
+## is not generosity: the reward lands mid-firefight by definition — that is what
+## a ten-kill streak IS — and a transformation whose animation can be interrupted
+## by the shot that was already in the air is one that gets taken away at the
+## exact moment it is given. It is short enough to be no use as a push.
+const ENTRY_TIME := 1.1
+const ENTRY_BLAST := 3.2
+
+var _entry_left := 0.0
+## What this body is, while it is a signature — "" for an ordinary trooper. The
+## HUD reads it to name the thing on screen.
+var signature_name := ""
+
+
+func _signature_entry() -> void:
+	_entry_left = ENTRY_TIME
+	Blast.pop(get_tree().current_scene,
+		global_position + Vector3.UP * 0.35, ENTRY_BLAST, 0.85)
+	Audio.play_at("streak", global_position, 0.0)
+	signature_changed.emit()
 
 
 ## The combatant contract's two answers about IDENTITY (house rule 15): what to
@@ -903,6 +1251,44 @@ func _apply_loadout() -> void:
 	_apply_stature(loadout.stature())
 	health = max_health
 	_since_damage = 0.0
+	# An ordinary body regenerates. `_become` turns this back off AFTER calling
+	# here, exactly as it restores the streak and the taken-set — this function is
+	# what a fresh DEPLOY calls, and there the answer is always yes.
+	_no_regen = false
+	# AND AN ORDINARY BODY IS LOOKED THROUGH, not watched. Same argument as
+	# `_no_regen` directly above: `_become` turns it back on AFTER calling here,
+	# because this is also what a fresh DEPLOY runs and there the answer is always
+	# first person. Without the reset, dying as a Force Master and respawning as a
+	# trooper would leave you playing the rest of the match over your own shoulder.
+	third_person = false
+	_apply_view_mode()
+	# ...and it stops being a signature, which the HUD has to be told about.
+	if signature_name != "":
+		signature_name = ""
+		signature_changed.emit()
+	_entry_left = 0.0
+	vehicle_owns_view = false
+	# A FRESH BODY IS AT REST. Momentum is carried in `_move_vel` now, and without
+	# this a respawn inherits whatever the last life was doing when it died.
+	_move_vel = Vector3.ZERO
+	# ...and stands level, with the stride's phase reset. A body that deployed
+	# mid-bob would arrive with its head off centre and leaning.
+	_bob = Vector3.ZERO
+	_bob_t = 0.0
+	_bob_amp = 0.0
+	_view_roll = 0.0
+	_sprint_fov_t = 0.0
+	# ...and it is not mid-slide, nor still paying for the last one. Without the
+	# cooldown reset a body that died sliding could not slide for a second after
+	# it respawned, which is a rule nobody could ever work out.
+	_slide_left = 0.0
+	_slide_speed = 0.0
+	_slide_cd = 0.0
+	_shake = 0.0
+	# A FRESH BODY STANDS UP. Crouch is a toggle, so without this you deploy in
+	# whatever stance the last life ended in — and the last thing most lives do
+	# is get shot while crouched behind something.
+	_crouched = false
 	kills_this_life = 0
 	# WHAT THIS LIFE CAN EARN, resolved here because this is the one function that
 	# knows the build is settled — it runs on every deploy and on every BECOME.
@@ -1022,7 +1408,7 @@ func apply_pick_input(move: Vector2i, accept_edge: bool, back_edge: bool) -> voi
 	match buy_box:
 		PICK_SPAWN_BOX:
 			if _deploy_armed:
-				pending = Loadout.team_build(team, spawn_class)
+				pending = faction_class_build()
 				_respawn()
 		PICK_POST_BOX:
 			if _post_choice_live():
@@ -1086,6 +1472,29 @@ func faction_class_name() -> String:
 func faction_class_index() -> int:
 	var classes := GameState.classes_for(team)
 	return classes[clampi(spawn_class, 0, classes.size() - 1)]
+
+
+## THE BUILD THAT DEPLOYS IS THE ROW THE SCREEN SAID WAS SELECTED, and this
+## function is what makes that true BY CONSTRUCTION rather than by two paths
+## agreeing.
+##
+## They did not agree. Deploy called `Loadout.team_build(team, spawn_class)`,
+## which takes a SIDE SLOT and a UNIVERSE and was being handed a TEAM NUMBER and
+## no universe at all — so it read the roster out of `active_universe` at the
+## team's own index. The character select next to it lists
+## `GameState.classes_for(team)`, which resolves the side's real faction. The two
+## only coincide while every side is the menu's default deal-out; pick a
+## different faction for a side (the whole point of the row) and the screen
+## offers one roster while the deploy builds from another, with no error
+## anywhere. That is "I chose a roster and it loaded a different faction's".
+##
+## `faction_class_index()` is already the one function that resolves a selection
+## into a row, and `faction_class_name()` already reads it — so the fix is for
+## the BUILD to read it too. Now the name on the screen, the blurb under it and
+## the body that stands up are three reads of one answer, and no future edit can
+## move one without moving all three.
+func faction_class_build() -> Loadout:
+	return Loadout.faction_build(faction_class_index())
 
 
 ## Buy-screen input while dead. TWO MODES, and which one you are in is the
@@ -1496,7 +1905,6 @@ func _respawn() -> void:
 	# The legs start under the body they respawned in. Left at whatever heading
 	# the last life ended on, the first frame would be a full-lead twist and the
 	# body would deploy visibly wrung out.
-	_feet_yaw = rotation.y
 	model.rotation.y = 0.0
 	model.set_twist(0.0)
 	_kick_vel = Vector3.ZERO
@@ -1522,7 +1930,73 @@ func _unhandled_input(event: InputEvent) -> void:
 		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 
 
+## A MOUNT THAT AIMS SOMETHING OTHER THAN YOUR OWN HEAD TAKES THE LOOK DELTA,
+## NOT THE ANGLES IT PRODUCED. `vehicle_look` reports the world yaw and pitch the
+## body is already holding, which is right for a speeder — its gun follows the
+## driver's eyes inside a cone — and exactly wrong for a turret bolted to a hull
+## that turns underneath it. Differencing a free-running world yaw against a
+## rotating hull means a CENTRED stick still sweeps the gun: measured on the LAAT,
+## the aim point walked 30.2 m across the ground every second while nobody
+## touched anything, and the turret sat pinned against its own yaw stop.
+##
+## So the vehicle banks the delta here and steers whatever it is really aiming,
+## then writes the camera back through `set_view_angles`. Intercepting at
+## `_apply_look` catches the STICK and the MOUSE in one place, which is the only
+## reason this is one flag and not two input paths.
+var vehicle_owns_view := false
+var _view_delta := Vector2.ZERO
+
+
+## A TURRET SEAT IS AN EYE POSITION; A SADDLE IS A FOOT POSITION. Which one a
+## mount is has to be stated, because the body is anchored by its FEET and the
+## camera rides `head.position.y` above them.
+##
+## On a speeder that is right: the seat is where the driver's backside goes, the
+## body stands on it and the camera ends up at head height over the cowl, looking
+## out of the machine the way somebody sitting on it would.
+##
+## In the LAAT's ball turret it was wrong, and it is most of why that reward was
+## unusable. The seat is INSIDE a 0.92 m sphere, so anchoring the feet there put
+## the camera 1.6 m above the seat — outside the ball, above the glass, floating
+## in the open air beside the gunship. And because the shell is hidden from the
+## gunner, there was nothing on screen to say so; it simply did not look like
+## sitting in a turret, because it was not. It also broke the AIM: the gun's
+## boresight runs from the muzzle, and a camera a metre and a half above that
+## line does not point where the barrels point. Over the 124 m this gun shoots
+## at, that offset is about three body widths of parallax — a crosshair that is
+## honestly drawn and honestly wrong.
+##
+## With the eye on the seat instead, the camera sits 2.25 m directly behind the
+## muzzle along the barrel axis and 1 cm off it: boresighted, by construction.
+var seat_is_eye := false
+
+
+## Where the body must be put so the anchor lands on the seat. `Vector3.ZERO`
+## for an ordinary mount, so a speeder is untouched.
+func seat_anchor_offset() -> Vector3:
+	return Vector3.UP * head.position.y if seat_is_eye else Vector3.ZERO
+
+
+## Take the look input banked since the last call, and clear it.
+func take_view_delta() -> Vector2:
+	var d := _view_delta
+	_view_delta = Vector2.ZERO
+	return d
+
+
+## Point the camera where the vehicle says. Yaw and pitch only and never roll —
+## the ball turret hangs off a body banked 24 degrees into its turn, and
+## inheriting that would cant the gunner's horizon for the whole ride.
+func set_view_angles(yaw: float, pitch: float) -> void:
+	rotation.y = yaw
+	_look_pitch = clampf(pitch, -PI / 2 + 0.05, PI / 2 - 0.05)
+	_refresh_head()
+
+
 func _apply_look(delta_look: Vector2) -> void:
+	if vehicle_owns_view:
+		_view_delta += delta_look
+		return
 	rotate_y(delta_look.x * _look_scale)
 	_look_pitch = clampf(_look_pitch + delta_look.y * _look_scale,
 		-PI / 2 + 0.05, PI / 2 - 0.05)
@@ -1549,6 +2023,38 @@ func in_vehicle() -> bool:
 	return _vehicle != null
 
 
+## DRIVE THIS BODY WITH A DIFFERENT CONTROLLER.
+##
+## The couch case this exists for is not "the pad reconnected" — Godot usually
+## hands a reconnected pad its old index back and that path needs nothing. It is
+## the far more common one: the batteries died, and somebody picked up A
+## DIFFERENT CONTROLLER. Without this, the new pad is an input nothing is
+## listening to and the player is locked out of a match they are sitting in front
+## of, holding a working controller.
+##
+## `input_device` is read live everywhere through `Controls.held(input_device, …)`
+## so almost nothing needs telling — but the settings overlay CACHES it at build
+## time (it has to; it is per-device by design), which is exactly the kind of copy
+## that goes stale in silence. Hence the signal rather than a bare assignment.
+##
+## The new pad brings its own settings with it, and that is correct rather than a
+## compromise: `Controls.bindings_for` already falls back device-own → PLAYER 1 →
+## ALL_PADS, so an unconfigured spare controller inherits the house layout.
+func adopt_device(new_device: int) -> void:
+	if new_device == input_device:
+		return
+	input_device = new_device
+	refresh_settings()
+	device_changed.emit(new_device)
+
+
+## WHAT THIS BODY IS RIDING, or null. Public so a HUD can ask what KIND of mount
+## it is — a speeder and a gunship want completely different things on screen —
+## without reaching into the private field to find out.
+func mount() -> Node3D:
+	return _vehicle
+
+
 func enter_vehicle(v: Node3D) -> void:
 	if _vehicle != null or _dead:
 		return
@@ -1569,9 +2075,24 @@ func enter_vehicle(v: Node3D) -> void:
 	# ASKED FOR, NOT PATHED TO. A speeder's seat is a direct child; a gunship's is
 	# buried inside a ball turret that yaws and pitches, and `get_node("Seat")`
 	# finds neither reliably. The vehicle knows where its own seat is.
+	# A MOUNT STANDS YOU UP, which is the same decision jumping, sprinting and
+	# deploying already make. It matters here because the eye offset below is read
+	# off the head, and `_update_crouch` — the only thing that moves the head — does
+	# not run while mounted: climb into a turret from a crouch and the camera would
+	# be frozen half a metre low inside a 0.92 m ball for the whole ride.
+	_crouched = false
+	_crouch_t = 0.0
+	# Level and still: a mount owns the horizon, and the eye offset below is read
+	# straight off the head, so a body carrying bob into the seat would put the
+	# camera a centimetre out and rocking.
+	_bob = Vector3.ZERO
+	_bob_amp = 0.0
+	_view_roll = 0.0
+	_land_dip = 0.0
+	_refresh_head()
 	var seat: Node3D = v.seat() if v.has_method("seat") else v.get_node_or_null("Seat")
 	if seat != null:
-		global_position = seat.global_position
+		global_position = seat.global_position - seat_anchor_offset()
 	reset_physics_interpolation()
 
 
@@ -1581,6 +2102,11 @@ func exit_vehicle(spot: Vector3, _hull_yaw: float, forced: bool) -> void:
 	if _vehicle == null:
 		return
 	_vehicle = null
+	# The view comes back to the body whatever else happens — a dead gunner still
+	# has a death cam to steer.
+	vehicle_owns_view = false
+	_view_delta = Vector2.ZERO
+	seat_is_eye = false
 	# ONLY RESTORE THE BODY IF IT IS STILL ALIVE. Dying at the controls reaches
 	# here through the vehicle's own `_eject`, and `_enter_buy_screen` has already
 	# hidden the model and killed the collision for the death cam — putting them
@@ -1626,6 +2152,7 @@ func _process_mounted(delta: float) -> void:
 	pickup_pressed = _interact_pressed()   # this is how you get back off
 	_recoil_pitch = lerpf(_recoil_pitch, 0.0, clampf(delta * RECOIL_RECOVER, 0.0, 1.0))
 	_recoil_yaw = lerpf(_recoil_yaw, 0.0, clampf(delta * RECOIL_RECOVER, 0.0, 1.0))
+	_tick_recoil_pattern(delta)
 	_refresh_head()
 	if input_device >= 0:
 		var look := _stick(JOY_AXIS_RIGHT_X, JOY_AXIS_RIGHT_Y)
@@ -1637,12 +2164,133 @@ func _process_mounted(delta: float) -> void:
 
 ## The camera pitch is look input plus the transient recoil kick; recoil yaw
 ## rides on the head so it throws off aim without turning the whole body.
+## --- THE HEAD IS ONE TRANSFORM WITH ONE OWNER ------------------------------
+##
+## Five different things move the camera — the crouch, the landing dip, the
+## walk bob, the look and the recoil — and until this function existed three of
+## them wrote `head.position.y` directly from wherever they happened to run.
+## That works exactly as long as nobody adds a fourth: each writer has to know to
+## SUBTRACT everything the others contribute, and the one that runs last silently
+## wins. `_update_crouch` and `_apply_stature` both carried their own copy of the
+## crouch-height-minus-land-dip expression for that reason, and neither knew
+## about the bob.
+##
+## So every contributor now writes its own variable and this composes them. It is
+## the same rule the model's twist joint follows (`Locomotion`): two rules on one
+## transform in two places is a fight nobody wins.
+func _head_base_y() -> float:
+	return lerpf(STAND_HEAD_Y, CROUCH_HEAD_Y, _crouch_t) * _stature
+
+
 func _refresh_head() -> void:
-	head.rotation.x = _look_pitch + _recoil_pitch
-	head.rotation.y = _recoil_yaw
+	head.position = Vector3(_bob.x, _head_base_y() - _land_dip + _bob.y, 0.0)
+	head.rotation = Vector3(_look_pitch + _recoil_pitch, _recoil_yaw, _view_roll)
+
+
+## --- WALK BOB AND THE STRAFE LEAN -------------------------------------------
+##
+## A BODY THAT MOVES AT A CONSTANT HEIGHT IN A DEAD-LEVEL FRAME IS A CAMERA ON
+## RAILS, and that was the whole of first-person movement here. The WEAPON bobbed
+## (`Viewmodel._bob_t`), so the gun rose and fell against a horizon that never
+## did — which reads as the gun being loose rather than as the body walking. The
+## landing dip was the only thing in the game that moved the camera off its rail,
+## and it fires once per jump.
+##
+## THE PHASE ADVANCES WITH DISTANCE TRAVELLED, NOT WITH TIME, and that is the
+## whole difference between a bob and a wobble. Stride length is roughly fixed,
+## so footfalls happen every so many METRES; drive the phase off a clock and the
+## bob keeps its rate while your speed changes, which is precisely the motion of
+## a camera being shaken rather than a person walking. Off distance, breaking
+## into a sprint speeds the footfalls up because you are covering ground faster,
+## and that is free.
+##
+## Vertical runs at TWICE the phase and lateral at once: two footfalls per stride
+## cycle, one weight transfer. That relationship is what makes it read as legs.
+const BOB_PER_METRE := 1.5          # radians of phase per metre travelled
+const BOB_VERT := 0.024
+const BOB_SIDE := 0.020
+const BOB_ROLL := 0.006             # radians, rocking with the weight transfer
+## Damped hard while aiming — a braced sight picture is the one time a real body
+## is deliberately holding its head still — and taken to nothing in third person,
+## where the camera is a chase rig and the BODY does the walking on screen.
+const BOB_AIM_DAMP := 0.22
+## How fast the amplitude follows the speed. Eased rather than read straight off
+## velocity, or a body clipping a wall gets a one-frame lurch.
+const BOB_EASE := 6.0
+
+## LEANING INTO A SIDESTEP. The body already turns its hips to travel sideways
+## (`Locomotion.swivel_for`) and the camera did not acknowledge lateral movement
+## at all. Small on purpose: past about a degree and a half this stops reading as
+## weight and starts reading as a broken horizon.
+const LEAN_MAX := 0.026             # radians at full lateral speed
+const LEAN_EASE := 5.5
+
+## AND THE SPEED YOU CAN SEE. A sprint that changes nothing but the number in
+## `velocity` is a sprint nobody can feel; widening the frame is the oldest and
+## still the clearest way to say "faster". Composed with the ADS zoom rather than
+## fighting it — the two barely overlap, since you cannot aim while running.
+const SPRINT_FOV_GAIN := 1.075
+const SPRINT_FOV_EASE := 3.5
+
+var _bob := Vector3.ZERO
+var _bob_t := 0.0
+var _bob_amp := 0.0
+var _view_roll := 0.0
+var _sprint_fov_t := 0.0
+
+
+func _update_view_bob(delta: float) -> void:
+	var flat := Vector2(velocity.x, velocity.z).length()
+	# THE CHASE CAMERA DOES NOT BOB. In third person the model on screen is
+	# already striding, and bobbing the rig watching it is the classic way to make
+	# a third-person camera unpleasant to look at.
+	var want: float = clampf(flat / maxf(SPRINT_SPEED, 0.1), 0.0, 1.0) 		* (1.0 - BOB_AIM_DAMP * 0.0)
+	if not is_on_floor():
+		want = 0.0        # feet off the ground is the one time there is no stride
+	want *= lerpf(1.0, BOB_AIM_DAMP, _ads_t)
+	want *= 1.0 - _chase_t
+	# NOTHING BOBS DURING A SLIDE. There are no footfalls — that is the entire
+	# point of it — so a stride bob here would be the camera describing a motion
+	# the body is not making, which is the fault this whole section exists about.
+	if sliding():
+		want = 0.0
+	_bob_amp = lerpf(_bob_amp, want, clampf(delta * BOB_EASE, 0.0, 1.0))
+	_bob_t += flat * delta * BOB_PER_METRE
+	_bob = Vector3(
+		cos(_bob_t) * BOB_SIDE * _bob_amp,
+		-absf(sin(_bob_t * 2.0)) * BOB_VERT * _bob_amp,
+		0.0)
+
+	# The lean: how much of the travel is sideways, in the body's own frame.
+	var side: float = global_transform.basis.x.dot(
+		Vector3(velocity.x, 0.0, velocity.z))
+	var want_roll: float = -clampf(side / maxf(SPRINT_SPEED, 0.1), -1.0, 1.0) 		* LEAN_MAX * (1.0 - _chase_t)
+	# ...plus the stride's own rock, which is the bob expressed as roll.
+	want_roll += cos(_bob_t) * BOB_ROLL * _bob_amp
+	# ...and the slide leans HARD into its own direction and drops the camera,
+	# on top of the crouch's own drop. It is the most violent thing the camera
+	# does and it is deliberately brief.
+	if sliding():
+		var side_slide: float = global_transform.basis.x.dot(_slide_dir)
+		want_roll = -side_slide * SLIDE_ROLL - SLIDE_ROLL * 0.35
+		_bob.y -= SLIDE_DIP
+	# A MOUNT OWNS THE HORIZON. The ball turret's whole point is that the gunner
+	# stays level under a hull banked 24 degrees into its turn, so nothing here
+	# may add roll to a view a vehicle is writing.
+	if vehicle_owns_view or _vehicle != null:
+		want_roll = 0.0
+	_view_roll = lerpf(_view_roll, want_roll, clampf(delta * LEAN_EASE, 0.0, 1.0))
 
 
 func _physics_process(delta: float) -> void:
+	# BEFORE EVERY BRANCH BELOW, because the camera has to come back in on death
+	# and while mounted just as much as it has to go out on the transformation —
+	# and each of those paths returns early. The entry window is ticked here for
+	# the same reason: it grants invulnerability, so a path that forgot to age it
+	# would grant it forever.
+	_update_chase(delta)
+	if _entry_left > 0.0:
+		_entry_left = maxf(0.0, _entry_left - delta)
 	if _dead:
 		_process_dead(delta)
 		return
@@ -1689,6 +2337,7 @@ func _physics_process(delta: float) -> void:
 	# Settle the camera recoil back toward zero, and bleed off the shot's shove.
 	_recoil_pitch = lerpf(_recoil_pitch, 0.0, clampf(delta * RECOIL_RECOVER, 0.0, 1.0))
 	_recoil_yaw = lerpf(_recoil_yaw, 0.0, clampf(delta * RECOIL_RECOVER, 0.0, 1.0))
+	_tick_recoil_pattern(delta)
 	_kick_vel = _kick_vel.move_toward(Vector3.ZERO, KICK_DECAY * delta)
 	_refresh_head()
 
@@ -1699,6 +2348,10 @@ func _physics_process(delta: float) -> void:
 		_apply_look(-look * STICK_LOOK_SPEED * _sens_mult * _assist_slowdown(mark) * delta)
 		_assist_pull(mark, look, delta)
 
+	# Ticked BEFORE the stance is read, so a slide that ended this frame has
+	# already put `_crouched` where it belongs and everything below sees one
+	# answer rather than last frame's.
+	_update_slide(delta)
 	var move := _move_input()
 	var crouching := _crouch_held()
 	var sprinting := _sprint_held() and not crouching
@@ -1708,10 +2361,7 @@ func _physics_process(delta: float) -> void:
 	# engagement leaves a gun that is visibly stowed. Sprinting already denies the
 	# sights, so this only ever changes what the pose LOOKS like, never what the
 	# shot does.
-	var stow := _is_running() and not _fire_held()
-	weapon.set_sprinting(stow)
-	weapon_off.set_sprinting(stow)
-	_update_torso_twist(move, delta)
+	_update_stow(delta)
 	var speed := (SPRINT_SPEED if sprinting else WALK_SPEED) * _speed_mult
 	if _fury_left > 0.0:
 		speed *= FURY_SPEED
@@ -1719,6 +2369,12 @@ func _physics_process(delta: float) -> void:
 		speed *= ROTARY_SPEED_MULT  # the cannon is heavy; you walk with it out
 	if crouching:
 		speed *= CROUCH_SPEED_MULT
+	# AIMING COSTS YOU GROUND. Standing behind the sights is a decision to stop
+	# being mobile, and without a price on it there is no reason ever to hip fire
+	# — ADS was strictly better in every situation, which is one fewer decision
+	# per engagement rather than a stronger option.
+	if weapon.aiming:
+		speed *= ADS_SPEED_MULT
 	var dir := global_transform.basis * Vector3(move.x, 0, move.y)
 
 	if not is_on_floor():
@@ -1731,20 +2387,54 @@ func _physics_process(delta: float) -> void:
 			velocity.y = JUMP_VELOCITY * _jump_mult * AIR_JUMP_MULT
 	elif _jump_pressed():
 		velocity.y = JUMP_VELOCITY * _jump_mult
+		# A JUMP CANCELS A SLIDE, and it is the move players will look for. Ended
+		# through `_end_slide` rather than by zeroing the timer, so it still pays
+		# the cooldown — cancelling early must not be a way to slide more often.
+		if sliding():
+			_end_slide()
+		# A jump stands you up. With crouch on a toggle, leaving the stance on
+		# through a jump means landing in a crouch you never asked to keep, and
+		# the air spread penalty is already the worst in the game.
+		_crouched = false
 	if is_on_floor():
 		_air_jumps = air_jump_allowance()
 	var unstick := _unstick_push()
-	velocity.x = dir.x * speed + unstick.x + _kick_vel.x
-	velocity.z = dir.z * speed + unstick.z + _kick_vel.z
+	# THE SLIDE OWNS THE HORIZONTAL VELOCITY WHILE IT LASTS. `_accelerate` eases
+	# `_move_vel` toward what the stick asked for; for this second the stick is
+	# only allowed to curve the heading, so the two are alternatives rather than
+	# both writing the same accumulator.
+	if sliding():
+		_drive_slide(dir, delta)
+	else:
+		_accelerate(dir * speed, delta)
+	velocity.x = _move_vel.x + unstick.x + _kick_vel.x
+	velocity.z = _move_vel.z + unstick.z + _kick_vel.z
 	_apply_gadget_motion(delta)
 	move_and_slide()
+	# A WALL TAKES YOUR MOMENTUM. `move_and_slide` resolves the collision into
+	# `velocity`, but `_move_vel` is this script's own accumulator and knows
+	# nothing about it — so without folding the result back, a body held against a
+	# wall keeps building speed into a surface it is not moving along and then
+	# slides off it the moment you turn away.
+	_move_vel.x = velocity.x - unstick.x - _kick_vel.x
+	_move_vel.z = velocity.z - unstick.z - _kick_vel.z
+	_update_landing(delta)
+	# AFTER `move_and_slide`, deliberately: the bob is driven by how far the body
+	# ACTUALLY travelled, and `velocity` before the move is what the stick asked
+	# for. Walking into a wall should stop the footfalls, and read off the request
+	# it would keep striding on the spot.
+	_update_view_bob(delta)
+	_refresh_head()
 	if global_position.y > BOUNDS_MAX_Y or global_position.y < BOUNDS_MIN_Y:
 		_die()  # launched or fell out of the map: respawn through the normal flow
 		return
 
 	# THE DEFLECTOR LOCKS THE TRIGGER. It is what separates the bubble from the
 	# overshield: one buys you rounds, the other buys you a reposition.
-	if deflector_up():
+	# ...AND SO DOES A STOWED WEAPON. Coming out of a sprint takes time and that
+	# time is the gun's own (`_update_stow`), so the trigger does nothing until it
+	# is actually up.
+	if deflector_up() or not weapon_ready():
 		weapon.update_fire(false, false)
 	else:
 		weapon.update_fire(_fire_held(), _fire_pressed())
@@ -1952,10 +2642,200 @@ func _unstick_push() -> Vector3:
 ## capsule. The MODEL's crouch is a posed animation (CharacterModel's
 ## crouch_idle / crouch_walk, picked in _update_anim), not a scale — squashing
 ## the body just made a shorter person, not someone hunkering down.
+## CROUCH IS A TOGGLE, NOT A HOLD, and on a pad that is not a preference.
+##
+## It lives on R3 — you press the stick you are steering with. Holding it means
+## holding a thumb down on the stick for the whole of a firefight, which fights
+## every other thing that thumb is doing; and crouch is not a momentary action
+## like aiming, it is a STANCE you take and then fight from for a while. The
+## project's own AI already treats it that way: `Bot._update_post` plants,
+## crouches and holds it for `POST_TIME`.
+##
+## Three things stand you back up, all of them because they are the opposite
+## decision: jumping, breaking into a sprint, and deploying a fresh body.
+## ONE READER FOR THE CROUCH BUTTON. `_edge` is CONSUMED by whoever asks first
+## (it updates `_downs` on the way out), so a second place testing the same press
+## would silently get `false` — and which of the two won would depend on the order
+## two unrelated functions happen to be called in. The slide and the stance toggle
+## are the same press, so they are decided together, here.
+func _toggle_crouch_input() -> void:
+	if _edge("crouch"):
+		# AT A RUN THE BUTTON MEANS SLIDE; STANDING IT MEANS CROUCH. The press
+		# does not do both — a slide that also toggled the stance would leave you
+		# crouched or standing at the end depending on what you were before it,
+		# which is the one thing about a slide that has to be predictable.
+		if _may_slide():
+			_begin_slide()
+		else:
+			_crouched = not _crouched
+	# Sprint is a declaration that you are moving, so it cancels the stance
+	# rather than being silently refused by it — otherwise a player who toggled
+	# crouch an hour ago holds sprint and simply does not run, with nothing on
+	# screen saying why. NOT DURING A SLIDE: a slide IS sprint and crouch at once,
+	# and this rule would cancel it on the frame it started.
+	if _crouched and not sliding() and _sprint_held() \
+			and _move_input().length() > 0.1:
+		_crouched = false
+
+
+## --- THE SLIDE ----------------------------------------------------------------
+##
+## HOLD THE CROUCH BUTTON AT A RUN AND YOU GO TO GROUND, carrying the speed you
+## had into a low, fast, committed slide. It is the one piece of modern shooter
+## movement this game did not have, and it is worth having for a reason beyond
+## familiarity: every other way of changing what you are doing here is free and
+## instant — crouch is a toggle, sprint is a modifier, the stance flips on a
+## frame. A slide is the first movement decision that COMMITS you. You give up
+## steering and the ability to stop, for a second, in exchange for closing ground
+## fast and low. That is a trade, and it is the only one in the movement set.
+##
+## WHAT IT IS BUILT OUT OF, and why none of it is new machinery:
+##
+##   THE STANCE   `_crouch_held()` answers TRUE while sliding, so the capsule,
+##                the spread multiplier, the recoil multiplier, the animation and
+##                the ADS rules all follow with no second code path. That one
+##                line is most of the integration, and it is why a slide is
+##                automatically a small target that shoots straight.
+##   THE VELOCITY `_move_vel` is written DIRECTLY rather than eased through
+##                `_accelerate`, because for this second the slide owns your
+##                momentum and the stick does not. The wall fold-back after
+##                `move_and_slide` still applies, so sliding into cover stops you
+##                exactly as walking into it does.
+##   THE CAMERA   the same `_bob` / `_view_roll` the walk uses, pushed further.
+##
+## IT CANNOT BE CHAINED INTO A FASTER WAY TO TRAVEL, and that is the whole
+## balance question — it is the thing players find within a minute of being given
+## a slide. The boost is modest, it DECAYS, and `SLIDE_COOLDOWN` is long enough
+## that slide-hopping across a map is measurably slower than simply sprinting it.
+## `tests/movement_feel.gd` asserts that directly rather than trusting the
+## arithmetic, because it is one number away from being the only way anybody
+## moves.
+
+## How much faster than a sprint the slide starts. Modest: the value of a slide
+## is the LOW profile and the commitment, not the metres.
+const SLIDE_BOOST := 1.5
+## ...and how fast that bleeds off. Tuned with SLIDE_TIME so the slide ends by
+## running out of speed at about the moment it runs out of clock, rather than
+## being cut off while still moving — a slide that stops dead reads as a bug.
+const SLIDE_DRAG := 7.0
+const SLIDE_TIME := 0.85
+## Below this it is not a slide any more, it is a crouched shuffle.
+const SLIDE_MIN_SPEED := 2.2
+## You cannot start one from a standstill; you have to actually be running.
+const SLIDE_ENTRY_SPEED := 4.2
+## How much you may curve it. Not zero — a slide you cannot aim at all is a
+## slide nobody uses in a corridor — and nowhere near enough to turn.
+const SLIDE_STEER := 2.6
+## THE COOLDOWN IS NOT WHAT STOPS SLIDE-HOPPING — the DRAG is, and it is worth
+## being clear about which, because the obvious assumption sends any future
+## tuning pass at the wrong number.
+##
+## Measured: a slide opens at 1.48x sprint, decays, and covers 4.92 m in 0.83 s —
+## an average of 5.93 m/s against a 6.0 m/s sprint. It is SPEED-NEUTRAL by
+## construction, so chaining it can never out-run simply running however short
+## the cooldown is; lengthening the cooldown does not move that number at all
+## (checked: 1.1 and 1.4 both measure 35.1 m against 35.6 m over six seconds).
+## That neutrality is the design. A slide is chosen for what it DOES — arriving
+## low, under fire, and finishing in cover already crouched — and never because
+## it is the faster way to cross a map. Nothing here is compulsory.
+##
+## What the cooldown is actually for is keeping it a DECISION rather than a
+## texture: without one you are on the floor more often than on your feet.
+const SLIDE_COOLDOWN := 1.1
+## The camera goes lower than a crouch and leans into it. Small numbers: this is
+## already the most violent thing the camera does, and the crouch's own drop is
+## underneath it.
+const SLIDE_DIP := 0.13
+const SLIDE_ROLL := 0.055
+
+var _slide_left := 0.0
+var _slide_cd := 0.0
+var _slide_speed := 0.0
+var _slide_dir := Vector3.ZERO
+
+
+## Is this body sliding right now? Asked by everything rather than tested against
+## the timer, for the same reason `_crouch_held()` exists.
+func sliding() -> bool:
+	return _slide_left > 0.0
+
+
+## Can this press start one? Deliberately strict: on the ground, off cooldown,
+## sprint down, stick pushed, and ALREADY MOVING at a run. The speed floor is the
+## one that matters — without it, tapping crouch while stationary and holding
+## sprint launches you, which is a dash rather than a slide.
+func _may_slide() -> bool:
+	return not sliding() and _slide_cd <= 0.0 and is_on_floor() \
+		and not _dead and _vehicle == null and _sprint_held() \
+		and _move_input().length() > 0.1 \
+		and Vector2(_move_vel.x, _move_vel.z).length() >= SLIDE_ENTRY_SPEED
+
+
+func _begin_slide() -> void:
+	var flat := Vector3(_move_vel.x, 0.0, _move_vel.z)
+	if flat.length() < 0.01:
+		return
+	_slide_dir = flat.normalized()
+	# FROM THE SPEED YOU ACTUALLY HAD, not from a constant. A slide out of a
+	# heavy unit's slower sprint should be slower — the boost is a multiplier on
+	# what you brought into it, so every physique keeps its own relationship to
+	# everybody else's.
+	_slide_speed = flat.length() * SLIDE_BOOST
+	_slide_left = SLIDE_TIME
+	# THE GUN COMES UP ON ITS OWN, and that is worth stating because it looks like
+	# something is missing here. `_update_stow` asks `_is_running()`, which asks
+	# `_crouch_held()`, which answers TRUE while sliding — so the sprint carry
+	# starts lowering the moment the slide begins, through the same path a player
+	# reaching for the trigger uses. Writing the stow here as well would be a
+	# second rule on one value.
+	Audio.play_at("slide", global_position, 0.0)
+
+
+## Tick the slide, and end it for any of the four reasons it can end. Called
+## before the movement drive, so `_drive_slide` below is writing into the same
+## `_move_vel` the stick would otherwise have written.
+func _update_slide(delta: float) -> void:
+	_slide_cd = maxf(0.0, _slide_cd - delta)
+	if not sliding():
+		return
+	_slide_left -= delta
+	_slide_speed = move_toward(_slide_speed, 0.0, SLIDE_DRAG * delta)
+	# A JUMP CANCELS IT, which is not a concession to the exploit — it is the
+	# move players expect to exist and it costs them the rest of the slide.
+	# Leaving the ground ends it for the same reason: there is nothing to slide on.
+	if _slide_left <= 0.0 or _slide_speed <= SLIDE_MIN_SPEED \
+			or not is_on_floor():
+		_end_slide()
+
+
+## WHETHER YOU STAND UP AT THE END IS WHETHER YOU ARE STILL HOLDING THE BUTTON.
+## That is what makes it "hold to slide" rather than "tap to slide": ride it out
+## with the button down and you finish in cover, crouched and already aiming;
+## let go on the way and you come up running.
+func _end_slide() -> void:
+	_slide_left = 0.0
+	_slide_speed = 0.0
+	_slide_cd = SLIDE_COOLDOWN
+	_crouched = Controls.held(input_device, "crouch")
+
+
+## The slide owns the horizontal velocity while it lasts. `want` is the stick, and
+## it is allowed to curve the heading rather than replace it.
+func _drive_slide(want: Vector3, delta: float) -> void:
+	if want.length() > 0.01:
+		_slide_dir = _slide_dir.move_toward(
+			want.normalized(), SLIDE_STEER * delta).normalized()
+	_move_vel.x = _slide_dir.x * _slide_speed
+	_move_vel.z = _slide_dir.z * _slide_speed
+
+
 func _update_crouch(delta: float) -> void:
+	_toggle_crouch_input()
 	var target := 1.0 if _crouch_held() else 0.0
 	_crouch_t = move_toward(_crouch_t, target, delta / CROUCH_TIME)
-	head.position.y = lerpf(STAND_HEAD_Y, CROUCH_HEAD_Y, _crouch_t) * _stature
+	# The head itself is composed in ONE place now (`_refresh_head`), which runs
+	# after this — writing it here as well is how the crouch height, the landing
+	# dip and the walk bob would start overwriting each other.
 	var cap := _collision.shape as CapsuleShape3D
 	cap.height = lerpf(STAND_HEIGHT, CROUCH_HEIGHT, _crouch_t) * _stature
 	_collision.position.y = cap.height * 0.5
@@ -1976,7 +2856,7 @@ func _apply_stature(scale_to: float) -> void:
 	var cap := _collision.shape as CapsuleShape3D
 	cap.height = lerpf(STAND_HEIGHT, CROUCH_HEIGHT, _crouch_t) * _stature
 	_collision.position.y = cap.height * 0.5
-	head.position.y = lerpf(STAND_HEAD_Y, CROUCH_HEAD_Y, _crouch_t) * _stature
+	_refresh_head()
 
 
 ## How tall this body actually stands, in metres. Duck-typed like is_alive() —
@@ -1999,8 +2879,26 @@ func _on_weapon_fired(cam_recoil: float, kick_back: float) -> void:
 	if weapon.aiming:
 		steady *= ADS_RECOIL_MULT
 	steady *= lerpf(1.0, CROUCH_RECOIL_MULT, _crouch_t)
-	_recoil_pitch += cam_recoil * steady
-	_recoil_yaw += randf_range(-RECOIL_YAW_SHARE, RECOIL_YAW_SHARE) * cam_recoil * steady
+	# A RECOIL PATTERN IS SOMETHING YOU LEARN; RANDOM SPRAY IS SOMETHING YOU
+	# ENDURE. This used to be `randf_range` on every shot, which means no two
+	# bursts from the same gun ever climb the same way and no amount of practice
+	# makes the tenth round land where you meant it to. What a shooter is
+	# actually good at is memorising ONE curve per weapon and cancelling it, so
+	# the pattern is deterministic in `_recoil_step` and only lightly dithered.
+	#
+	# Shape, in order of what the hand feels: the first rounds climb HARDEST and
+	# the climb tapers as the burst settles (RECOIL_FIRST_SHOT over
+	# RECOIL_SETTLE_SHOTS), and the sideways component swings on a slow, smooth
+	# curve rather than jittering — so a burst walks up and leans one way, which
+	# is a thing you can pull against.
+	var burst := clampf(float(_recoil_step) / RECOIL_SETTLE_SHOTS, 0.0, 1.0)
+	var climb := lerpf(RECOIL_FIRST_SHOT, 1.0, burst)
+	_recoil_pitch += cam_recoil * steady * climb
+	var swing := sin(float(_recoil_step) * RECOIL_WEAVE) * RECOIL_YAW_SHARE
+	swing += randf_range(-RECOIL_YAW_JITTER, RECOIL_YAW_JITTER)
+	_recoil_yaw += swing * cam_recoil * steady
+	_recoil_step += 1
+	_recoil_idle = 0.0
 	if kick_back > 0.0:
 		# Straight back from where the gun is pointed, flattened: a shot fired at
 		# the floor should stagger you, not launch you.
@@ -2030,9 +2928,26 @@ func _update_aim(delta: float) -> void:
 		_prev_aim = aiming
 		aim_changed.emit(aiming)
 	if _camera:
-		var want := weapon.zoom_fov() if aiming else _base_fov
-		_camera.fov = lerpf(_camera.fov, want, clampf(delta * AIM_FOV_LERP, 0.0, 1.0))
-		_look_scale = _camera.fov / _base_fov
+		# ONE DURATION FOR THE ZOOM AND THE SIGHT. Both are eased over the
+		# weapon's own `ads_time()`, so the world finishes magnifying on the frame
+		# the sight arrives instead of a beat either side of it.
+		_ads_t = move_toward(_ads_t, 1.0 if aiming else 0.0,
+			delta / maxf(0.01, ads_time()))
+		# Smoothstepped rather than linear: a linear zoom reads as a machine
+		# moving the camera, where a settle reads as a body bringing a weapon up.
+		var eased: float = _ads_t * _ads_t * (3.0 - 2.0 * _ads_t)
+		# THE SPRINT WIDENS THE FRAME. Composed into the SAME assignment as the
+		# zoom rather than added afterwards, so the two can never both be writing
+		# `fov` and disagree about what it should be. They barely overlap in
+		# practice — you cannot aim while running — but "barely" is how a fight
+		# between two writers hides until somebody changes one of them.
+		_sprint_fov_t = move_toward(_sprint_fov_t, 1.0 if _is_running() else 0.0,
+			delta * SPRINT_FOV_EASE)
+		var hip: float = _base_fov * lerpf(1.0, SPRINT_FOV_GAIN, _sprint_fov_t)
+		_camera.fov = lerpf(hip, weapon.zoom_fov(), eased)
+		# Sensitivity still scales off the RESTING frame, not the sprint-widened
+		# one: a sprint must not quietly change how far the stick turns you.
+		_look_scale = lerpf(_base_fov, weapon.zoom_fov(), eased) / _base_fov
 
 
 ## Consumables bought on the buy screen: a thrown grenade and a self-heal. Both
@@ -2116,16 +3031,25 @@ func _use_gadget(slot: int) -> void:
 			# overshield with a catch that makes it a different decision: while it
 			# is up you cannot fire, so it buys you a REPOSITION or a wait, never
 			# a duel you were losing.
-			_over_pool = DEFLECTOR_POOL
-			_over_left = DEFLECTOR_TIME
+			# Tops up rather than assigns, same reason as OVERSHIELD below — the
+			# trigger lock is the trade, and it applies to whatever pool is under it.
+			_over_pool = maxf(_over_pool, DEFLECTOR_POOL)
+			_over_left = maxf(_over_left, DEFLECTOR_TIME)
 			_deflector_left = DEFLECTOR_TIME
 			_start_gadget_cd(slot, cd)
 			Audio.play("deploy", -3.0)
 			gear_changed.emit()
 			return
 		Loadout.Gadget.OVERSHIELD:
-			_over_pool = OVERSHIELD_POOL
-			_over_left = OVERSHIELD_TIME
+			# NEVER DOWNGRADE A POOL THAT IS ALREADY BIGGER. A streak signature
+			# issues four hundred-odd points through `Streaks`, and a plain
+			# assignment here would let pressing your own sustain button drop that
+			# to 110 — making the strongest body in the game one button press away
+			# from gutting itself, with no error and no way to tell. It TOPS UP,
+			# which is also what makes slot 3 the one thing that gives ground back
+			# to a body that no longer regenerates.
+			_over_pool = maxf(_over_pool, OVERSHIELD_POOL)
+			_over_left = maxf(_over_left, OVERSHIELD_TIME)
 			_start_gadget_cd(slot, cd)
 			Audio.play("deploy", -4.0)
 			gear_changed.emit()
@@ -2687,12 +3611,30 @@ func _update_gear() -> void:
 		_use_gadget(2)
 
 
+## A BECOME REWARD DOES NOT REGENERATE, and that is the price of the pool it
+## came with. Set by `_become` and cleared by every ordinary deploy.
+##
+## THE POOL IS A BUDGET FOR THE REST OF THE LIFE rather than a bigger version of
+## the same body. A signature carries seven to eleven times a trooper's health,
+## and with regeneration on top the only way to end one is to burst it down
+## faster than 18 hp/s heals it — so the correct play against a Warboss becomes
+## hiding until it leaves, and the correct play AS one is to break contact and
+## come back whole every time. Taking regeneration off makes every point spent a
+## point gone: you can win five fights on one shield and you cannot win fifty,
+## and it is the only counterweight that scales with how big the pool gets.
+##
+## The SUSTAIN slot is deliberately left as the exception — an OVERSHIELD or an
+## IRON HALO re-issues the second pool, so slot 3 is the one thing that still
+## gives ground back, which is why every signature carries one.
+var _no_regen := false
+
+
 ## Passive regeneration: once REGEN_DELAY has passed since the last hit, heal
 ## back to full. Replaces the health kit — you recover by breaking contact, not
 ## by spending a consumable.
 func _update_regen(delta: float) -> void:
 	_since_damage += delta
-	if _since_damage < REGEN_DELAY or health >= max_health:
+	if _no_regen or _since_damage < REGEN_DELAY or health >= max_health:
 		return
 	health = minf(health + REGEN_RATE * delta, max_health)
 	health_changed.emit(health)
@@ -2735,8 +3677,21 @@ func _fire_held() -> bool:
 	return Controls.held(input_device, "fire")
 
 
+## The crouch STATE, which is a toggle rather than the button's own down-state —
+## see `_toggle_crouch_input`. Everything that asks "is this body crouched" asks
+## here, so the stance, the spread multiplier, the recoil multiplier, the capsule
+## and the animation can never disagree about it.
+var _crouched := false
+
+
+## THE STANCE, and a SLIDE IS ONE. Answering true here is what makes the capsule
+## shrink, the spread and recoil multipliers apply, the animation pick a crouched
+## clip, the sprint carry drop and the sights become available — all of it,
+## through the paths that already existed, from one line. Anything that asks "is
+## this body crouched" goes through here, which is precisely why the slide only
+## has to answer it once rather than being wired into six places.
 func _crouch_held() -> bool:
-	return Controls.held(input_device, "crouch")
+	return _crouched or sliding()
 
 
 func _ads_held() -> bool:
@@ -2761,36 +3716,17 @@ func _is_running() -> bool:
 ## out of neck, and that lag is one of the strongest cues that a thing on screen
 ## is a person rather than an object being rotated.
 ##
-## So the legs get a heading of their own (`_feet_yaw`) that the body's aim yaw
-## is allowed to lead by up to TWIST_MAX. The MODEL is counter-rotated back onto
-## the feet and the model's own Twist joint puts the upper body back on the aim,
-## which nets to: legs where the feet are, chest where the crosshair is. Nothing
-## about aiming, shooting or collision changes — `rotation.y` is still the body's
-## true facing and the weapon still fires down it.
-const TWIST_MAX := deg_to_rad(55.0)    # how far the chest may lead the feet
-const TWIST_STEP_RATE := 7.0           # rad/s the feet catch up once they must
-const TWIST_WALK_RATE := 14.0          # ...and much faster once you are moving
-
-var _feet_yaw := 0.0
-
-
-func _update_torso_twist(move: Vector2, delta: float) -> void:
-	var aim := rotation.y
-	var lead := wrapf(aim - _feet_yaw, -PI, PI)
-	# Moving, airborne or crouched, the feet go where the body goes: a twist held
-	# through a walk cycle reads as a broken hip, and the legs have to point
-	# where they are actually carrying you.
-	if move.length() > 0.1 or not is_on_floor() or _crouch_t > 0.5:
-		_feet_yaw += lead * minf(TWIST_WALK_RATE * delta, 1.0)
-	elif absf(lead) > TWIST_MAX:
-		# Out of neck: step the feet round, but only far enough to get back
-		# inside the limit — that is what makes it read as a shuffle rather than
-		# as the legs snapping to the camera.
-		var over := lead - signf(lead) * TWIST_MAX
-		_feet_yaw += over * minf(TWIST_STEP_RATE * delta, 1.0)
-	lead = wrapf(aim - _feet_yaw, -PI, PI)
-	model.rotation.y = -lead     # the legs stay where the feet are...
-	model.set_twist(lead)        # ...and the chest comes back onto the aim
+## So the legs get a heading of their own that the body's aim yaw is allowed to
+## lead. The MODEL is counter-rotated back onto the feet and the model's own
+## Twist joint puts the upper body back on the aim, which nets to: legs where the
+## feet are, chest where the crosshair is. Nothing about aiming, shooting or
+## collision changes — `rotation.y` is still the body's true facing and the
+## weapon still fires down it.
+##
+## ALL OF IT LIVES IN `Locomotion` NOW, because the hip SWIVEL that replaced the
+## sidestep clips writes the same joint: two rules on one transform in two files
+## is a fight nobody wins. It is also how a BOT got the behaviour, which it never
+## had — one used to turn its whole body, chest and all, to circle a target.
 
 
 func _update_stance_spread(move: Vector2, crouching: bool) -> void:
@@ -2858,77 +3794,123 @@ func _deploy_held() -> bool:
 ##
 ## FORWARD WINS TIES, and the band is deliberately wide (a 2:1 ratio rather than
 ## a 45-degree split). Walking forward at a slight angle is by far the commonest
-## input in the game, and a body that flips into a sidestep every time the stick
-## drifts off centre is worse than one that never sidesteps at all — the flicker
-## reads as a bug where the wrong clip merely reads as stiff.
-const STRAFE_RATIO := 2.0
-
-
-func _ground_clip(move: Vector2) -> String:
-	if absf(move.x) > absf(move.y) * STRAFE_RATIO:
-		return "strafe_r" if move.x > 0.0 else "strafe_l"
-	# `move.y` is negative going forward, so a positive y is backing up.
-	if move.y > 0.0 and absf(move.y) > absf(move.x):
-		return "walk_back"
-	return "walk"
-
-
 func _update_anim(move: Vector2, sprinting: bool) -> void:
-	if _anim == null:
+	# THE STATE MACHINE, THE STRIDE TABLE AND THE BLEND ALL LIVE IN `Locomotion`
+	# NOW. They used to live here AND in Bot, in two copies that had already
+	# drifted (this one paced `crouch_walk` and `guard_walk` off their own
+	# strides; the bot's had neither case). `move` is not passed on: the module
+	# takes the real VELOCITY and brings it into the body's frame itself, which
+	# is the one step the two copies did differently.
+	if _loco == null:
 		return
-	# Basic Minecraft/Krunker-style state machine: airborne -> jump (held),
-	# moving -> walk/run, else idle. No landing clip on purpose. Crouching swaps
-	# in the folded-leg variants; there is no crouched sprint because sprint is
-	# already suppressed while crouched.
-	#
-	# The guard sits BELOW the crouch on purpose, even though it is the more
-	# valuable tell: there is no crouched guard clip, so putting it above would
-	# stand the model up out of a capsule that is still crouched — and the head
-	# the model draws is the head other players are shooting at.
-	var target: String
+	_loco.tick(get_physics_process_delta_time(), velocity, rotation.y,
+		not is_on_floor(), _crouch_t > 0.5, guard_up(), sprinting,
+		WALK_SPEED * CROUCH_SPEED_MULT, sliding())
+
+
+## THE PATTERN STARTS OVER WHEN YOU COME OFF THE TRIGGER. That is what makes
+## TAPPING a real technique rather than a slower way to spray: a burst of three
+## fired in taps costs three first-shot climbs and no weave at all, where holding
+## thirty walks the whole curve. Ticked from the same place the camera settles,
+## so a mounted gunner and a walking trooper follow the same rule.
+func _tick_recoil_pattern(delta: float) -> void:
+	if _recoil_step == 0:
+		return
+	_recoil_idle += delta
+	if _recoil_idle >= RECOIL_PATTERN_RESET:
+		_recoil_step = 0
+		_recoil_idle = 0.0
+
+
+## FLINCH: being shot moves your aim.
+##
+## The last thing in the game with no physical answer was taking a round. A hit
+## flashed the screen and moved a number, and the body holding the rifle did not
+## react at all — so a duel was decided purely by who started shooting first,
+## with no cost at all to being second. Flinch is what makes the first shot of an
+## engagement worth something beyond its damage: it does not decide the fight,
+## it makes the man being shot at work harder to win it.
+##
+## It rides the SAME `_recoil_pitch` / `_recoil_yaw` the gun's own kick uses, so
+## it settles at `RECOIL_RECOVER` like everything else, is scaled down by
+## crouching exactly as recoil is, and needs no second recovery rule. Up and to
+## a random side, because a round arriving is not a pattern you can learn — this
+## is the one place randomness is right, and it is why the GUN's pattern is not.
+const FLINCH_PER_100 := 0.030   # radians of pitch for a hundred damage
+const FLINCH_MAX := 0.055       # ...and a ceiling, so a rocket is not a blackout
+const FLINCH_YAW_SHARE := 0.6
+
+
+func _flinch(amount: float) -> void:
+	var kick := minf(FLINCH_PER_100 * amount * 0.01, FLINCH_MAX)
+	# Crouched, you are braced — the same argument CROUCH_RECOIL_MULT already
+	# makes about your own gun.
+	kick *= lerpf(1.0, CROUCH_RECOIL_MULT, _crouch_t)
+	_recoil_pitch += kick
+	_recoil_yaw += randf_range(-FLINCH_YAW_SHARE, FLINCH_YAW_SHARE) * kick
+
+
+## THE LANDING DIP. A body that drops four metres and carries on at eye level is
+## the single most weightless thing a first-person camera can do. The knees take
+## it: the camera dips by how fast you were falling and springs back.
+##
+## On `head.position.y`, NOT on the pitch — a landing bends your legs, it does
+## not tip your head back — and applied on top of the crouch's own head height so
+## the two compose instead of fighting.
+const LAND_DIP_PER_SPEED := 0.011   # metres of dip per m/s of impact
+const LAND_DIP_MAX := 0.16
+const LAND_DIP_RECOVER := 7.0
+var _land_dip := 0.0
+var _was_airborne := false
+
+
+func _update_landing(delta: float) -> void:
+	var airborne := not is_on_floor()
+	if _was_airborne and not airborne:
+		# `velocity.y` has already been zeroed by `move_and_slide` on the landing
+		# frame, so the fall speed has to be the one carried IN — which is what
+		# `_fall_speed` is tracking.
+		_land_dip = minf(_land_dip + _fall_speed * LAND_DIP_PER_SPEED, LAND_DIP_MAX)
+	_was_airborne = airborne
+	_fall_speed = maxf(0.0, -velocity.y) if airborne else 0.0
+	_land_dip = lerpf(_land_dip, 0.0, clampf(delta * LAND_DIP_RECOVER, 0.0, 1.0))
+
+
+var _fall_speed := 0.0
+
+
+## A BODY HAS MASS, AND THIS IS WHERE THE GAME MOST OBVIOUSLY DID NOT.
+##
+## Movement used to be `velocity.x = dir.x * speed` — the stick's direction times
+## the top speed, written straight into the velocity every frame. That is an
+## INSTANT change of momentum in both directions: full sprint from standing in
+## one frame, and a dead stop in one frame, with a right-angle turn at full speed
+## costing nothing at all. Nothing above this line in the animation code can
+## rescue that; a lean, a stride and a swivel are all describing a motion that is
+## not happening.
+##
+## So the input picks a TARGET velocity and the body moves toward it. Reaching a
+## walk takes about a tenth of a second and stopping a little longer, which is
+## quick enough that the controls stay sharp and slow enough that the body reads
+## as something being carried rather than slid.
+##
+## It is also what makes `Locomotion`'s lean mean anything: acceleration used to
+## be a one-frame spike of infinity followed by nothing, so a lean driven off it
+## was a twitch. Now there is a real ramp under it.
+const GROUND_ACCEL := 34.0     # m/s², ~0.12 s to a walk
+const GROUND_STOP := 26.0      # ...and stopping takes longer than starting
+## AIR CONTROL IS NOT GROUND CONTROL. The same line used to run while airborne,
+## so a jump could be steered as freely as a walk and momentum meant nothing —
+## you could leap forward and arrive sideways. What you keep in the air is what
+## you left the ground with, plus a nudge.
+const AIR_ACCEL := 7.0
+var _move_vel := Vector3.ZERO
+
+
+func _accelerate(want: Vector3, delta: float) -> void:
+	var rate := GROUND_ACCEL
 	if not is_on_floor():
-		target = "jump"
-	elif _crouch_t > 0.5:
-		target = "crouch_walk" if move.length() > 0.1 else "crouch_idle"
-	elif guard_up():
-		target = "guard_walk" if move.length() > 0.1 else "guard_idle"
-	elif move.length() > 0.1:
-		# DIRECTION, not just magnitude. This used to be `run if sprinting else
-		# walk` for any input at all, so strafing and backing up both played a
-		# full forward stride — feet going one way, body the other, on every body
-		# in the game for as long as there have been animations.
-		#
-		# Sprinting is exempt on purpose: you cannot sprint sideways or backwards
-		# (`_is_running` already requires the stick pushed and sprint held), and a
-		# sprint that could would want its own clips rather than these.
-		target = "run" if sprinting else _ground_clip(move)
-	else:
-		target = "idle"
-	# assigned_animation (not current_animation) so the one-shot jump keeps
-	# holding its last frame instead of retriggering every tick.
-	if _anim.assigned_animation != target and _anim.has_animation(target):
-		_anim.play(target, 0.12)
-	# Scale locomotion cycles to ground speed so feet don't skate.
-	var ground_speed := Vector2(velocity.x, velocity.z).length()
-	match target:
-		"walk":
-			_anim.speed_scale = clampf(ground_speed / 2.6, 0.6, 2.2)
-		"walk_back", "strafe_l", "strafe_r":
-			# Paced off their OWN stride, not the walk's. A sidestep covers less
-			# ground per cycle than a stride does, so pacing all three off 2.6 m/s
-			# would skate the feet at exactly the speeds these clips are for.
-			_anim.speed_scale = clampf(ground_speed / 1.9, 0.6, 2.2)
-		"run":
-			_anim.speed_scale = clampf(ground_speed / 5.0, 0.6, 2.2)
-		"crouch_walk":
-			# Crouched movement is WALK_SPEED * CROUCH_SPEED_MULT, so the shuffle
-			# is paced off that or the feet skate at a third of the stride.
-			_anim.speed_scale = clampf(
-				ground_speed / (WALK_SPEED * CROUCH_SPEED_MULT), 0.6, 2.2)
-		"guard_walk":
-			# The guard's stance takes a shorter step than the plain walk (a
-			# smaller hip swing over a slightly shorter cycle), so it is paced off
-			# its own stride, not the walk's, or the feet skate.
-			_anim.speed_scale = clampf(ground_speed / 1.8, 0.6, 2.2)
-		_:
-			_anim.speed_scale = 1.0
+		rate = AIR_ACCEL
+	elif want.length_squared() < 0.01:
+		rate = GROUND_STOP
+	_move_vel = _move_vel.move_toward(want, rate * delta)

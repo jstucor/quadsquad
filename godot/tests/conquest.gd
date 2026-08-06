@@ -138,9 +138,13 @@ func _test_spawn_transform() -> void:
 	var xform := p._conquest_spawn_transform()
 	_expect(xform.origin.distance_to(b.spawn_transform().origin) < 0.01,
 		"deploy lands on the selected post")
-	# And the chosen class becomes the deployed loadout.
+	# And the chosen class becomes the deployed loadout. THROUGH THE PLAYER'S OWN
+	# FUNCTION, not by rebuilding the row the way the test thinks it should be
+	# built — an earlier version called `Loadout.team_build(p.team, ...)` here,
+	# which is the exact call the deploy path had wrong, so the test asserted the
+	# bug rather than the behaviour and passed for as long as it existed.
 	p.spawn_class = 2   # Republic slot 2 = Clone Heavy (the T-21 HMG)
-	p.pending = Loadout.team_build(p.team, p.spawn_class)
+	p.pending = p.faction_class_build()
 	_expect(p.pending.weapon_class() == Weapon.Class.HMG,
 		"the selected class is what deploys (Clone Heavy = HMG)")
 

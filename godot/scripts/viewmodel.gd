@@ -18,7 +18,21 @@ const HIP_POS := Vector3.ZERO
 # off centre as soon as the guns stopped being identical.
 # Slightly forward, not back: rear furniture and stocks crossing the near plane
 # read as hollow/see-through exactly when the player raises the gun.
-const ADS_PULL_BACK := -0.025
+## HOW FAR THE WEAPON SITS FROM THE EYE WHILE AIMED, and it PUSHES OUT rather
+## than pulling in, which is the opposite of what a real shoulder does and the
+## right answer here.
+##
+## Aiming narrows the camera from 75 degrees to as little as 45, and the
+## viewmodel is drawn by that same camera — so ADS magnifies the GUN by the same
+## 1.6x it magnifies the world. Real shooters dodge this by rendering the weapon
+## through a second, fixed FOV; with one camera per viewport and four of them,
+## the honest lever is distance. Photographed at -0.025 the receiver filled the
+## bottom 45% of the screen with its top edge at the crosshair, which is what
+## "the sights are blocked by the gun" is.
+##
+## It does NOT move the sight off the camera axis: the solve below centres the
+## sight in X and Y, and pushing along Z slides it straight down the aim line.
+const ADS_PULL_BACK := 0.115
 const SIGHT_CHANNEL_X := 0.018
 const IRON_REAR_Z := -0.02
 const HOLO_Z := -0.08
@@ -119,6 +133,9 @@ var _aim_t := 0.0            # 0 hip .. 1 aimed
 ## 0 in the aim .. 1 fully stowed across the chest. Set by the owner every frame
 ## (see Weapon.set_sprinting); eased here.
 var sprinting := false
+## Pushed by Player through `Weapon.set_sprint_amount` — see the note there on
+## why this is handed over rather than timed here.
+var sprint_amount := 0.0
 var _sprint_t := 0.0
 var _ads_pos := Vector3(-0.165, 0.055, ADS_PULL_BACK)  # solved in _build
 var _bob_t := 0.0
@@ -687,11 +704,49 @@ func _palette(make: int) -> Dictionary:
 	bright.roughness = 0.34
 	bright.metallic_specular = 0.50
 	var accent := StandardMaterial3D.new()
-	accent.albedo_color = Color(c["cell"], 1.0).darkened(0.85)
+	# THE LIGHTS ON THE GUN ARE THE TEAM'S COLOUR, and they are the SAME colour
+	# as the rounds it fires. `Weapon.bolt_color` already resolves that for the
+	# tracer, the muzzle light and the impact scorch; the lit parts of the weapon
+	# itself were the one thing still painted from the faction PALETTE, so a
+	# purple clone carried a gun with a red heat cell and fired blue.
+	#
+	# It falls through to the palette's own cell when no team has been resolved
+	# yet — a weapon builds itself before it has a shooter, and a gun with an
+	# unlit cell for one frame reads as a broken gun.
+	var lit: Color = light_color if light_color.a > 0.0 else c["cell"]
+	accent.albedo_color = Color(lit, 1.0).darkened(0.85)
 	accent.emission_enabled = true
-	accent.emission = c["cell"]
-	accent.emission_energy_multiplier = 2.0
+	accent.emission = lit
+	accent.emission_energy_multiplier = ACCENT_ENERGY
+	_accent_mat = accent
 	return {"gun": gun, "dark": dark, "bright": bright, "accent": accent}
+
+
+## What the gun's lit parts glow at. Deliberately below the muzzle flash and the
+## blade: this is trim that says whose weapon it is, and past unity AgX takes it
+## to WHITE at the project's exposure — at which point it carries no team at all,
+## which is the same trap the turret's sensor slit is on record for.
+const ACCENT_ENERGY := 1.6
+## ...and it is turned DOWN while aimed. The heat cell sits directly under the
+## sight line on most of these guns, so at full energy the brightest thing on
+## screen is a glowing block immediately beneath the reticle, blooming over the
+## exact pixels you are trying to shoot at.
+const ACCENT_ADS_MULT := 0.35
+
+var _accent_mat: StandardMaterial3D
+## Set by the owning Weapon from `bolt_color()`. Alpha 0 means "not resolved yet".
+var light_color := Color(0, 0, 0, 0)
+
+
+## Re-tint the lit parts without rebuilding the gun. Called when the shooter's
+## team becomes known, which is AFTER the weapon first builds itself.
+func set_light_color(c: Color) -> void:
+	if light_color.is_equal_approx(c):
+		return
+	light_color = c
+	if _accent_mat != null:
+		_accent_mat.albedo_color = Color(c, 1.0).darkened(0.85)
+		_accent_mat.emission = c
 
 
 func _build(class_id: int, scoped: bool, holo: bool) -> void:
@@ -1687,10 +1742,32 @@ func _process(delta: float) -> void:
 	var guarding: bool = _player != null and _player.has_method("guard_up") \
 		and _player.guard_up()
 
-	_aim_t = move_toward(_aim_t, 1.0 if (aiming or guarding) else 0.0, delta / AIM_TIME)
-	_sprint_t = move_toward(_sprint_t, 1.0 if sprinting else 0.0,
-		delta / (SPRINT_IN if sprinting else SPRINT_OUT))
+	# THE SIGHTS COME UP AT THE WEAPON'S OWN PACE. `AIM_TIME` is the DC-15's and
+	# every other gun multiplies it by its `handling`, so a holdout is at the eye
+	# in 0.14 s and a Gauss Cannon takes 0.35 — and Player eases the camera zoom
+	# over the SAME duration, which is what stops the world and the sight
+	# arriving a beat apart.
+	var ads := AIM_TIME
+	if aiming_source != null and aiming_source.has_method("handling"):
+		ads = AIM_TIME * float(aiming_source.handling())
+	_aim_t = move_toward(_aim_t, 1.0 if (aiming or guarding) else 0.0,
+		delta / maxf(0.01, ads))
+	# The stow is NOT eased here — it is handed over by Player, which owns it
+	# because it also gates the trigger. A bot has no Player pushing it, so it
+	# falls back to its own ease and keeps the pose it always had.
+	if _player != null:
+		_sprint_t = sprint_amount
+	else:
+		_sprint_t = move_toward(_sprint_t, 1.0 if sprinting else 0.0,
+			delta / (SPRINT_IN if sprinting else SPRINT_OUT))
 	_kick = move_toward(_kick, 0.0, delta * RECOIL_DECAY)
+	# The lit trim dims as the sights come up — see ACCENT_ADS_MULT. Written only
+	# when it MOVES: this is a material write on a shared material every frame
+	# otherwise, which is the allocation rule's near neighbour.
+	if _accent_mat != null:
+		var want: float = ACCENT_ENERGY * lerpf(1.0, ACCENT_ADS_MULT, _aim_t)
+		if absf(_accent_mat.emission_energy_multiplier - want) > 0.01:
+			_accent_mat.emission_energy_multiplier = want
 
 	# Walk bob, damped while aiming and only on the ground.
 	var speed := 0.0

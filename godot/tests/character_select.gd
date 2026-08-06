@@ -92,9 +92,52 @@ func _ready() -> void:
 	_expect(p.loadout.character_style() == picked.character_style(),
 		"...wearing its body, not a generic trooper")
 
+	await _check_colour()
+
 	print("\n==== %s ====" % ("CHARACTER SELECT WORKS" if _fails.is_empty()
 		else "%d FAILURE(S):\n  %s" % [_fails.size(), "\n  ".join(_fails)]))
 	get_tree().quit(0 if _fails.is_empty() else 1)
+
+
+## THE SCREEN WEARS THE SIDE'S COLOUR, and "the side's colour" means the one
+## CHOSEN on the menu when there is one.
+##
+## `GameState.team_colors` already folds a faction's own chip and the tint picked
+## for it into one answer (`refresh_sides`), so this is a WIRING question and not
+## a colour question: does the deploy screen read that, or does it read the seat?
+## It read the seat — two players on the Republic got a red screen and a green
+## one while picking off the same roster.
+func _check_colour() -> void:
+	print("\n== the screen wears the side's colour ==")
+	GameState.team_tint = [0, 0, 0, 0]
+	GameState.refresh_sides()
+	var faction_own := GameState.team_color(0)
+	_expect(GameState.team_color(0) != GameState.team_color(1),
+		"two sides do not share one colour to begin with")
+
+	# ...now pick a colour for side 0 on the menu and ask again.
+	var tint := 1
+	while tint < Loadout.TEAM_TINTS.size() \
+			and Color(Loadout.TEAM_TINTS[tint]["color"]).is_equal_approx(faction_own):
+		tint += 1
+	GameState.team_tint = [tint, 0, 0, 0]
+	GameState.refresh_sides()
+	var chosen := GameState.team_color(0)
+	print("  side 0: faction %s -> chosen %s (%s)" % [
+		faction_own.to_html(false), chosen.to_html(false),
+		Loadout.TEAM_TINTS[tint]["name"]])
+	_expect(not chosen.is_equal_approx(faction_own),
+		"choosing a colour for a side actually moves its colour")
+	_expect(chosen.is_equal_approx(Color(Loadout.TEAM_TINTS[tint]["color"])),
+		"...and it is the colour that was chosen")
+
+	# A team index nothing should ever ask about must not take the HUD down with
+	# it — the same guard `bolt_color` carries, and for house rule 6's reason.
+	_expect(GameState.team_color(-1) == GameState.team_colors[0]
+		and GameState.team_color(99) == GameState.team_colors[0],
+		"an out-of-range side answers safely instead of aborting the caller")
+	GameState.team_tint = [0, 0, 0, 0]
+	GameState.refresh_sides()
 
 
 func _build_floor() -> void:

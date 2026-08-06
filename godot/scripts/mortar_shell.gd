@@ -31,8 +31,19 @@ var _splash_damage := 68.0
 var _life := 0.0
 
 
+## `hang` OVERRIDES the solved flight time, and exists for the orbital strike.
+##
+## A MORTAR AND AN ORBITAL ROUND ARE THE SAME BALLISTICS AND THE OPPOSITE EVENT.
+## A mortar's long hang is a FEATURE — you hear it coming and walk out from under
+## it, which is what keeps continuous bombardment fair. Fired from 90 m up, that
+## same rule gave the orbital strike a 6.4 s time of flight on a barrage that only
+## runs for 7 s: measured, the first round landed 12.0 s after the player pressed
+## the button, by which time the reward had ended and everyone it was aimed at had
+## walked away. Re-aiming every salvo is meaningless at that lead.
+##
+## So the caller states the hang when it needs to. Left out, nothing changes.
 func launch(from: Vector3, target: Vector3, shooter: Node,
-		splash: float, splash_damage: float) -> void:
+		splash: float, splash_damage: float, hang := 0.0) -> void:
 	global_position = from
 	_shooter = shooter
 	_shooter_rid = shooter.get_rid() if shooter is CollisionObject3D else RID()
@@ -40,6 +51,8 @@ func launch(from: Vector3, target: Vector3, shooter: Node,
 	_splash_damage = splash_damage
 	# Hang time grows with range, so a long shot arcs high and a close one lobs.
 	var flight := clampf(from.distance_to(target) * FLIGHT_PER_M, MIN_FLIGHT, MAX_FLIGHT)
+	if hang > 0.0:
+		flight = hang
 	# Solve p(t) = from + v*t - 0.5*g*t^2 for v such that p(flight) == target.
 	_vel = (target - from) / flight + Vector3.UP * 0.5 * _gravity * flight
 	_build_mesh()
@@ -96,8 +109,23 @@ func _physics_process(delta: float) -> void:
 			return
 	global_position = to
 	# Point the shell along its arc, so it noses over at the top.
+	#
+	# THE UP VECTOR MAY NOT BE THE FLIGHT DIRECTION, and an ORBITAL round is
+	# exactly that case: it is dropped from straight overhead onto the point
+	# below it, so its velocity is (0, -v, 0) and `look_at(..., Vector3.UP)` is
+	# being asked to build a basis out of two colinear vectors. Godot's answer is
+	# an engine warning per shell per physics frame — a barrage of four rounds
+	# every 0.3 s buried every other line of output in the log — and an
+	# arbitrary roll about the shell's own long axis, which for a capsule is
+	# invisible and therefore never noticed until something else needed the log.
+	#
+	# A shell is a body of revolution, so ANY up vector off the flight axis is
+	# correct; the only requirement is that it not be parallel to it.
 	if _vel.length_squared() > 0.01:
-		look_at(to + _vel, Vector3.UP)
+		var up := Vector3.UP
+		if absf(_vel.normalized().dot(Vector3.UP)) > 0.999:
+			up = Vector3.FORWARD
+		look_at(to + _vel, up)
 		rotation.x += PI / 2.0  # the capsule stands along +Y
 
 

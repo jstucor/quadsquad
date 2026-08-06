@@ -54,6 +54,7 @@ const NIGHT_BALL := 0.62
 static func pop(scene: Node, pos: Vector3, splash: float, ball := 0.6) -> void:
 	if scene == null:
 		return
+	_shake_nearby(pos, splash)
 	var night: bool = GameState.is_night()
 	var flash := MeshInstance3D.new()
 	var s := SphereMesh.new()
@@ -86,3 +87,36 @@ static func pop(scene: Node, pos: Vector3, splash: float, ball := 0.6) -> void:
 	scene.add_child(flash)
 	flash.global_position = pos
 	scene.get_tree().create_timer(LIFE).timeout.connect(flash.queue_free)
+
+
+## --- WHAT IT DOES TO THE PEOPLE NEAR IT ----------------------------------------
+##
+## AN EXPLOSION SHOULD BE FELT BY WHOEVER IS STANDING NEXT TO IT, and until now
+## the only thing a blast did to a nearby player was subtract health. It is here,
+## in `pop`, for exactly the reason the light is: this is the ONE place every
+## explosion in the game goes through, so a rocket, a grenade, a mortar shell, an
+## orbital round and a signature's entry all shake the screen without any of them
+## knowing that screen shake exists.
+##
+## IT REACHES FURTHER THAN THE DAMAGE DOES. Being close enough to be hurt and
+## close enough to be rattled are different distances — a shell landing twenty
+## metres away is not going to wound you and absolutely should be felt — so the
+## radius is a multiple of the splash rather than the splash itself.
+const SHAKE_RANGE := 3.2       # x the splash radius
+const SHAKE_MAX := 0.85        # trauma at the centre
+
+## ASKED, NOT REQUIRED (house rule 15). A Bot has no camera and no `add_shake`,
+## a Vehicle has neither, and a turret is bolted down — none of them are special
+## cases here, they simply do not answer.
+static func _shake_nearby(pos: Vector3, splash: float) -> void:
+	var reach: float = splash * SHAKE_RANGE
+	for c in GameState.combatants:
+		if not is_instance_valid(c) or not c.has_method("add_shake"):
+			continue
+		var gap: float = c.global_position.distance_to(pos)
+		if gap > reach:
+			continue
+		# Linear falloff rather than inverse-square: the point is that a near
+		# miss is felt at all, and a physically correct curve puts everything
+		# past a couple of metres below the threshold of noticing.
+		c.add_shake(SHAKE_MAX * (1.0 - gap / reach))

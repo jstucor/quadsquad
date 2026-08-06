@@ -193,6 +193,26 @@ static var active_universe := Universe.STAR_WARS
 ## to REALISTIC is one number and no special cases.
 static var ttk_health := 1.0
 
+## CUSTOM OPENS THE WHOLE ARMOURY; FACTION HANDS YOU A CLASS AS AUTHORED.
+##
+## Mirrored from `GameState.class_mode` exactly as the two above are mirrored,
+## and DEFAULT FALSE so `kit_rules` — which runs under `--script` with no
+## autoloads — keeps asking about the authored, restricted catalogue.
+##
+## The per-kit `primaries`/`secondaries` lists exist to make a CLASS mean
+## something, and they did that job when the CLASS row offered five archetypes.
+## Now that it offers all thirty-two of a universe's characters, the character IS
+## the meaning — its body, its physique and the guns it walks in with — and the
+## restriction was only stopping a player from building the thing they had
+## already been handed. Measured before this: Star Wars reached 30 of 76
+## primaries and Halo 17, with the Wookiee able to hold TWO and the Unggoy three.
+##
+## What it does NOT relax is `"kit"` exclusivity. A saber, a bowcaster, a thermal
+## holo belong to their owner in every mode, because those are MECHANISM — a
+## saber needs the guard and a Force power needs the button — where a per-kit
+## list is only balance. That is the same line `royale_items` already draws.
+static var custom_pool := false
+
 
 ## Which universe a catalogue row belongs to. Missing means Star Wars: the whole
 ## original catalogue predates the setting and says so by saying nothing.
@@ -363,6 +383,21 @@ const WEAPONS: Array[Dictionary] = [
 	# deploying with the free starter pistol and no error anywhere.
 	{"class": Weapon.Class.E11D, "cost": 60},
 	{"class": Weapon.Class.SPIKER, "cost": 50, "universe": Universe.HALO},
+	# THE LIGHT MACHINE GUNS, appended like everything else (house rule 8).
+	#
+	# Sold to ANYBODY, and deliberately not kit-locked the way the T-21 and the
+	# rocket tube are. Those two are the Wookiee's because they are the heaviest
+	# things a body can carry; an LMG is an ordinary primary with an ordinary
+	# trade — it is the most controllable gun in the game while braced and the
+	# worst one on the move — and a category only one class can reach is a
+	# category most players never meet.
+	#
+	# Priced above the rifles they out-shoot and below the sniper, because what
+	# they buy is SUSTAIN and not reach.
+	{"class": Weapon.Class.M739_SAW, "cost": 70, "universe": Universe.HALO},
+	{"class": Weapon.Class.DLT19D, "cost": 75},
+	{"class": Weapon.Class.RT97C, "cost": 85},
+	{"class": Weapon.Class.GAUSS_CANNON, "cost": 85, "universe": Universe.WARHAMMER},
 ]
 
 const NO_PRIMARY := 0  # index of the "none" row above
@@ -1144,6 +1179,14 @@ var weapon := 0        # index into WEAPONS (NO_PRIMARY = sidearm only)
 ## adding it to WEAPONS and shifting every index the buy screen and BOT_BUILDS
 ## rely on. Only faction builds set it; the buy screen never touches it.
 var primary_override := -1
+## WHICH AUTHORED CHARACTER THIS BUILD STARTED FROM — an index into
+## `custom_classes()`, or -1 for a build that was never given one (a royale drop,
+## a bot's shop roll, anything built before a class was chosen).
+##
+## It is what the CLASS row on the buy screen now walks. `kit` is still the thing
+## the allow-lists are keyed to and is DERIVED from this: a character states its
+## own kit, so choosing one sets both.
+var character := -1
 var secondary := 0     # index into SECONDARIES
 var secondary_mod := SecondaryMod.NONE
 var gadget := 0        # index into GADGETS, slot 0, on the GADGET 1 control
@@ -2029,6 +2072,36 @@ const FACTION_ROSTERS := {
 ## a side fields is ITS OWN setting's, and `active_universe` cannot answer that
 ## for both of them. Callers that know a team pass `GameState.team_universe(t)`;
 ## `Loadout` may never ask GameState itself (kit_rules runs with no autoloads).
+## EVERY AUTHORED CHARACTER THIS UNIVERSE FIELDS, as global indices into
+## FACTION_BUILDS, in roster order.
+##
+## THE BUY SCREEN'S CLASS ROW USED TO OFFER THE KIT ARCHETYPES, AND THERE ARE
+## ONLY FOURTEEN OF THEM. Measured: Star Wars put FIVE classes on that row and
+## Warhammer four, while the game has thirty-two authored characters in each of
+## them — so a player building a custom loadout could choose between "CLONE
+## TROOPER" and "WOOKIEE" while the roster next door fielded a Clone Commando, an
+## ARC Trooper, a Death Trooper, a Flametrooper and an Ewok Hunter. The classes
+## existed, were balanced, were tested, and the mode most people play could not
+## reach them.
+##
+## They are the same rows FACTION mode deploys (`faction_classes`), so this adds
+## no catalogue and nothing to keep in step — a class authored for a roster turns
+## up here for free, which is the same trick the nav grid plays on map colliders.
+## Deduplicated because a build may appear on more than one side's roster.
+static func custom_classes(universe := -1) -> Array:
+	var u: int = universe if universe >= 0 else active_universe
+	var rosters: Array = FACTION_ROSTERS.get(u, FACTION_ROSTERS[Universe.STAR_WARS])
+	var out: Array = []
+	var seen := {}
+	for side in rosters:
+		for i in side:
+			if seen.has(i):
+				continue
+			seen[i] = true
+			out.append(i)
+	return out
+
+
 static func faction_classes(team: int, universe := -1) -> Array:
 	var u: int = universe if universe >= 0 else active_universe
 	var rosters: Array = FACTION_ROSTERS.get(u, FACTION_ROSTERS[Universe.STAR_WARS])
@@ -2159,8 +2232,15 @@ static func line_build() -> Loadout:
 	return l
 
 
+## WHAT YOU OPEN THE BUY SCREEN HOLDING: the first of this universe's authored
+## characters, so the CLASS row starts ON the row it now walks rather than on a
+## kit name that is not in the list. Falls back to the old kit starter when there
+## is no roster to draw from (a bare `Loadout` in a unit test, royale).
 static func starter() -> Loadout:
 	var l := Loadout.new()
+	if not custom_classes().is_empty():
+		l.adopt_character(0)
+		return l
 	l.adopt_kit(default_kit())
 	var k: Dictionary = KITS[l.kit]
 	if k.has("starter"):
@@ -2199,6 +2279,15 @@ func duplicate_loadout() -> Loadout:
 
 func kit_stats() -> Dictionary:
 	return KITS[kit]
+
+
+## WHAT THE CLASS ROW SAYS. The character's own name when one has been chosen,
+## which is the whole point of the row now — "ARC TROOPER" rather than the
+## archetype "CLONE TROOPER" that five of them share.
+func class_name_shown() -> String:
+	if character >= 0 and build_name != "":
+		return build_name
+	return kit_name()
 
 
 func kit_name() -> String:
@@ -2272,7 +2361,16 @@ func allows(row: int, index: int) -> bool:
 		# deriving it from the build, because it is the row that CHOOSES which
 		# universe's class you are on.
 		Row.KIT:
-			return kit_universe(index) == active_universe
+			# THE CLASS ROW OFFERS THIS UNIVERSE'S AUTHORED CHARACTERS. It used to
+			# offer the KIT archetypes, of which a universe has four or five
+			# against its thirty-two classes — see `custom_classes`. Every entry
+			# in that list is already this universe's, so unlike the kit enum
+			# (which is shared by three settings and had to be WALKED) this one
+			# can simply be bounded.
+			var pool := custom_classes()
+			if pool.is_empty():
+				return kit_universe(index) == active_universe
+			return index >= 0 and index < pool.size()
 		# The four catalogue rows share ONE rule (see _allows_entry): a
 		# "kit"-marked entry belongs to its owner alone; otherwise an optional
 		# per-kit allow-list restricts to those, else anything goes. The identity
@@ -2330,7 +2428,10 @@ func _allows_entry(entry: Dictionary, identity, list_name: String) -> bool:
 	if entry.has("kit"):
 		return entry["kit"] == kit
 	# Otherwise: a per-kit list means ONLY those (the Wookiee's heavies), and no
-	# list means anything ordinary goes.
+	# list means anything ordinary goes — except in CUSTOM, where the whole
+	# ordinary catalogue is open (see `custom_pool`).
+	if custom_pool:
+		return true
 	var only: Array = KITS[kit].get(list_name, [])
 	return only.is_empty() or identity in only
 
@@ -2412,6 +2513,42 @@ func next_row(from: int, dir: int) -> int:
 ## converting it: half the selections would be illegal, and quietly rewriting
 ## six rows under a player who nudged one is worse than starting clean. It also
 ## means the result is always inside BUDGET without a second pass.
+## TAKE ONE OF THE UNIVERSE'S AUTHORED CHARACTERS as the starting point for a
+## custom build — the CLASS row's job now.
+##
+## It is `adopt_kit` plus the BODY: the class's own style, physique, armour and
+## the two guns it walks in with. That is the whole difference between the two
+## screens now — FACTION deploys the character as authored, CUSTOM hands you the
+## same character and lets you rebuild everything above the neck of it. The reset
+## is `adopt_kit`'s and for `adopt_kit`'s reason: half the old selections would
+## be illegal on the new class and this guarantees the result is inside BUDGET in
+## one pass.
+##
+## A character's authored build is a legal player loadout — `kit_rules` asserts
+## exactly that for all eighty of them — so what lands here always fits.
+func adopt_character(index: int) -> void:
+	var pool := custom_classes()
+	if pool.is_empty():
+		return
+	index = clampi(index, 0, pool.size() - 1)
+	var build: Dictionary = FACTION_BUILDS[pool[index]]
+	var made := _build_from(build)
+	# `adopt_kit` FIRST, because it is the reset — then the character's own
+	# choices are laid over the fresh build rather than under it.
+	adopt_kit(int(build.get("kit", default_kit())))
+	character = index
+	build_name = made.build_name
+	style = made.style
+	primary_override = made.primary_override
+	weapon = made.weapon
+	secondary = made.secondary
+	armor = made.armor
+	unit_speed = made.unit_speed
+	unit_health = made.unit_health
+	unit_jump = made.unit_jump
+	unit_stature = made.unit_stature
+
+
 func adopt_kit(new_kit: int) -> void:
 	var fresh := Loadout.new()
 	fresh.kit = clampi(new_kit, 0, KITS.size() - 1)
@@ -2639,10 +2776,16 @@ func _walk(row: int, current: int, dir: int, size: int) -> int:
 func _step_unchecked(row: int, dir: int) -> void:
 	match row:
 		Row.KIT:
-			# Walked, not clamped: the classes of three universes share one enum
-			# and only this universe's are legal, so a clamp would step straight
-			# from the last Star Wars class onto a Spartan.
-			adopt_kit(_walk(row, kit, dir, KITS.size()))
+			# CLAMPED, not walked, and that is a simplification the character pool
+			# buys: `custom_classes()` is already filtered to this universe, so
+			# every entry on the row is legal and there is nothing to skip. The
+			# kit enum needed a walk because three settings share it and a clamp
+			# would step off the last Star Wars class straight onto a Spartan.
+			var pool := custom_classes()
+			if pool.is_empty():
+				adopt_kit(_walk(row, kit, dir, KITS.size()))
+			else:
+				adopt_character(clampi(character + dir, 0, pool.size() - 1))
 		Row.WEAPON:
 			weapon = _walk(row, weapon, dir, WEAPONS.size())
 		Row.SECONDARY:
@@ -2681,7 +2824,7 @@ func _step_unchecked(row: int, dir: int) -> void:
 ## `foregrip` were both absent — the ABILITY row and the FRONT GRIP row could be
 ## pressed all day and would never change, and neither said anything about why.
 func _same_as(other: Loadout) -> bool:
-	return kit == other.kit \
+	return kit == other.kit and character == other.character \
 		and weapon == other.weapon and secondary == other.secondary \
 		and secondary_mod == other.secondary_mod \
 		and gadget == other.gadget and gadget2 == other.gadget2 \
@@ -2703,6 +2846,7 @@ func _same_as(other: Loadout) -> bool:
 ## class and not added here is a field that silently does not exist.
 func _copy_from(other: Loadout) -> void:
 	kit = other.kit
+	character = other.character
 	build_name = other.build_name
 	gadget2 = other.gadget2
 	gadget3 = other.gadget3
@@ -2745,7 +2889,7 @@ func row_label(row: int) -> String:
 
 func row_value(row: int) -> String:
 	match row:
-		Row.KIT: return kit_name()
+		Row.KIT: return class_name_shown()
 		Row.WEAPON: return weapon_name()
 		Row.SECONDARY: return secondary_name()
 		Row.SECONDARY_MOD: return SECONDARY_MODS[secondary_mod]["name"]
@@ -2782,6 +2926,16 @@ func row_cost(row: int) -> int:
 func row_blurb(row: int, device: int = -1) -> String:
 	match row:
 		Row.KIT:
+			# A CHARACTER'S OWN BLURB IF IT HAS ONE. Falling through to the kit's
+			# is right for a build with no character on it, and wrong for one that
+			# has: "Standard trooper" under the name DEATH TROOPER is a line that
+			# says nothing about what you just picked.
+			if character >= 0:
+				var pool := custom_classes()
+				if character < pool.size():
+					var b: Dictionary = FACTION_BUILDS[pool[character]]
+					if b.has("blurb"):
+						return str(b["blurb"])
 			return KITS[kit]["blurb"]
 		Row.WEAPON:
 			if not has_primary():

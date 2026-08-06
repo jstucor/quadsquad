@@ -161,6 +161,54 @@ const LINE_HEALTH := 0.75      # they go down easily; that is the fantasy
 ## the whole of the saving and none of the visible cost; three was tried and the
 ## crowd visibly ratchets when it is close to you.
 const MOVE_EVERY := 2
+
+## --- HOW OFTEN A BOT DECIDES ---------------------------------------------------
+##
+## A BOT DECIDES FIVE TIMES A SECOND AND ACTS SIXTY. That split is the whole of
+## this, and which side of it a thing falls on is the only judgement involved.
+##
+## Everything the AI does used to run on every physics tick, which is a rate
+## nothing about the behaviour needs: a bot re-asked "should I throw a grenade?",
+## "should I place a turret?", "which way round this wall?" sixty times a second
+## and answered the same way sixty times, because none of the inputs had moved
+## enough to change the answer. That is the shape of house rule 5 — the same
+## question asked far more often than it can produce a different answer — and it
+## is what caps how many bodies a local match can hold.
+##
+## DECIDED on a think tick, and held until the next one:
+##
+##   where to walk      `_route` / `_patrol_goal` — a plan, plus a string-pull
+##                      across the waypoints. 0.2 s of walking a stale direction
+##                      is about a metre, and `_watch_for_snag` still runs every
+##                      tick underneath it.
+##   whether to use a   the six "should I?" tests. Every one of them walks the
+##   gadget             combatant list or casts a ray, and a cooldown measured in
+##                      SECONDS cannot come up inside two tenths of one.
+##
+## ACTED ON every single tick, because each of these is either what the player
+## SEES or what decides whether they get shot:
+##
+##   aim and facing     `_aim_head` / `_face`. The aim lerp IS the smoothing —
+##                      sampling it at 5 Hz is a head that snaps between poses.
+##   the trigger        `weapon.update_fire`, and the reaction timer feeding it.
+##                      A bot that could only start or stop firing on a think
+##                      tick has up to 0.2 s of reaction bolted on at random.
+##   movement           the held direction is still applied, and gravity, shoves,
+##                      the cable and `move_and_slide` all run as before.
+##   animation          `_animate` / `_update_crouch`.
+##
+## THE PHASE IS DEALT AT SPAWN, exactly as `_move_phase` is, so a hundred bots
+## spread their thinking across the twelve ticks instead of all landing on the
+## same one — which would turn an averaged cost into a spike five times a second,
+## and a spike is what a player feels (see the frame governor's `LATE_FRAC`).
+const THINK_EVERY := 12
+
+var _think_phase := 0
+var _think_now := true
+## The direction the last decision chose to walk in, held between think ticks.
+var _want_dir := Vector3.ZERO
+## ...and the point it is walking to while nothing is being shot at.
+var _patrol_at := Vector3.ZERO
 ## WHAT A BODY IS, AND WHAT IT COSTS, ARE TWO DIFFERENT QUESTIONS. These used to
 ## be one flag and that conflation is what kept 20v20 out of the ordinary modes.
 ##
@@ -253,6 +301,8 @@ var owner_player: Node3D          # who paid for it; the bot falls in behind the
 var health := 90.0
 var max_health := 90.0
 var loadout: Loadout              # the preset it deployed with
+## The animation module — the same one a Player uses. See `Locomotion`.
+var _loco: Locomotion
 ## Bots act on the FIRST gadget slot only. The Mandalorian preset carries a
 ## second one it never uses, which costs it nothing it would otherwise have.
 var _force_cd := 0.0
@@ -351,6 +401,11 @@ func setup(owner: Node3D, bot_team: int, skill_index: int, build := -1,
 	owner_player = owner
 	team = bot_team
 	line = as_line
+	# DEALT AT SPAWN so a roster spreads its thinking across the whole cycle. All
+	# on one tick is the same total work arriving as a spike five times a second,
+	# and the frame governor's own note is that a spike is what a player feels
+	# where an average is not.
+	_think_phase = randi() % THINK_EVERY
 	# A line trooper is thrifty by definition. Anything else asks the ROSTER, not
 	# the mode — a crowd is expensive for the same reason wherever it turns up —
 	# EXCEPT in MASSIVE, which already draws the distinction itself.
@@ -429,6 +484,17 @@ func setup(owner: Node3D, bot_team: int, skill_index: int, build := -1,
 	_apply_stature(loadout.stature())
 	_since_damage = 0.0
 	model.set_style(loadout.character_style())   # clone, droid, Wookiee... per build
+	# The animation module, built with the rig. `set_style` rebuilds the joints,
+	# so this comes after it — the AnimationPlayer survives a style change but
+	# the model reference has to be the one now holding the joints.
+	_loco = Locomotion.new()
+	_loco.setup(model.anim_player, model)
+	# Off, like the player's — see `Locomotion.plant_feet`. When it is turned on
+	# it belongs behind `thrifty`, which is the line this file already draws for
+	# the collision sweep, the stepping rate and the shadow: two rays a body a
+	# tick is nothing at eight and two hundred queries at a hundred, for feet
+	# nobody is near enough to watch.
+	_loco.plant_feet = false
 	model.set_team_color(GameState.team_colors[team])
 	weapon.set_class(loadout.deploy_class(), loadout.primary_mods())
 	# Show the blade on the body, not just in the hitscan: a saber bot that walks
@@ -511,9 +577,22 @@ func _die(attacker: Node) -> void:
 func _physics_process(delta: float) -> void:
 	if _dead:
 		return
+	# NOTHING THINKS BEFORE IT HAS BEEN GIVEN A BUILD. `setup` is what hands this
+	# body its `loadout`, and anything that adds the scene to the tree and
+	# configures it on a later frame gets one tick in between with `loadout` still
+	# null — at which point `_throw_grenade_if_useful` reads `loadout.gadget` off
+	# nothing, and by house rule 6 that error silently ABORTS `_fight`, so the bot
+	# stops fighting for the frame with no sign of why. Caught by
+	# `tests/warmachine_feel.gd`, which spawns bodies exactly that way.
+	if loadout == null:
+		return
 	if not GameState.match_live:
 		weapon.update_fire(false, false)  # hold until the match is called on
 		return
+	# WHETHER THIS IS A TICK THIS BODY THINKS ON. Resolved ONCE per tick and read
+	# by everything below, rather than each caller recomputing the modulo — see
+	# `THINK_EVERY` for what is on which side of the line.
+	_think_now = (Engine.get_physics_frames() + _think_phase) % THINK_EVERY == 0
 	_grenade_cd = maxf(_grenade_cd - delta, 0.0)
 	_regen_if_calm(delta)
 	_cable_cd = maxf(_cable_cd - delta, 0.0)
@@ -850,26 +929,30 @@ func _fight(delta: float) -> void:
 		# the owner wins and the bot gives ground rather than chasing. It keeps
 		# facing and shooting the whole time — this limits where it WALKS, not
 		# what it fights.
-		var want := _route(_target.global_position, delta)
-		if _leashed():
-			var home: Vector3 = owner_player.global_position - global_position
-			home.y = 0.0
-			if home.length() > LEASH:
-				# Past the leash the pull home wins, and it is routed too — the
-				# way back is as full of walls as the way out.
-				want = _route(owner_player.global_position, delta)
-		var step := want * speed
-		velocity.x = step.x
-		velocity.z = step.z
-		_watch_for_snag(want, delta)
+		# WHERE TO WALK IS A DECISION; WALKING IS NOT. The plan, the leash check
+		# and the string-pull across the waypoints run on a think tick and the
+		# direction is HELD until the next one — two tenths of a second, which at
+		# a run is about a metre of committed movement. `_watch_for_snag` still
+		# runs every tick underneath it, so a bot that meets something the plan
+		# could not see still peels off immediately.
+		if _think_now:
+			_want_dir = _route(_target.global_position, delta)
+			if _leashed():
+				var home: Vector3 = owner_player.global_position - global_position
+				home.y = 0.0
+				if home.length() > LEASH:
+					# Past the leash the pull home wins, and it is routed too —
+					# the way back is as full of walls as the way out.
+					_want_dir = _route(owner_player.global_position, delta)
+		_drive(_want_dir * speed, delta)
+		_watch_for_snag(_want_dir, delta)
 	else:
 		# In range: alternate between DIGGING IN and circling (see POST_TIME).
 		_update_post(delta)
 		if _posted:
-			# Planted. Stop dead and shoot from here — no drift, or the crouch
+			# Planted. Pull up and shoot from here — no drift, or the crouch
 			# reads as a stumble rather than as a decision.
-			velocity.x = 0.0
-			velocity.z = 0.0
+			_drive(Vector3.ZERO, delta)
 		else:
 			# Circling, so it isn't a free headshot. A shot taken from fifty
 			# metres is steadier from a stop and there is nothing to dodge that
@@ -878,20 +961,29 @@ func _fight(delta: float) -> void:
 			var circle := STRAFE_SPEED
 			if gap > LONG_RANGE_STILL:
 				circle *= LONG_RANGE_STRAFE
-			velocity.x = side.x * speed * circle
-			velocity.z = side.z * speed * circle
+			_drive(side * speed * circle, delta)
 	_apply_unstick()
 
 	# SIX "should I use this?" TESTS, and a line trooper carries none of the six.
 	# Skipped as a block rather than each one early-returning on an empty slot:
 	# at a hundred bodies the cost being avoided is the asking, not the doing.
-	if not line:
+	# ...and they are asked on a THINK TICK, not on every one. Every test in the
+	# block walks the combatant list or casts a ray, and every ability behind it
+	# is on a cooldown measured in seconds — a question whose answer cannot change
+	# inside two tenths of a second does not need asking sixty times.
+	if not line and _think_now:
 		_place_turret_if_ready(false)  # in contact: dig in where we stand
 		_place_mortar_if_ready(false)
 		_force_push_if_crowded(gap)
-		_throw_lightning_if_in_reach(gap)
 		_fire_wrist_rocket_if_useful(gap)
 		_call_mortar_strike(delta)
+	# THE LIGHTNING IS THE ONE EXCEPTION AND IT HAS TO BE. It is CHANNELLED: the
+	# stream bites every `CHANNEL_TICK` and re-acquires its cone on each bite, and
+	# this call is what ticks it (see `_channel_left`). Gate it and the channel
+	# runs at a twelfth of its rate, which is not a cheaper bot — it is a broken
+	# ability.
+	if not line:
+		_throw_lightning_if_in_reach(gap)
 	_reaction_left = maxf(_reaction_left - delta, 0.0)
 	var facing := Vector3.FORWARD.rotated(Vector3.UP, rotation.y)
 	var on_aim := rad_to_deg(facing.angle_to(flat.normalized())) <= FIRE_CONE_DEG
@@ -911,7 +1003,7 @@ func _fight(delta: float) -> void:
 	var may_fire := in_range and on_aim and _reaction_left <= 0.0 \
 		and weapon.heat() < FIRE_HEAT_CEILING
 	weapon.update_fire(may_fire, may_fire)
-	if not line:
+	if not line and _think_now:
 		_throw_grenade_if_useful(gap)
 
 
@@ -923,19 +1015,24 @@ func _patrol(delta: float) -> void:
 	head.rotation.x = lerpf(head.rotation.x, 0.0, clampf(delta * 3.0, 0.0, 1.0))
 	head.rotation.y = lerpf(head.rotation.y, 0.0, clampf(delta * 3.0, 0.0, 1.0))
 
-	var goal := _patrol_goal(delta)
-	if not line:
-		_try_cable(goal)
+	# WHERE IT IS GOING is a decision and is held between think ticks; WALKING
+	# there happens every tick. A patrol goal is a point across the map that was
+	# chosen seconds ago — re-deriving it sixty times a second was the purest case
+	# of house rule 5 in the file.
+	if _think_now:
+		_patrol_at = _patrol_goal(delta)
+		if not line:
+			_try_cable(_patrol_at)
+	var goal := _patrol_at
 	var flat := goal - global_position
 	flat.y = 0.0
 	var gap := flat.length()
 	var arrive := FOLLOW_DISTANCE if _has_owner() else ROAM_ARRIVE
-	if not line:
+	if not line and _think_now:
 		_place_turret_if_ready(gap <= TURRET_PLACE_GAP)
 		_place_mortar_if_ready(gap <= MORTAR_PLACE_GAP)
 	if gap <= arrive:
-		velocity.x = 0.0
-		velocity.z = 0.0
+		_drive(Vector3.ZERO, delta)
 		_sprinting = false   # arrived; nothing to run to
 		if not _has_owner():
 			_roam_left = 0.0  # arrived: pick somewhere new on the next tick
@@ -945,12 +1042,11 @@ func _patrol(delta: float) -> void:
 	_leave_post()
 	_sprinting = true   # nothing to shoot at and somewhere to be: run
 	_face(flat, delta)
-	var want := _route(goal, delta)
-	var step := want * _speed
-	velocity.x = step.x
-	velocity.z = step.z
+	if _think_now:
+		_want_dir = _route(goal, delta)
+	_drive(_want_dir * _speed, delta)
 	_apply_unstick()
-	_watch_for_snag(want, delta)
+	_watch_for_snag(_want_dir, delta)
 
 
 ## The direction to WALK in to reach `goal` — around the level's geometry rather
@@ -1414,57 +1510,47 @@ func _apply_unstick() -> void:
 		velocity.z += dz * push
 
 
-## Same idle/walk/run rule the player uses, minus the jump (bots don't jump).
+## THE SAME MODULE THE PLAYER USES, which is the point — a Bot is duck-typed
+## against Player and shares no base class (house rule 15), so "the two agree
+## about animation" used to be a thing `tests/locomotion.tscn` had to CHECK
+## rather than something the code made true. Bots do not jump, so airborne is
+## always false here.
 func _animate() -> void:
-	var anim := model.anim_player
-	if anim == null:
+	if _loco == null:
 		return
-	var ground_speed := Vector2(velocity.x, velocity.z).length()
-	var clip := "idle"
-	if _posted:
-		# Dug in: the crouch is the whole tell. A bot that plants without
-		# changing its silhouette just looks like one that stopped working.
-		clip = "crouch_idle"
-	elif _sprinting and ground_speed > 0.15:
-		# The run clip carries the weapon ACROSS THE CHEST (see RUN_GUN_POS), so
-		# this is also the tell that a bot is closing rather than holding. Off the
-		# sprint STATE, not off a speed threshold: the old 3.9 m/s test sat right
-		# on the bots' own walking pace.
-		clip = "run"
-	elif ground_speed > 0.15:
-		# DIRECTIONAL, and it matters more for a bot than for a player: circling
-		# is half of what `_update_post` does, so a bot in contact spends most of
-		# its time moving sideways and was taking a full forward stride the whole
-		# while. The velocity is world-space, so it has to come back into the
-		# body's own frame before the direction means anything.
-		var local := Vector3(velocity.x, 0.0, velocity.z).rotated(
-			Vector3.UP, -rotation.y)
-		clip = _ground_clip(Vector2(local.x, local.z))
-	if anim.assigned_animation != clip and anim.has_animation(clip):
-		anim.play(clip, 0.12)
-	# Paced off each clip's own stride, exactly as the player's are — a bot whose
-	# feet skate is the same artefact whoever is driving the body.
-	match clip:
-		"walk":
-			anim.speed_scale = clampf(ground_speed / 2.6, 0.6, 2.2)
-		"walk_back", "strafe_l", "strafe_r":
-			anim.speed_scale = clampf(ground_speed / 1.9, 0.6, 2.2)
-		"run":
-			anim.speed_scale = clampf(ground_speed / 5.0, 0.6, 2.2)
-		_:
-			anim.speed_scale = 1.0
+	_loco.tick(get_physics_process_delta_time(), velocity, rotation.y,
+		false, _posted, false, _sprinting)
 
 
-## Which locomotion clip a body-relative velocity calls for. Same rule and the
-## same wide forward band as `Player._ground_clip`; stated once here rather than
-## reaching across to Player, since Bot is duck-typed against it and shares no
-## base class (house rule 15).
-const STRAFE_RATIO := 2.0
+## A BOT HAS MASS TOO — or half the bodies on screen still teleport up to speed.
+##
+## Five places used to write `velocity.x/z` outright, which is the same
+## no-momentum problem the player had (see `Player._accelerate`) and is more
+## visible here, because a bot is the body you WATCH rather than the one you are
+## looking out of. Arriving, planting and breaking into a circle were all
+## instant.
+##
+## THRIFTY BODIES KEEP THE OLD PATH, and that is deliberate rather than an
+## oversight. A line trooper steps on alternate ticks at double velocity
+## (`MOVE_EVERY`) — a ramp underneath that would be smoothing a signal that is
+## deliberately sampled at half rate — and a crowd is the case the direct write
+## exists for. It is the same line `crowded()` already draws everywhere else: the
+## bodies you can pick out get the fidelity, the crowd gets the frame.
+##
+## The constants are the player's, referenced rather than restated, the same way
+## `_regen_if_calm` already reaches for `Player.REGEN_RATE`. A bot that
+## accelerated differently from a player would be a tell, not a feature.
+var _move_vel := Vector3.ZERO
 
 
-func _ground_clip(local: Vector2) -> String:
-	if absf(local.x) > absf(local.y) * STRAFE_RATIO:
-		return "strafe_r" if local.x > 0.0 else "strafe_l"
-	if local.y > 0.0 and absf(local.y) > absf(local.x):
-		return "walk_back"
-	return "walk"
+func _drive(want: Vector3, delta: float) -> void:
+	if thrifty:
+		velocity.x = want.x
+		velocity.z = want.z
+		return
+	var rate: float = Player.GROUND_ACCEL
+	if want.length_squared() < 0.01:
+		rate = Player.GROUND_STOP
+	_move_vel = _move_vel.move_toward(want, rate * delta)
+	velocity.x = _move_vel.x
+	velocity.z = _move_vel.z

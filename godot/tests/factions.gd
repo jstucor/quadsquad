@@ -10,6 +10,8 @@ extends Node
 ## The second half is the tint: purple clones have to fire purple, or it is half
 ## a setting.
 
+const PLAYER := preload("res://scenes/actors/player.tscn")
+
 var _fails: Array[String] = []
 var _done := {}
 
@@ -132,6 +134,23 @@ func _check_cross_universe() -> void:
 		var build := GameState.team_build_for(t, 0)
 		_ok(build != null and build.build_name != "",
 			"side %d could not build its first class" % t)
+
+	# AND WHAT A HUMAN ACTUALLY DEPLOYS, which is a THIRD resolution and was the
+	# broken one. The two above are the bot's path and the screen's path; the
+	# player's own deploy called `Loadout.team_build(team, spawn_class)` — a
+	# function that takes a SIDE SLOT and a UNIVERSE, handed a TEAM NUMBER and
+	# nothing else. On a default deal-out those coincide, which is why every
+	# check here passed while the game shipped the fault: pick a side its own
+	# faction (the entire point of the row) and the character select lists one
+	# roster while the body that stands up comes from another.
+	#
+	# So this walks EVERY class on the mixed side and asserts the deployed build
+	# is the row the screen named. Checking one would not do it — slot 0 of two
+	# different rosters can happen to agree.
+	_check_deploy_matches_screen(1, "UNSC")
+	# Both directions: side 0 is still the universe's own first faction, which is
+	# the case that works by coincidence and so must not regress either.
+	_check_deploy_matches_screen(0, "REPUBLIC")
 	# Streak rewards follow the faction too, or a UNSC side is offered a LAAT.
 	var f1 := Loadout.faction(GameState.team_faction[1])
 	var rewards := Streaks.available(int(f1["side"]), int(f1["universe"]))
@@ -159,6 +178,35 @@ func _check_cross_universe() -> void:
 			_ok(not class_names.has(pn),
 				"the reward preset `%s` is also an ordinary class" % pn)
 	_done["cross"] = true
+
+
+## WHAT THE CHARACTER SELECT NAMES IS WHAT STANDS UP, for every class on a side.
+##
+## The screen and the deploy resolve a selection separately, and this asks the
+## one question that catches them disagreeing: walk the roster, and for each slot
+## compare the name the screen prints against the build the player would deploy.
+## A name is the right thing to compare — it is what the human read before
+## pressing A, and two different rosters can agree on a weapon by accident where
+## they cannot agree on a name.
+func _check_deploy_matches_screen(team: int, side_name: String) -> void:
+	var p: Player = PLAYER.instantiate()
+	p.input_device = -1
+	p.team = team
+	add_child(p)
+	var classes := GameState.classes_for(team)
+	var bad := 0
+	for slot in classes.size():
+		p.spawn_class = slot
+		var shown := p.faction_class_name()
+		var deployed := p.faction_class_build()
+		if deployed == null or deployed.build_name != shown:
+			bad += 1
+			_ok(false, "%s slot %d: the screen says `%s` and the deploy builds `%s`"
+				% [side_name, slot, shown,
+					"<null>" if deployed == null else deployed.build_name])
+	print("  %-8s %d classes, %d deploy as something else"
+		% [side_name, classes.size(), bad])
+	p.queue_free()
 
 
 ## PURPLE CLONES FIRE PURPLE. The chip and the tracer are separate arrays on

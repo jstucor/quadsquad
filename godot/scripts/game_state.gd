@@ -107,10 +107,43 @@ const MAPS: Array[Dictionary] = [
 		"scene": preload("res://scenes/levels/senate.tscn")},
 	{"name": "BONEYARD", "blurb": "Ship graveyard: vast hulls and the chokes between them. 260m",
 		"scene": preload("res://scenes/levels/boneyard.tscn")},
-	# The generated one. Its blurb is the PLANET's, filled in by map_blurb(),
-	# because "what map is this" is answered by the planet and the roll — not by
-	# a fixed line that would be wrong four times out of five.
-	{"name": "PROCEDURAL WORLD", "blurb": "", "procedural": true,
+	# The generated one, rolled. Its blurb is the PLANET's, filled in by
+	# map_blurb(), because "what map is this" is answered by the planet and the
+	# roll — not by a fixed line that would be wrong four times out of five.
+	{"name": "RANDOM WORLD", "blurb": "", "procedural": true,
+		"scene": preload("res://scenes/levels/planet.tscn")},
+	# --- EVERY GENERATED WORLD AS ITS OWN MAP ------------------------------------
+	#
+	# A PLANET IS A MAP, NOT A SETTING. There was one row called PROCEDURAL WORLD
+	# and a PLANET dropdown somewhere else deciding which of the five it built —
+	# so five of the game's nineteen maps were invisible on the screen where you
+	# choose a map, reachable only by picking a row that did not name any of them
+	# and then finding a second control. A player choosing between Hoth and
+	# Kashyyyk is choosing a MAP by every meaning of the word.
+	#
+	# APPENDED, NEVER INSERTED (house rule 8). `map_index` is stored in a saved
+	# playlist and in `user://setup.cfg` now, so inserting a row here silently
+	# re-points every round anybody queued in an earlier session.
+	#
+	# `planet` is a `PlanetMap.Planet` value, written as a literal INTEGER on
+	# purpose: game_state.gd is parsed before the level scripts and naming the
+	# enum here is a parse-time cycle. `tests/playlist.tscn` checks these rows
+	# against `PlanetMap.PLANET_NAMES` by NAME, which is house rule 7 — a table
+	# indexed by an enum must be checked against that enum.
+	#
+	# The names carry (GENERATED) because two of them collide with hand-laid maps
+	# of the same name, and the difference is the whole point of the row: one is
+	# an authored 220 m forest that is the same every time, the other is a forest
+	# rolled fresh at the drop.
+	{"name": "GEONOSIS (GENERATED)", "blurb": "", "procedural": true, "planet": 0,
+		"scene": preload("res://scenes/levels/planet.tscn")},
+	{"name": "KASHYYYK (GENERATED)", "blurb": "", "procedural": true, "planet": 1,
+		"scene": preload("res://scenes/levels/planet.tscn")},
+	{"name": "CORUSCANT (GENERATED)", "blurb": "", "procedural": true, "planet": 2,
+		"scene": preload("res://scenes/levels/planet.tscn")},
+	{"name": "MUSTAFAR (GENERATED)", "blurb": "", "procedural": true, "planet": 3,
+		"scene": preload("res://scenes/levels/planet.tscn")},
+	{"name": "HOTH (GENERATED)", "blurb": "", "procedural": true, "planet": 4,
 		"scene": preload("res://scenes/levels/planet.tscn")},
 ]
 ## A team is just an index now, 0 .. active_teams()-1. Two is the classic
@@ -150,6 +183,19 @@ var bolt_colors: Array[Color] = [
 	Color(0.38, 1.0, 0.40),
 	Color(1.0, 0.52, 0.14),
 ]
+
+
+## A side's CHIP colour — the faction's own, or the tint that side was given on
+## the menu (`refresh_sides` folds the two into `team_colors`, so this is already
+## "the colour chosen for this side" and never needs asking twice).
+##
+## Bounds-checked for the same reason `bolt_color` is: an out-of-range index
+## aborts the enclosing function (house rule 6), so a stray team would take a
+## whole HUD build down with it rather than merely looking wrong.
+func team_color(team: int) -> Color:
+	if team < 0 or team >= team_colors.size():
+		return team_colors[0]
+	return team_colors[team]
 
 
 ## The bolt colour for a side, safe against a team index that is out of range
@@ -306,10 +352,21 @@ func is_night() -> bool:
 	return time_of_day == TimeOfDay.NIGHT and map_is_procedural()
 
 
-## Which world the generator should actually build this match: the menu choice,
-## or a roll if it is set to RANDOM.
+## Which world the SELECTED MAP names, or RANDOM_PLANET for the rolled row and
+## for every hand-laid map. The map row is asked first everywhere below, because
+## a map that names its planet is the whole reason those rows exist.
+func map_planet() -> int:
+	return int(MAPS[clampi(map_index, 0, MAPS.size() - 1)].get("planet", RANDOM_PLANET))
+
+
+## Which world the generator should actually build this match: the one the MAP
+## names, else the PLANET setting (which only the single-match setup screen still
+## offers, for the RANDOM WORLD row), else a roll off the seed.
 func chosen_planet() -> int:
 	var count: int = PlanetMap.PLANET_NAMES.size()
+	var stated := map_planet()
+	if stated >= 0 and stated < count:
+		return stated
 	if planet >= 0 and planet < count:
 		return planet
 	return abs(planet_seed) % count
@@ -325,7 +382,9 @@ func map_blurb() -> String:
 	if not map_is_procedural():
 		return str(MAPS[map_index]["blurb"])
 	var night := is_night()
-	if planet == RANDOM_PLANET:
+	# Only the ROLLED row is "a world rolled at the drop" now: a row that names
+	# its planet describes that planet, however the PLANET setting is left.
+	if map_planet() < 0 and planet == RANDOM_PLANET:
 		if night:
 			return "A world rolled at the drop, fought in the dark"
 		return "A world rolled at the drop. Every match is a new one"
@@ -355,7 +414,85 @@ var rotate_maps := false
 ## False from map load until the start countdown finishes. Everything that can
 ## act checks it, so the opening seconds are a real hold rather than a free hit
 ## for whoever loads fastest.
+## --- FRIENDLY FIRE -------------------------------------------------------------
+##
+## WHETHER YOUR ROUNDS HURT YOUR OWN SIDE. On by default, which is the setting
+## the game is more interesting under: it puts a real cost on firing into a
+## scrum, makes a grenade a decision rather than a free area denial, and is most
+## of what makes a rocket launcher feel dangerous to carry.
+##
+## IT IS A MATCH RULE AND NOT A MACHINE OPTION, which is why it lives here beside
+## the mode and the time-to-kill rather than in `Controls._options` with the
+## quality tier and the FPS cap. Those belong to the machine; this belongs to the
+## match — four people on one sofa are playing one game and cannot each have
+## their own answer, and online it has to be the host's. It is on the setup
+## screen's MATCH block with VICTORY and TIME TO KILL, which are the rules of the
+## same kind.
+var friendly_fire := true
+
+
+## MAY THIS TEAM HURT THAT ONE? The one place the rule lives, so no damage path
+## can quietly disagree with another about it.
+##
+## SELF-DAMAGE ALWAYS COUNTS and is deliberately not routed through here: rocket
+## jumping into your own splash is a mistake the game should charge you for
+## whatever the friendly-fire setting says, and every caller already tests
+## `attacker != self` before asking.
+func may_harm(from_team: int, to_team: int) -> bool:
+	return friendly_fire or from_team != to_team
+
+
 var match_live := false
+
+## --- HOLDING THE MATCH --------------------------------------------------------
+##
+## ONE OWNER FOR `get_tree().paused`, AND IT IS A SET OF REASONS RATHER THAN A
+## BOOLEAN. Two things can stop the match — a solo player opening the settings
+## overlay, and a controller falling out — and they can overlap: unplug a pad
+## while the overlay is up, plug it back in, and a plain boolean would resume a
+## game the player is still reading a menu over. A reason SET cannot do that,
+## because it only lets go when the last holder does.
+##
+## It is here rather than in Main because Main is rebuilt on every map and the
+## overlay that calls it belongs to a player, not to the level; and because "is
+## the match stopped" is match state, which is what this file is.
+##
+## PAUSING IS A SOLO ANSWER. At more than one human the whole design is that one
+## player's screen is their own — the settings overlay has always opened over one
+## viewport while the other three keep playing — so freezing four people because
+## one of them opened a menu or dropped a pad would be the opposite decision, made
+## in the same file that made the first one. Callers ask `may_pause()` rather
+## than testing the count themselves, so the rule lives in one place.
+var _holds := {}
+
+
+## True when the match may be stopped outright: exactly one human is playing, so
+## there is nobody else for a pause to be unfair to.
+func may_pause() -> bool:
+	return human_players <= 1 and not Net.online()
+
+
+## Take or release a named hold. Anything that stops the match takes one and is
+## responsible for giving it back — including on the path where it is destroyed,
+## which is why the overlay releases in `_close()` rather than on a button.
+func hold(reason: String, on: bool) -> void:
+	if on:
+		_holds[reason] = true
+	else:
+		_holds.erase(reason)
+	var tree := get_tree()
+	if tree != null:
+		tree.paused = not _holds.is_empty()
+
+
+## Drop every hold. Called on a map change and on leaving a match: a scene that
+## loads into a paused tree is a scene that never runs its first frame, and the
+## holder that took it no longer exists to give it back.
+func release_all_holds() -> void:
+	_holds.clear()
+	var tree := get_tree()
+	if tree != null:
+		tree.paused = false
 
 var mode := Mode.DEATHMATCH
 ## Where the capture area currently is, and whether there is one at all. Bots
@@ -417,7 +554,13 @@ enum ClassMode { CUSTOM, FACTION }
 const CLASS_MODE_NAMES := {
 	ClassMode.CUSTOM: "CUSTOM (BUY SCREEN)", ClassMode.FACTION: "FACTION ROSTERS",
 }
-var class_mode := ClassMode.CUSTOM
+var class_mode := ClassMode.CUSTOM:
+	set(v):
+		class_mode = v
+		# MIRRORED INTO Loadout, exactly as `universe` and `ttk` are, and for the
+		# same reason: Loadout may never name an autoload (`kit_rules` runs with
+		# none). It decides how wide the catalogue is — see `Loadout.custom_pool`.
+		Loadout.custom_pool = v == ClassMode.CUSTOM
 
 var human_players := 4
 var team_size := 2
@@ -532,6 +675,259 @@ func ai_needed(team: int) -> int:
 	if free_for_all:
 		return 0
 	return maxi(team_size - humans_on_team(team), 0)
+
+
+## --- WHO IS AT THE COUCH ------------------------------------------------------
+##
+## A SEAT IS A DEVICE AND A NAME, and until the sign-in screen existed it was
+## neither: player 2 meant "the top-right quadrant", their controller was pad 1
+## by arithmetic, and nothing about them survived the match. Both halves are
+## filled in by `sign_in.gd` — a player claims a seat by pressing START on
+## whatever controller they picked up, then chooses the account that holds their
+## settings and their record.
+##
+## THE ARRAYS ARE ALLOWED TO BE EMPTY AND EVERY READER GOES THROUGH THE TWO
+## FUNCTIONS BELOW. Tests boot straight into a match, the lobby has its own
+## seating, and `-- --debug` puts one player at a desk — none of those pass
+## through a sign-in, and every one of them has to keep working exactly as it
+## did. So an unfilled seat falls back to the old rule (P1..P4 are pads 0..3,
+## keyboard for P1 under the debug flag) rather than to nothing.
+var player_devices: Array[int] = []
+var player_accounts: Array[String] = []
+
+
+## Which input device drives a viewport. The ONE place that arithmetic lives now
+## — Main, team select and the sign-in screen all ask this, because a player who
+## signed in on pad 3 and then found themselves steering pad 1's body would have
+## no way of telling what had happened.
+func device_for_player(index: int) -> int:
+	if index >= 0 and index < player_devices.size():
+		return player_devices[index]
+	return -1 if (debug_kbm and index == 0) else index
+
+
+## Whose seat that is, or "" when nobody signed in. Callers print it; nothing
+## depends on it existing, so a match booted without a sign-in is unaffected.
+func account_for(index: int) -> String:
+	if index >= 0 and index < player_accounts.size():
+		return player_accounts[index]
+	return ""
+
+
+func clear_seats() -> void:
+	player_devices.clear()
+	player_accounts.clear()
+
+
+## WHERE THE SETTINGS SCREEN GOES BACK TO. It always returned to `menu.tscn`,
+## which was right while that was the only screen that could reach it and became
+## wrong the moment the front screen and the playlist could too — a BACK that
+## lands somewhere you have never been reads as the game having got lost. The
+## caller states where it came from; the default is the front screen, which is
+## where a screen with no caller belongs.
+var settings_return := "res://scenes/front.tscn"
+
+
+## Fold this match's per-viewport table into the signed-in accounts, and store
+## each player's controller configuration back onto theirs.
+##
+## AT THE END OF THE MATCH AND NOWHERE ELSE. A career stat written as the kill
+## happens would be written by the wire as well as by the killer online, would be
+## written twice for a rotation that reloads the scene, and could not know
+## whether the match was WON — which is a fact about the whole match and not
+## about any one kill.
+func record_results(winner: int) -> void:
+	for index in player_stats:
+		var name := account_for(int(index))
+		if name.is_empty():
+			continue
+		var row: Dictionary = player_stats[index]
+		Accounts.record_match(name, row, int(row.get("team", -1)) == winner)
+		# ...and whatever they changed in the in-match settings overlay tonight is
+		# theirs the next time they sit down, on whatever device they pick up.
+		Accounts.capture(name, device_for_player(int(index)))
+
+
+## --- THE PLAYLIST -------------------------------------------------------------
+##
+## A QUEUE OF MATCHES, NOT A MAP ROTATION. `rotate_maps` walks the map roster in
+## order and keeps every other setting fixed, which answers "we cannot be bothered
+## to choose again" and nothing else. What four people at a couch actually want is
+## the thing Battlefront's front end is built around: three rounds we picked, in
+## the order we picked them — Conquest on Kashyyyk as the Republic, then a quick
+## deathmatch in the hangar, then a battle royale — set up once, before anybody
+## sits down, and then played without going back to a menu between them.
+##
+## AN ENTRY IS A WHOLE MATCH CONFIGURATION and not a map index, because that is
+## exactly the difference between this and the rotation. `capture_match` takes the
+## live settings and `apply_match` puts them back, so anything the setup screen
+## can change is part of what a playlist entry remembers, and adding a setting to
+## the game adds it to the playlist by adding one line HERE — never at the screen.
+var playlist: Array[Dictionary] = []
+## Which entry is being played. -1 means the playlist is not driving this match
+## (a lobby match, a test, a single match started off the setup screen).
+var playlist_index := -1
+
+
+## Every setting a playlist entry carries. Named in one place so `capture_match`
+## and `apply_match` cannot drift apart — the failure they would produce is a
+## queued match that plays with the setting the LAST one used, which looks like
+## the screen not having saved your choice.
+const MATCH_KEYS := [
+	"map_index", "mode", "planet", "time_of_day", "ttk", "class_mode",
+	"team_count", "free_for_all", "team_size", "ai_skill", "aim_assist",
+	"friendly_fire", "universe",
+]
+
+
+func capture_match() -> Dictionary:
+	var entry := {}
+	for key in MATCH_KEYS:
+		entry[key] = get(key)
+	# The arrays are DUPLICATED, or every entry in the playlist would share one
+	# and picking the sides for round three would silently re-side rounds one and
+	# two as well.
+	entry["team_faction"] = team_faction.duplicate()
+	entry["team_tint"] = team_tint.duplicate()
+	# The victory threshold is per MODE (`score_targets` is a whole table), so an
+	# entry stores the one its own mode plays to.
+	entry["score_target"] = score_limit()
+	return entry
+
+
+func apply_match(entry: Dictionary) -> void:
+	for key in MATCH_KEYS:
+		if entry.has(key):
+			set(key, entry[key])
+	# THE TWO INDEXES THAT ARE ONLY MEANINGFUL AGAINST A ROSTER, clamped. An entry
+	# can come from `user://setup.cfg` written by an older build, and a map_index
+	# past the end of MAPS takes down every function that reads it rather than
+	# merely picking the wrong map. `team_size` is deliberately NOT clamped —
+	# MASSIVE's fifty is legitimately past MAX_TEAM_SIZE.
+	map_index = clampi(map_index, 0, MAPS.size() - 1)
+	mode = clampi(mode, 0, MODE_NAMES.size() - 1)
+	team_count = clampi(team_count, 2, MAX_TEAMS)
+	if entry.has("team_faction"):
+		team_faction.assign(entry["team_faction"])
+	if entry.has("team_tint"):
+		team_tint.assign(entry["team_tint"])
+	if entry.has("score_target"):
+		score_targets[mode] = int(entry["score_target"])
+	# The names, chips and tracers are DERIVED from the pair above, so they are
+	# re-derived here rather than stored — a stored colour is one edit away from a
+	# side whose chip and whose bolt disagree about who it is.
+	refresh_sides()
+
+
+## One line describing a queued match, for the playlist column and the banner
+## between rounds. It reads the ENTRY rather than the live settings, because the
+## whole point of the column is showing you rounds you are not currently playing.
+func match_label(entry: Dictionary) -> String:
+	var map_name := str(MAPS[clampi(int(entry.get("map_index", 0)), 0, MAPS.size() - 1)]["name"])
+	# A TIGHT SEPARATOR, because the longest pair in the game is PROCEDURAL WORLD
+	# and BATTLE ROYALE and it has to fit one row of the queue column — with the
+	# spaced middot this project uses everywhere else, it did not.
+	return "%s · %s" % [map_name,
+		str(MODE_NAMES.get(int(entry.get("mode", Mode.DEATHMATCH)), "?"))]
+
+
+## The sides a queued match is fought between, named. Free-for-all has no sides
+## to name, which is worth saying rather than printing an arbitrary two of them.
+func match_sides(entry: Dictionary) -> String:
+	if bool(entry.get("free_for_all", false)):
+		return "Free for all"
+	var factions: Array = entry.get("team_faction", team_faction)
+	var count: int = mini(int(entry.get("team_count", 2)), factions.size())
+	var names := PackedStringArray()
+	for t in count:
+		names.append(str(Loadout.faction(int(factions[t]))["name"]))
+	return " vs ".join(names)
+
+
+## --- THE SETUP SURVIVES THE SESSION -------------------------------------------
+##
+## WHAT IS SAVED IS THE SETUP, NOT THE MATCH. Everything on the playlist screen —
+## the settings behind the SETTINGS button and the queue itself — is written to
+## `user://setup.cfg` as it changes and read back at launch. Four people who spent
+## a couple of minutes agreeing on 20-a-side Conquest at REALISTIC time-to-kill,
+## with three rounds queued, should not have to agree on it again tomorrow; and
+## the settings are now BEHIND a button, which makes forgetting them worse than
+## it was when they were all on screen.
+##
+## IT IS THE SAME SHAPE A PLAYLIST ENTRY IS (`capture_match`/`apply_match`), so
+## there is one definition of "a match configuration" and adding a setting to
+## `MATCH_KEYS` makes it both queueable and persistent in the same line.
+##
+## NOT SAVED, DELIBERATELY: how many humans are at the couch (the front screen
+## asks that every time because it is a fact about the room), who is signed into
+## which seat (same), and the map ROTATION flag (a queue is the rotation now).
+const SETUP_PATH := "user://setup.cfg"
+
+
+func save_setup() -> void:
+	var cfg := ConfigFile.new()
+	cfg.set_value("setup", "match", capture_match())
+	cfg.set_value("setup", "playlist", playlist)
+	cfg.save(SETUP_PATH)
+
+
+## Read it back. **CALLED BY THE SETUP SCREENS, NEVER FROM `_init`**, and that is
+## a deliberate line rather than a convenience. This autoload is built by every
+## headless test in the project, and loading a developer's saved setup at boot
+## would silently give all of them whatever map, mode and time-to-kill that
+## machine last played — which is a whole suite that passes here and fails on the
+## next desk, for a reason nothing prints. The screens that exist to edit the
+## setup are the screens that read it.
+##
+## Anything missing or out of range leaves the default standing —
+## a config written by an older build must never be able to take the game down
+## with it (house rule 6), and `map_index` is exactly the field that could: the
+## roster grows, and a stored index is only meaningful against the roster it was
+## stored from.
+func load_setup() -> void:
+	var cfg := ConfigFile.new()
+	if cfg.load(SETUP_PATH) != OK:
+		return   # never played on this machine
+	var stored = cfg.get_value("setup", "match", {})
+	if stored is Dictionary and not stored.is_empty():
+		apply_match(stored)
+	playlist.clear()
+	var queued = cfg.get_value("setup", "playlist", [])
+	if queued is Array:
+		for entry in queued:
+			if entry is Dictionary and not entry.is_empty():
+				playlist.append(entry)
+	playlist_index = -1
+
+
+## Start the playlist from the top. Returns false for an empty one, so a caller
+## can fall back to whatever it would have done anyway.
+func playlist_begin() -> bool:
+	if playlist.is_empty():
+		playlist_index = -1
+		return false
+	playlist_index = 0
+	apply_match(playlist[0])
+	return true
+
+
+func playlist_active() -> bool:
+	return playlist_index >= 0 and playlist_index < playlist.size()
+
+
+## Move to the next queued match and apply it. False when the playlist is
+## finished, which is what sends everyone back to the setup screen.
+func playlist_advance() -> bool:
+	if not playlist_active():
+		return false
+	playlist_index += 1
+	if playlist_index >= playlist.size():
+		playlist_index = -1
+		return false
+	apply_match(playlist[playlist_index])
+	return true
+
+
 ## Every body that can be shot, shove or be shoved, and block a spawn marker:
 ## players and their bought AI squads alike. They register in _ready and drop
 ## out in _exit_tree; spawn picking and the anti-stacking push both walk this
@@ -568,6 +964,7 @@ func _init() -> void:
 	# be right only from the first time somebody changed the setting.
 	universe = universe
 	ttk = ttk
+	class_mode = class_mode
 	_read_cmdline()
 
 
@@ -625,9 +1022,16 @@ func massive() -> bool:
 	return mode == Mode.MASSIVE
 
 
-## The generated map's index in MAPS. MASSIVE is locked to it, so this is the one
-## place that has to know which row it is.
+## A generated map's index in MAPS. MASSIVE is locked to generated ground, so
+## this is the one place that has to know which rows those are.
+##
+## IT KEEPS THE ONE ALREADY CHOSEN. Every planet is its own row now, so "lock
+## this to the procedural world" must not mean "throw away the fact that they
+## picked Hoth" — the rule is that a hundred bodies need generated ground, not
+## that they need a rolled one.
 func procedural_map_index() -> int:
+	if map_is_procedural():
+		return map_index
 	for i in MAPS.size():
 		if MAPS[i].get("procedural", false):
 			return i
@@ -657,6 +1061,9 @@ func mode_blurb() -> String:
 
 
 func reset_match() -> void:
+	# A FRESH MATCH IS NEVER HELD. Whatever stopped the last one is gone with it,
+	# and a tree left paused across a map change loads a level that never ticks.
+	release_all_holds()
 	scores = {}
 	for t in active_teams():
 		scores[t] = 0
@@ -1060,9 +1467,19 @@ func stats_for(player_index: int) -> Dictionary:
 	if not player_stats.has(player_index):
 		player_stats[player_index] = {
 			"kills": 0, "deaths": 0, "headshots": 0, "streak": 0, "best_streak": 0,
-			"team": 0, "name": "PLAYER %d" % (player_index + 1),
+			"team": 0, "name": player_name(player_index),
 		}
 	return player_stats[player_index]
+
+
+## WHAT THE POST-MATCH TABLE CALLS SOMEBODY: their account when they signed in,
+## and the seat tag otherwise. An end-of-round table listing four people as
+## PLAYER 1..4 is the one screen where the names they chose earn their keep, and
+## it is also what makes a career stat legible — the row that goes into an
+## account should be labelled with that account.
+func player_name(player_index: int) -> String:
+	var who := account_for(player_index)
+	return who if not who.is_empty() else "PLAYER %d" % (player_index + 1)
 
 
 ## What to call a body in the feed. ASKED, NOT REQUIRED: a combatant that never

@@ -38,6 +38,7 @@ static var _mats := {}
 
 var _dir := Vector3.ZERO
 var _remaining := 0.0
+var _speed := SPEED
 var _impact := 0.0            # seconds of flash left, once it has landed
 var _mesh: MeshInstance3D
 
@@ -57,7 +58,14 @@ static func _material(col: Color) -> StandardMaterial3D:
 ## `col` is the firing weapon's own colour (Weapon.bolt_color) — the same one its
 ## muzzle light and its impact scorch use, so a round matches the flash that threw
 ## it and the mark it leaves.
-func launch(from: Vector3, to: Vector3, col: Color) -> void:
+## `speed` is an OVERRIDE and gameplay never passes one. It exists for the front
+## screen's firefight, which is the same bolt in the same material fired for a
+## different purpose: at the shipping 400 m/s a round crosses a twenty-metre gap
+## in three frames, which is exactly right when it is settling a fight and
+## invisible when it is decoration. A parameter rather than a second tracer node,
+## so the menu cannot end up showing a bolt the game does not fire.
+func launch(from: Vector3, to: Vector3, col: Color, speed := SPEED) -> void:
+	_speed = speed
 	global_position = from
 	_remaining = from.distance_to(to)
 	if _remaining < 0.01:
@@ -75,7 +83,7 @@ func _process(delta: float) -> void:
 	if _impact > 0.0:
 		_burn(delta)
 		return
-	var step := SPEED * delta
+	var step := _speed * delta
 	global_position += _dir * step
 	_remaining -= step
 	if _remaining <= 0.0:

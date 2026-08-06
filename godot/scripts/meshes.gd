@@ -133,7 +133,31 @@ static func _build_chamfer(size: Vector3, c: float) -> ArrayMesh:
 	return st.commit()
 
 
+## THE WINDING IS GODOT'S, AND IT IS THE OPPOSITE OF THE OBVIOUS ONE.
+##
+## This whole mesh was built wound the wrong way round, and because every box in
+## the game comes through here, EVERY model in the game was inside out: the
+## characters, the guns, the corpses, the cover, the vehicles, the deployables.
+## With back faces culled that does not look like a winding bug — it looks like
+## the models are TRANSPARENT (you see through the near face into the far one's
+## interior) and like the lighting is broken (those interior faces carry outward
+## normals, so they are lit as though facing away, and the whole model goes flat
+## and ambient-only). It is the single most expensive class of bug this project
+## has had and this is the second time it has bitten: the planet terrain cost a
+## session to the same mistake.
+##
+## Godot's front face is the CLOCKWISE one, so for correctly-wound geometry
+## `cross(b - a, c - a)` points INWARD and a closed solid's signed volume through
+## `a · (b × c) / 6` comes out NEGATIVE. Every engine primitive (BoxMesh,
+## SphereMesh, CylinderMesh, PrismMesh, QuadMesh) measures that way, and they are
+## the authority — `tests/chamfer.gd` now asserts against a real BoxMesh rather
+## than against a sign somebody had to remember, which is what let this through:
+## the old test demanded a POSITIVE volume, so the mesh passed a check that was
+## itself the wrong way round.
+##
+## The vertices are emitted a, c, b for that reason. The callers above still name
+## their triangles in the readable order.
 static func _tri(st: SurfaceTool, n: Vector3, a: Vector3, b: Vector3, c: Vector3) -> void:
-	for v: Vector3 in [a, b, c]:
+	for v: Vector3 in [a, c, b]:
 		st.set_normal(n)
 		st.add_vertex(v)
