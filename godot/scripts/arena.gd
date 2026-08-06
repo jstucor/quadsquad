@@ -162,9 +162,15 @@ func _build_walls() -> void:
 	_wall(Vector3(half.x, h * 0.5, 0), Vector3(0.6, h, depth), mat)
 
 
-func _wall(center: Vector3, box_size: Vector3, mat: Material) -> void:
+## `nav` false marks this as geometry the nav grid and the map screen must
+## IGNORE while it goes on colliding — a ceiling, an overhead gantry. See
+## `GameState.MAP_NAV_IGNORE` for why it is stated rather than inferred from how
+## high the box is.
+func _wall(center: Vector3, box_size: Vector3, mat: Material, nav := true) -> void:
 	var body := StaticBody3D.new()
 	body.position = center
+	if not nav:
+		body.set_meta(GameState.MAP_NAV_IGNORE, true)
 	add_child(body)
 	var mesh := MeshInstance3D.new()
 	var bm := BoxMesh.new()

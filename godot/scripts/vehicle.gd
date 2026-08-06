@@ -131,6 +131,17 @@ const STREAK_VEHICLES := {
 		# around the whole silhouette would stop rounds passing between two thin
 		# legs, which is most of what makes shooting at a walker interesting.
 		"hull": Vector3(2.10, 2.20, 2.00),
+		# WHERE THE DRIVER'S EYE GOES, and this row is why the key exists. The
+		# authored `Seat` is a SADDLE — right for a speeder, where the camera ends
+		# up at head height over the cowl — and on a walker it put the eye 1.75 m
+		# above the vehicle's own origin, which is above the pod's ROOF. The
+		# result was a camera floating in clear air over the machine: none of the
+		# AT-ST in frame, no cockpit, no gun, no sense of piloting anything, and
+		# nothing to judge where the cannon was pointed. Behind the viewports it
+		# is a cockpit — the brow overhead, the chin gun below, the side gear at
+		# the edges — and the pod shell around it is culled from the inside, so
+		# the view out is clear without cutting a window.
+		"eye": Vector3(0.0, 0.98, -0.30),
 	},
 }
 
@@ -205,6 +216,11 @@ var _gun_pitch := 0.0
 @onready var _seat: Node3D = $Seat
 @onready var _body: Node3D = $Body          # everything that banks
 @onready var _mount: Area3D = $MountArea
+## Where this gun's next round lands — see `_trace_gun`. Read by the sight.
+var _gun_impact := Vector3.ZERO
+## The parts of the hull that sit ON TOP of the driver's eye — hidden from that
+## one player while they are aboard. See `_hide_shell_from`.
+var _shell: Array[MeshInstance3D] = []
 @onready var _gun_pivot: Node3D = $Body/GunPivot
 @onready var weapon: Weapon = $Body/GunPivot/Weapon
 
@@ -273,6 +289,12 @@ func setup_as(row_id: String, vehicle_team: int) -> void:
 func _setup_row(vehicle_team: int, row: Dictionary) -> void:
 	team = vehicle_team
 	_row = row
+	# The authored `Seat` is the speeder's saddle; a machine that states an `eye`
+	# moves it there instead. One line rather than a node per hull, and a new
+	# machine says where its driver sits in the same table row it says everything
+	# else in.
+	if row.has("eye") and _seat != null:
+		_seat.position = row["eye"]
 	max_health = float(_row["health"])
 	health = max_health
 	var size: Vector3 = _row["hull"]
@@ -450,6 +472,29 @@ func _physics_process(delta: float) -> void:
 	_carry_driver()
 
 
+## WHAT THE DRIVER'S SIGHT DRAWS, in the shape `gunner_hud.gd` already asks the
+## LAAT and the orbital station for. Duck-typed, so a machine with a gunner's
+## sight is any machine that answers this and the HUD knows about none of them.
+##
+## THE VEHICLES HAD NO SIGHT AT ALL, and it was a side effect rather than a
+## decision: the rifle's bloom crosshair is hidden while mounted (it was drawing
+## the cone of a gun that was not firing, over the sight of the one that was),
+## which left a driver with a clear screen and nothing marking where the cannon
+## pointed.
+##
+## `hull` instead of a clock: the bar under a sight is THE RESOURCE THAT RUNS
+## OUT, and for a ride that is seconds where for a machine you drive it is the
+## hull. Same widget, same slot, the thing each one is actually spending.
+func gunner_readout() -> Dictionary:
+	return {
+		"name": str(_row.get("name", "VEHICLE")),
+		"ready": weapon != null and not weapon._overheated,
+		"hull": health,
+		"hull_max": maxf(max_health, 0.001),
+		"aim": _gun_impact,
+	}
+
+
 ## Nobody in the seat: look for the player standing in the mount area with the
 ## interact edge pending. Reading `pickup_in_reach` back means we only ever claim
 ## somebody who is genuinely next to THIS vehicle and has not already spent the
@@ -488,8 +533,49 @@ func _mount_player(p: Node3D) -> void:
 		return
 	driver = p
 	p.pickup_in_reach = null
+	# A MACHINE THAT STATES AN EYE IS SAT INSIDE; ANYTHING ELSE IS SAT ON.
+	# `seat_is_eye` anchors the camera AT the seat instead of a body height above
+	# it (see `Player.seat_anchor_offset`), which is the difference between a
+	# cockpit and a camera hovering over the roof. Set BEFORE `enter_vehicle`,
+	# because that is what reads the offset and places the body.
+	if "seat_is_eye" in p:
+		p.seat_is_eye = _row.has("eye")
 	p.enter_vehicle(self)
+	_hide_shell_from(p)
 	driver_changed.emit(p)
+
+
+## SHOW THE DRIVER THE BATTLEFIELD, NOT THE INSIDE OF THEIR OWN COCKPIT.
+##
+## Sitting the eye behind the viewports is what makes a walker feel like a walker
+## — but it also puts the camera inside a 1.95 x 1.45 x 1.70 steel box with a
+## face plate across its eyeline and a roof hatch on top of it. Photographed from
+## the seat (`tests/vehicle_pov.tscn`) those came back as untextured grey slabs
+## across the corners of the frame: not a cockpit, just geometry too close to
+## read.
+##
+## The same mechanism the LAAT's ball uses and the same one that hides a player's
+## own body from their own camera: each player's camera clears render layer
+## `2 + player_index`, so a mesh put on that layer is invisible to exactly one
+## person and unchanged for everybody else. What is deliberately LEFT is
+## everything below and ahead — the chin guns, the hip yoke, the legs — because
+## that is the framing that says you are driving something.
+func _hide_shell_from(who: Node3D) -> void:
+	if not ("player_index" in who):
+		return
+	var bit: int = 1 << (1 + int(who.player_index))
+	for mi in _shell:
+		if is_instance_valid(mi):
+			mi.layers = bit
+
+
+## ...and give it back on the way out, or the pod stays invisible to that player
+## for the rest of the match — including to the next person to climb in, since
+## the layer is per PLAYER and the machine outlives the ride.
+func _show_shell() -> void:
+	for mi in _shell:
+		if is_instance_valid(mi):
+			mi.layers = 1
 
 
 ## Put the driver back on their feet beside the hull. `forced` is a wreck or a
@@ -497,6 +583,7 @@ func _mount_player(p: Node3D) -> void:
 func _eject(forced: bool) -> void:
 	var p := driver
 	driver = null
+	_show_shell()
 	if p == null or not is_instance_valid(p):
 		return
 	if p.has_method("exit_vehicle"):
@@ -513,7 +600,22 @@ func _eject(forced: bool) -> void:
 func _carry_driver() -> void:
 	if driver == null or not is_instance_valid(driver):
 		return
-	driver.global_position = _seat.global_position
+	driver.global_position = _seat.global_position - _seat_anchor()
+
+
+## How far below the seat the body's ORIGIN has to sit so the driver's eye lands
+## on it. Zero for a saddle (the camera rides a head height above the seat, which
+## is what a speeder wants); a head height for a cockpit, so the eye is the thing
+## that ends up at the seat.
+##
+## Asked of the DRIVER rather than assumed, for the reason the LAAT's ball
+## records: the offset is read off that body's own head, and bodies are not all
+## the same height.
+func _seat_anchor() -> Vector3:
+	if driver != null and is_instance_valid(driver) \
+			and driver.has_method("seat_anchor_offset"):
+		return driver.seat_anchor_offset()
+	return Vector3.ZERO
 
 
 ## --- flying -------------------------------------------------------------------
@@ -581,6 +683,37 @@ func _apply_attitude(delta: float) -> void:
 		clampf(delta * BANK_LERP, 0.0, 1.0))
 
 
+## WHERE THIS GUN'S NEXT ROUND ACTUALLY LANDS, in world space, cast from the
+## weapon itself.
+##
+## The sight is drawn on THIS point rather than at the middle of the screen, and
+## that is the whole reason it exists rather than a fixed crosshair. A vehicle's
+## gun is not where the driver's eye is — the AT-ST's cannon sits under the
+## cockpit, a speeder's is out on the nose — and the gun is clamped to a cone
+## (`GUN_YAW_LIMIT`) the camera is not, so past the stop the barrel stops turning
+## while the view keeps going. A centred reticle would be a lie in exactly the
+## situation a driver most needs the truth: it is the LAAT ball turret's parallax
+## fault, which is on record as the thing an angle check cannot see — two rays
+## can point the same way and land eighty metres apart.
+##
+## Cast in the PHYSICS tick, because that is the only place a ray query is legal
+## and this is called from `_aim_gun`.
+func _trace_gun() -> void:
+	if driver == null or not is_instance_valid(driver) or weapon == null:
+		return
+	var from: Vector3 = weapon.global_position
+	var reach: float = weapon.max_range() if weapon.has_method("max_range") else 120.0
+	var to: float = reach
+	var dir: Vector3 = -weapon.global_transform.basis.z
+	var params := PhysicsRayQueryParameters3D.create(from, from + dir * to)
+	# The world and BODIES both: a sight that ignores the man in front of it and
+	# marks the wall behind him is telling you about the wall.
+	params.collision_mask = 0b11
+	params.exclude = [get_rid()]
+	var hit := get_world_3d().direct_space_state.intersect_ray(params)
+	_gun_impact = hit["position"] if hit.has("position") else from + dir * to
+
+
 ## Point the gun where the driver is looking, inside the cone. With no driver it
 ## eases back to centre rather than snapping — a parked speeder with its gun
 ## cranked hard over reads as broken.
@@ -599,6 +732,7 @@ func _aim_gun(delta: float) -> void:
 	_gun_pitch = lerpf(_gun_pitch, want_pitch, t)
 	_gun_pivot.rotation.y = _gun_yaw
 	_gun_pivot.rotation.x = _gun_pitch
+	_trace_gun()
 	if driver != null and is_instance_valid(driver):
 		var fire: bool = driver.vehicle_firing()
 		weapon.update_fire(fire, fire and not _was_firing)
@@ -801,9 +935,12 @@ const ATST_TRACK := 0.78       # half the distance between the two legs
 func _build_atst(steel: Material, poly: Material, trim: Material, lit: Material) -> void:
 	_atst_pod(steel, poly, trim, lit)
 	# The hip yoke the legs hang off, and the "chin" block under the pod that
-	# stops it floating free of them.
-	_box(Vector3(2.00, 0.50, 1.15), Vector3(0, ATST_HIP_Y, 0.05), poly)
-	_box(Vector3(1.20, 0.55, 0.95), Vector3(0, ATST_HIP_Y + 0.55, 0.05), steel)
+	# stops it floating free of them. BOTH ARE SHELL: they sit directly under the
+	# driver's eye, so looking down — which is how you steer a walker — filled
+	# half the frame with a pale untextured slab. The LEGS below them are left
+	# alone and are what actually reads as "I am driving a walker".
+	_shell.append(_box(Vector3(2.00, 0.50, 1.15), Vector3(0, ATST_HIP_Y, 0.05), poly))
+	_shell.append(_box(Vector3(1.20, 0.55, 0.95), Vector3(0, ATST_HIP_Y + 0.55, 0.05), steel))
 	for sx: float in [-1.0, 1.0]:
 		_atst_leg(sx, steel, poly, trim)
 
@@ -817,10 +954,12 @@ func _atst_pod(steel: Material, poly: Material, trim: Material, lit: Material) -
 	_body.add_child(pod)
 	pod.position = Vector3(0, 0.95, 0.18)
 	pod.rotation = Vector3(deg_to_rad(-6.0), 0, 0)
-	_box(Vector3(1.95, 1.45, 1.70), Vector3.ZERO, steel, true, pod)
+	# THE SHELL, KEPT so it can be hidden from the DRIVER alone — see
+	# `_hide_shell_from`. Everyone outside goes on seeing a solid command pod.
+	_shell.append(_box(Vector3(1.95, 1.45, 1.70), Vector3.ZERO, steel, true, pod))
 	# The face is INSET and the brow hangs proud of it, so the viewports sit in
 	# shadow — which is what makes them read as windows rather than as decals.
-	_box(Vector3(1.70, 0.62, 0.22), Vector3(0, -0.05, -0.86), poly, true, pod)
+	_shell.append(_box(Vector3(1.70, 0.62, 0.22), Vector3(0, -0.05, -0.86), poly, true, pod))
 	_box(Vector3(2.00, 0.26, 0.52), Vector3(0, 0.42, -0.92), steel, true, pod)  # brow
 	# TWO viewports, not one band. The gap between them is the single most
 	# recognisable thing about the head.
@@ -828,7 +967,7 @@ func _atst_pod(steel: Material, poly: Material, trim: Material, lit: Material) -
 		_box(Vector3(0.62, 0.30, 0.14), Vector3(sx * 0.40, -0.02, -0.98), lit, false, pod)
 	# The roof: a raised hatch and vent slats, which give the pod a top edge and
 	# some sense of scale from below.
-	_box(Vector3(1.10, 0.16, 0.80), Vector3(0, 0.78, 0.20), poly, true, pod)
+	_shell.append(_box(Vector3(1.10, 0.16, 0.80), Vector3(0, 0.78, 0.20), poly, true, pod))
 	for i in 3:
 		_box(Vector3(1.40, 0.06, 0.10), Vector3(0, 0.86, -0.30 + i * 0.22),
 			trim, false, pod)

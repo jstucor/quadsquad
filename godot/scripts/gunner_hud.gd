@@ -30,6 +30,9 @@ var _player: Player
 var _seen_left := -1
 var _seen_ready := false
 var _seen_on := false
+## Where the sight was last drawn. A vehicle's sight sits on the point its GUN is
+## about to hit, so it moves independently of everything else on this widget.
+var _seen_aim := Vector2.ZERO
 
 
 func setup(p: Player, c: Color) -> void:
@@ -54,8 +57,15 @@ func tick() -> void:
 		queue_redraw()
 	if not on:
 		return
-	var left := int(ceil(float(ride["left"])))
+	# A RIDE COUNTS SECONDS; A MACHINE YOU DRIVE COUNTS HULL. Whichever it is, the
+	# widget redraws when the number it prints changes — and a vehicle also has
+	# to redraw as the sight MOVES, which a clock never does (see `_seen_aim`).
+	var left := int(ceil(_bar_value(ride)))
 	var ready: bool = bool(ride["ready"])
+	var aim := _aim_screen(ride)
+	if aim.distance_squared_to(_seen_aim) > 4.0:
+		_seen_aim = aim
+		queue_redraw()
 	if left != _seen_left or ready != _seen_ready:
 		_seen_left = left
 		_seen_ready = ready
@@ -85,11 +95,43 @@ const ARM := 9.0           # how long each bracket arm is
 const THICK := 2.0
 
 
+## The number under the sight: seconds left of a ride, or hull left of a machine.
+func _bar_value(ride: Dictionary) -> float:
+	return float(ride["left"]) if ride.has("left") else float(ride.get("hull", 0.0))
+
+
+func _bar_total(ride: Dictionary) -> float:
+	return float(ride["total"]) if ride.has("total") else float(ride.get("hull_max", 1.0))
+
+
+## WHERE THE SIGHT GOES, and it is not always the middle of the screen.
+##
+## A ride's seat is boresighted by construction — the LAAT's camera sits 2.25 m
+## straight behind its own muzzle — so the centre IS where the rounds go. A
+## vehicle's is not: the AT-ST's cannon is under the cockpit, a speeder's is out
+## on the nose, and the gun is clamped to a cone the camera is not, so past the
+## stop the barrel stays put while the view keeps turning. So the mount hands
+## over the world point its next round LANDS on and the sight is drawn there.
+##
+## Behind the camera it falls back to the centre rather than drawing a sight
+## somewhere impossible — `unproject_position` happily returns a point for
+## something behind you, mirrored, which is worse than no sight at all.
+func _aim_screen(ride: Dictionary) -> Vector2:
+	var mid := size * 0.5
+	if not ride.has("aim") or _player == null or not is_instance_valid(_player):
+		return mid
+	var cam: Camera3D = _player.camera()
+	var at: Vector3 = ride["aim"]
+	if cam == null or at == Vector3.ZERO or cam.is_position_behind(at):
+		return mid
+	return cam.unproject_position(at)
+
+
 func _draw() -> void:
 	var ride := _ride()
 	if ride.is_empty():
 		return
-	var mid := size * 0.5
+	var mid := _aim_screen(ride)
 	# READY is the side's colour at full strength; RELOADING drops it back, so
 	# the sight itself reports the gun's state and no second widget has to.
 	var ready: bool = bool(ride["ready"])
@@ -107,16 +149,20 @@ func _draw() -> void:
 	# THE CLOCK. A ride you cannot see the end of is one you cannot spend — the
 	# last four seconds are when a gunner picks their final target rather than
 	# being cut off mid-burst.
-	var total: float = maxf(float(ride["total"]), 0.001)
-	var frac: float = clampf(float(ride["left"]) / total, 0.0, 1.0)
+	var total: float = maxf(_bar_total(ride), 0.001)
+	var frac: float = clampf(_bar_value(ride) / total, 0.0, 1.0)
 	var bar := Vector2(minf(size.x * 0.34, 260.0), 4.0)
-	var at := Vector2(mid.x - bar.x * 0.5, size.y * 0.82)
+	# PINNED TO THE SCREEN, not to the sight. The sight moves with the gun; a
+	# readout that followed it around would be a label chasing the crosshair.
+	var at := Vector2(size.x * 0.5 - bar.x * 0.5, size.y * 0.82)
 	draw_rect(Rect2(at, bar), Color(0, 0, 0, 0.45))
 	draw_rect(Rect2(at, Vector2(bar.x * frac, bar.y)), color)
 
 	var font := ThemeDB.fallback_font
-	var label := "%s   %ds" % [str(ride["name"]), int(ceil(float(ride["left"])))]
+	var label := "%s   %ds" % [str(ride["name"]), int(ceil(float(ride["left"])))] \
+		if ride.has("left") else "%s   HULL %d%%" % [str(ride["name"]),
+			int(round(frac * 100.0))]
 	var fs := 13
 	var w := font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
-	draw_string(font, Vector2(mid.x - w * 0.5, at.y - 8.0), label,
+	draw_string(font, Vector2(size.x * 0.5 - w * 0.5, at.y - 8.0), label,
 		HORIZONTAL_ALIGNMENT_LEFT, -1, fs, color)

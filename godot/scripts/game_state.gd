@@ -145,6 +145,18 @@ const MAPS: Array[Dictionary] = [
 		"scene": preload("res://scenes/levels/planet.tscn")},
 	{"name": "HOTH (GENERATED)", "blurb": "", "procedural": true, "planet": 4,
 		"scene": preload("res://scenes/levels/planet.tscn")},
+	# THE CLOSE-QUARTERS ONE, and the only generated INTERIOR: 84 m against a
+	# planet's 300, roofed, and laid out as rooms behind walls rather than ground
+	# with cover on it (see `map_base.gd` for why the SIGHT LINES rather than the
+	# size are what make it close-quarters).
+	#
+	# AT THE END, like everything else here, and this row nearly was not — it went
+	# in beside the other generated maps because that is where it belongs to read,
+	# which would have shifted RANDOM WORLD and all five planets down one and
+	# re-pointed every round anybody had queued or saved. House rule 8 is about
+	# where a row is WRITTEN, not where it belongs conceptually.
+	{"name": "OUTPOST", "blurb": "Generated base: rooms, corridors and two hangars. 84m, all of it indoors",
+		"scene": preload("res://scenes/levels/outpost.tscn")},
 ]
 ## A team is just an index now, 0 .. active_teams()-1. Two is the classic
 ## two-faction match; three or four makes it a free-for-all between squads;
@@ -556,6 +568,23 @@ var map_bounds_known := false
 
 # A box whose top is at or below this is the floor slab, not an obstacle.
 const MAP_FLOOR_TOP := 0.05
+## A ROOF IS COLLISION THAT IS NOT AN OBSTACLE, and the map has to SAY SO — this
+## flag is the only way it can. It arrived with the first roofed map: a ceiling
+## spanning the level is one world-layer box whose footprint covers everything, so
+## the nav grid stamped the whole map solid and `tests/nav_grid.tscn` reported the
+## Outpost as 100% solid with 0 of 24 journeys routable — a map no AI can cross.
+##
+## THE OBVIOUS FIX IS WRONG AND THE TEST SAID SO. Discarding any box whose BOTTOM
+## sits above head height reads as the same rule the floor slab follows from the
+## other end, and it broke five other maps at once (Highridge and every generated
+## planet started routing through real geometry): a box high above the ORIGIN is
+## not a box high above the GROUND, and on terrain the ground is wherever the
+## hill is. A structure standing on a 20 m ridge is a wall, not a ceiling, and no
+## height threshold can tell the two apart without knowing the ground under it.
+##
+## So the map states it. `Arena._wall` takes `nav` and sets this on anything a
+## body cannot walk into.
+const MAP_NAV_IGNORE := "nav_ignore"
 const MAP_MAX_SHAPES := 500  # the map is a sketch, not a second render of the level
 
 ## Aim assist. PADS by default, because that is the fairness problem it exists
@@ -1220,6 +1249,10 @@ func scan_map_geometry(level: Node) -> void:
 	for body in level.find_children("*", "StaticBody3D", true, false):
 		if (body.collision_layer & 1) == 0:
 			continue
+		# A ROOF still collides — a jetpack has to stop somewhere — and is still
+		# not something anybody walks into. See MAP_NAV_IGNORE.
+		if body.has_meta(MAP_NAV_IGNORE):
+			continue
 		for node in body.find_children("*", "CollisionShape3D", true, false):
 			if map_shapes.size() >= MAP_MAX_SHAPES:
 				break
@@ -1230,6 +1263,7 @@ func scan_map_geometry(level: Node) -> void:
 			var scale: Vector3 = xform.basis.get_scale()
 			if xform.origin.y + box.size.y * 0.5 * scale.y <= MAP_FLOOR_TOP:
 				continue  # the floor slab; drawing it would black out the whole map
+
 			var half := Vector2(box.size.x * scale.x, box.size.z * scale.z) * 0.5
 			var at := Vector2(xform.origin.x, xform.origin.z)
 			map_shapes.append({

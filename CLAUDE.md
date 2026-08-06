@@ -1693,6 +1693,37 @@ and registers the spawns. A map may override `_build_environment`/`_build_lights
 and add props in `_decorate()`. **A map registers its per-team spawns in `_ready`** (children ready
 before Main spawns players).
 
+- **THE OUTPOST IS THE CLOSE-QUARTERS MAP, AND IT IS GENERATED** (`scripts/map_base.gd`, 84 m —
+  a bit over a quarter of a planet's span — roofed, and re-planned from the match seed). Every
+  other generated world is 270-300 m of open ground; the only thing at the other end of the scale
+  was the hand-laid Catwalk, and one authored corridor map is a map everybody learns in an evening.
+  **WHAT MAKES IT CLOSE-QUARTERS IS THE SIGHT LINES, NOT THE SIZE** — a small map with long
+  diagonals is a sniper's map that happens to be small — so it is a 7x7 grid of rooms behind solid
+  walls joined by doorways. Measured by `nav_grid`: **22 of 24 straight lines between random points
+  hit a wall**, against 94 of 220 across the big maps, at a 1.37x routing detour.
+  The plan is a union-find spanning tree over the cells plus `LOOP_CHANCE` of the rest, because a
+  tree alone is a base of dead ends and a dead end in close quarters is a place you die in rather
+  than fight in. Two 2x2 HANGARS at opposite corners are the deploys and the only open volume.
+  **The perimeter ring is always walkable**, which is layout doing a mechanical job:
+  `place_corner_spawns` drops 3- and 4-way matches into the corners, and a corner that happened to
+  be a sealed room would spawn a side inside the geometry. Lit by ambient plus emissive ceiling
+  strips and two shadowless fills — 49 rooms cannot each have a real light — and the strips take
+  each hangar's SIDE COLOUR, which is the cheapest possible landmark in a place where every room
+  looks like the last one.
+- **AN INTERIOR NEEDS A LIGHTER ALBEDO THAN AN OUTDOOR MAP, WHICH IS THE OPPOSITE OF THE INSTINCT.**
+  With no sun and no sky every surface is lit by ambient alone, and a dark albedo under ambient is
+  black — the first pass of the Outpost was unplayably dark at the same wall colour the arenas use.
+  What makes a place read as indoors is the absence of a key light and a hard shadow, not dark paint.
+- **A ROOF IS COLLISION THAT IS NOT AN OBSTACLE, AND THE MAP HAS TO SAY SO**
+  (`GameState.MAP_NAV_IGNORE`, set through `Arena._wall(..., nav := false)`). A ceiling spanning the
+  level is one world-layer box whose footprint covers everything, so the nav grid stamped the whole
+  map solid: `nav_grid` reported the Outpost 100% solid with 0 of 24 journeys routable.
+  **THE OBVIOUS FIX IS WRONG AND THE TEST SAID SO WITHIN ONE RUN**: discarding any box whose BOTTOM
+  is above head height reads like the floor-slab rule from the other end, and it broke five other
+  maps at once (Highridge and every generated planet began routing through real geometry). A box
+  high above the ORIGIN is not a box high above the GROUND, and on terrain the ground is wherever
+  the hill is — a structure standing on a 20 m ridge is a wall. No height threshold can tell those
+  apart without knowing the ground beneath, so the map states it instead.
 - **`height_at()` is the ANALYTIC surface; what you collide with is a heightfield MESH on a coarse
   grid, and across a hollow its flat triangles sit ABOVE the curve.** So anything placed at exactly
   `height_at` starts INSIDE the ground and cannot get out — the "characters caught in the ground"
@@ -1807,6 +1838,32 @@ before Main spawns players).
   to would be the only difference and nobody would ever choose one over walking —
   `tests/vehicles.gd` asserts the spread (fastest/slowest, toughest/flimsiest) as a guard
   rail, and that every one of them beats sprinting.
+- **A SADDLE IS A FOOT POSITION AND A COCKPIT IS AN EYE POSITION, AND A VEHICLE ROW SAYS WHICH**
+  (`"eye"` in `Vehicle.VEHICLES`, which sets `Player.seat_is_eye` and moves the `Seat` node). The
+  authored seat is a speeder's saddle — you sit on it and the camera ends up at head height over
+  the cowl — and on the AT-ST that put the eye 1.75 m above the hull's origin, which is above the
+  pod's own ROOF: a camera floating in clear air over the machine with none of it in frame, no
+  cockpit, no gun, nothing to judge the walker's line by. Reported as an unusable point of view,
+  and it is only visible from the driver's own camera (`tests/vehicle_pov.tscn`) — from outside,
+  which is all `warmachine_look` ever sees, the machine is perfect.
+- **AND THE COCKPIT IS HIDDEN FROM THE DRIVER** (`Vehicle._hide_shell_from` / `_show_shell`, the
+  same per-player render layer the LAAT's ball and a player's own body already use). Sitting the
+  eye behind the viewports puts the camera inside a steel box with a face plate across its eyeline
+  — photographed, untextured grey slabs across the corners of the frame. The pod, its face plate,
+  its roof hatch, the hip yoke and the chin block go; the chin GUNS and the LEGS stay, because
+  they are what says you are driving something. **It is given back on dismount** or the machine is
+  invisible to that player for the rest of the match, including to whoever climbs in next.
+- **A VEHICLE HAS A SIGHT, AND IT IS DRAWN WHERE THE GUN'S ROUND LANDS** (`Vehicle.gunner_readout`
+  → the same `gunner_hud.gd` the LAAT and the orbital station use — a machine with a sight is any
+  machine that answers that method). **The vehicles had none at all**, and it was a side effect
+  rather than a decision: the rifle's bloom crosshair is hidden while mounted (it was drawing the
+  cone of a gun that was not firing), which left a driver with a clear screen and nothing marking
+  where the cannon pointed. **Centring it would have been a lie**: the gun is nowhere near the eye
+  and is clamped to a cone the camera is not, so past the yaw stop the barrel stops turning while
+  the view keeps going. `_trace_gun` casts from the weapon in the physics tick and the sight is
+  drawn on what it hits — the LAAT parallax lesson, applied before it could bite again.
+- **THE BAR UNDER A SIGHT IS THE RESOURCE THAT RUNS OUT** — seconds for a call-in, HULL for a
+  machine you drive. One widget, one slot, whichever the readout carries.
 - **A CharacterBody3D, NOT a VehicleBody3D.** Godot's is a wheeled raycast-suspension car,
   and these maps are heightfield terrain: the documented `height_at`-vs-collision-mesh split
   means a wheel would ride flat triangles sitting above the curve, with a seam every cell.
@@ -2970,6 +3027,7 @@ without a renderer, and `--headless` draws nothing.
 | `roster_feel.tscn` | **The play-test bench.** Every class in every universe as one table — health, walk, jump, height, TTK out, TTK once the gun is HOT, TTK in, TRADE ratio, rounds-to-kill, reach, ability slots. Asserts outer guard rails only: absurdity checks, not taste. |
 | `conquest.tscn` | Capture, tickets, defeat, spawn transforms, faction rosters (eight per side, every index a real build, no orphans). |
 | `vehicles.tscn` | The speeders. Most of what it protects is an ABSENCE or a RESTORE — that Halo and Warhammer field NONE, that royale and massive field none, that a dismount restores the body but a DEATH at the controls does not, that an enemy cannot take yours. It sets `pickup_in_reach` directly on purpose, which is what caught the team gate living only on the advertisement. Its BOARDING check walks a real Player capsule up to every machine and asks whether the interact prompt fires, which is the only question a vehicle exists to answer and the one nothing else asked: the AT-ST shipped unboardable because `MountArea` is authored once for a speeder riding 0.9 m up, and a walker standing on 4.6 m legs floated that trigger a metre over the tallest point of a trooper. Geometry cannot answer it — whether two physics volumes overlap is a question only physics can answer. Also boots six REAL matches and counts what `_place_vehicles` actually put on the field, since a rule that only holds in a unit test does not ship. |
+| `vehicle_pov.tscn` | **WINDOWED.** What the DRIVER sees, from inside each machine, forward and looking down. The same argument `gunship_pov` makes: a vehicle photographed from outside — which is all `warmachine_look` does — cannot show whether the seat is in a usable place, and the AT-ST's camera floating over its own roof looked perfect from every other angle. The looking-DOWN shot is the one that matters, because that is how a walker is steered and it is where its own hull is most likely to be in the way. |
 | `slide_look.tscn` | **WINDOWED.** The slide SIDE ON and beside a crouch and a run. Both halves matter: a slide's silhouette is asymmetry in the SAGITTAL plane, so the front-on angle `locomotion_look` correctly uses for the walk is exactly the one that hides this; and the question is not whether the pose is nice (alone it photographs fine) but whether it reads as a DIFFERENT THING from a crouch, which is what it was before it had a clip. |
 | `guard_pose.tscn` | Hand-to-grip and ankle error on all ELEVEN clips (the directional ones included — add a clip, add it to CLIPS). **0.00 mm is the pass mark**; any pose change shows here first. It is what proved adding the wrist and ankle joints moved nothing. |
 | `death_clip.tscn` | The ANIMATED death. Which way a shove drops you, and then the two things a canned fall gets silently wrong: geometry through the floor, and a body that ends up leaning rather than lying. **It names the lowest PART**, not just the depth — the first three fixes went into the wrong limb because a number alone does not say whose it is. |

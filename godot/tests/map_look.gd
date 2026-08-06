@@ -12,7 +12,11 @@ extends Node3D
 ## Edit ONLY to change which maps it shoots. Shots land in user://.
 
 ## Which entries of GameState.MAPS to render, by name. Empty means all of them.
-const WANTED := ["CROSSFIRE", "OVERGROWTH", "FOUNDRY", "KASHYYYK"]
+## OUTPOST is in the list because it is the one map whose WIDE shot is useless —
+## it is roofed, so from outside it is a grey lid — and therefore the one that has
+## to be judged from the deck shot below. A map you can only photograph from
+## inside is a map nothing else in this suite would ever have looked at.
+const WANTED := ["CROSSFIRE", "OVERGROWTH", "FOUNDRY", "KASHYYYK", "OUTPOST"]
 
 
 func _ready() -> void:

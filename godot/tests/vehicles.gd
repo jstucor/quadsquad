@@ -34,6 +34,7 @@ func _ready() -> void:
 	await _test_real_matches()
 	await _test_war_machines()
 	await _test_boarding_reach()
+	await _test_driver_sight()
 
 	print("\n==== %s ====" % ("VEHICLES WORK" if _fails.is_empty()
 		else "%d FAILURE(S):\n  %s" % [_fails.size(), "\n  ".join(_fails)]))
@@ -435,6 +436,125 @@ func _test_boarding_reach() -> void:
 func _frames(n: int) -> void:
 	for i in n:
 		await get_tree().process_frame
+
+
+## WHAT THE DRIVER SEES AND WHAT THE SIGHT PROMISES.
+##
+## Two reports, one section. The AT-ST's point of view was unusable, and the
+## reason is a number: the authored `Seat` is a SADDLE, so the camera rides a
+## body height ABOVE it — right for a speeder, and on a walker it put the eye
+## above the pod's own roof, a camera floating in clear air over the machine with
+## none of it in frame. And neither machine had a SIGHT at all, which was a side
+## effect rather than a decision: the rifle's bloom crosshair is hidden while
+## mounted, so a driver had a clear screen and nothing marking where the cannon
+## pointed.
+##
+## The sight is drawn on the point the GUN's own ray reaches, not at the middle of
+## the screen, and that is the assertion below that matters most — a vehicle's gun
+## is nowhere near the driver's eye and is clamped to a cone the camera is not, so
+## a centred reticle is a lie exactly when it is most needed. It is the LAAT
+## parallax lesson: two rays can point the same way and land eighty metres apart.
+func _test_driver_sight() -> void:
+	print("\n== the driver's eye and the driver's sight ==")
+	for spec: Array in [["", "BARC SPEEDER"], ["atst", "AT-ST WALKER"]]:
+		var v: Vehicle = VEHICLE_SCENE_new()
+		add_child(v)
+		if str(spec[0]).is_empty():
+			v.setup(Vehicle.REPUBLIC)
+		else:
+			v.setup_as(str(spec[0]), Vehicle.REPUBLIC)
+		v.global_position = Vector3(0, 3.0, -60.0)
+		var p: Player = PLAYER.instantiate()
+		p.player_index = 0
+		p.input_device = -1
+		p.team = Vehicle.REPUBLIC
+		add_child(p)
+		p.global_position = v.global_position + Vector3(1.5, 0.0, 0.0)
+		for i in 30:
+			await get_tree().physics_frame
+		p.pickup_in_reach = v
+		p.pickup_pressed = true
+		for i in 8:
+			await get_tree().physics_frame
+		if v.driver != p:
+			_expect(false, "%s: the player never mounted" % spec[1])
+			v.queue_free()
+			p.queue_free()
+			await _frames(2)
+			continue
+
+		# THE EYE, not the body origin: a body is anchored by its FEET and the
+		# camera rides a head height above them.
+		var head: Node3D = p.get_node("Head")
+		var eye: Vector3 = p.global_position + Vector3.UP * head.position.y
+		var seat: Vector3 = v.get_node("Seat").global_position
+		var off: float = eye.distance_to(seat)
+		var cockpit := not str(spec[0]).is_empty()
+		print("  %s: eye %.2f m from the seat, %.2f m above the hull origin"
+			% [spec[1], off, eye.y - v.global_position.y])
+		# A SADDLE IS A FOOT POSITION AND A COCKPIT IS AN EYE POSITION, which is
+		# the whole distinction (see `Player.seat_is_eye`) — so the two are
+		# asserted differently on purpose. On a speeder the BODY rides the seat
+		# and the camera sits a head height over the cowl, which is right; the
+		# earlier version of this check demanded the cockpit rule of both and
+		# failed the speeder for behaving exactly as intended.
+		if cockpit:
+			_expect(off < 0.05, "%s: the driver's EYE is on the seat" % spec[1])
+		else:
+			_expect(absf(off - head.position.y) < 0.05,
+				"%s: the driver SITS on the seat, eye a head height over it" % spec[1])
+		if cockpit:
+			# The pod is 1.45 m tall centred 0.95 above the hull origin, so its
+			# roof is at about 1.67. Above that is the fault that was reported.
+			_expect(eye.y - v.global_position.y < 1.6,
+				"%s: the eye is INSIDE the pod, not floating over its roof" % spec[1])
+			_expect(p.seat_is_eye, "%s: a cockpit anchors the camera, not the feet" % spec[1])
+
+		# THE SIGHT. Shape first, then the promise it makes.
+		var read: Dictionary = v.gunner_readout()
+		_expect(read.has("name") and read.has("hull") and read.has("aim"),
+			"%s: the machine hands the HUD a sight to draw" % spec[1])
+		_expect(str(read["name"]) == spec[1],
+			"%s: ...named for the machine, got `%s`" % [spec[1], read["name"]])
+		_expect(float(read["hull"]) > 0.0 and float(read["hull_max"]) > 0.0,
+			"%s: ...with the hull as the bar under it" % spec[1])
+		# BORESIGHT: the marked point has to lie on the GUN'S OWN LINE. Cast the
+		# barrel's ray and measure how far the sight's point sits off it — this is
+		# the check an angle comparison cannot make.
+		var muzzle: Vector3 = v.weapon.global_position
+		var along: Vector3 = -v.weapon.global_transform.basis.z
+		var mark: Vector3 = read["aim"]
+		var to_mark := mark - muzzle
+		var miss := (to_mark - along * to_mark.dot(along)).length()
+		print("  %s: the sight sits %.3f m off the barrel's line, %.1f m out"
+			% [spec[1], miss, to_mark.length()])
+		_expect(miss < 0.05,
+			"%s: the sight marks where the GUN points, not where the camera does"
+				% spec[1])
+
+		# THE SHELL IS GIVEN BACK. Hidden from the driver is right; left hidden
+		# after they climb out is a machine invisible to that player for the rest
+		# of the match, including to whoever gets in next.
+		var hidden_now: bool = _shell_hidden(v)
+		p.pickup_pressed = true
+		for i in 8:
+			await get_tree().physics_frame
+		_expect(not _shell_hidden(v),
+			"%s: the hull is visible again once the driver is out" % spec[1])
+		if cockpit:
+			_expect(hidden_now,
+				"%s: ...and was hidden from them while they were in it" % spec[1])
+		v.queue_free()
+		p.queue_free()
+		await _frames(2)
+
+
+## Is any of this machine's hull on a per-player layer rather than the world one?
+func _shell_hidden(v: Vehicle) -> bool:
+	for mi in v._shell:
+		if is_instance_valid(mi) and mi.layers != 1:
+			return true
+	return false
 
 
 ## --- harness ------------------------------------------------------------------
