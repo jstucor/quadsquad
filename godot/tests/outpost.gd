@@ -20,7 +20,13 @@ extends Node3D
 ## the whole failure mode.
 
 const OUTPOST := preload("res://scenes/levels/outpost.tscn")
-const SEEDS := 12
+## TWENTY-FOUR, and the number is a compromise the fix that prompted it explains.
+## The unreachable-hangar bug this test now guards against turned up on ONE seed
+## in 120 — so twelve seeds could pass a build that ships it, and a sweep wide
+## enough to be sure (150) takes nine minutes and has no place in a suite people
+## run. Twenty-four is what fits in the suite; the wide sweep is what proved the
+## fix, and it is the thing to reach for again if this ever fails.
+const SEEDS := 24
 
 var _fails: Array[String] = []
 
@@ -39,7 +45,14 @@ func _ready() -> void:
 		GameState.planet_seed = 1000 + i * 7717
 		var level: Node3D = OUTPOST.instantiate()
 		add_child(level)
-		await get_tree().process_frame
+		# TWO PHYSICS FRAMES, NOT ONE PROCESS FRAME, and this test was getting it
+		# wrong about itself. Colliders added this frame are not in the physics
+		# world yet, so `scan_map_geometry` below could read a base that is not
+		# all there — which made this test pass standing alone and fail in a
+		# batch, for reasons nothing about the generator could explain. A
+		# failure set that is not stable across runs is a broken harness.
+		await get_tree().physics_frame
+		await get_tree().physics_frame
 
 		var halls: Array = level._halls
 		var sunk: Dictionary = level._sunk
@@ -107,8 +120,13 @@ func _ready() -> void:
 		_ok(GameState.nav.path(a, b).size() >= 2,
 			"seed %d: one hangar can reach the other" % i)
 
+		# ...and the same on the way out: a freed map is still in the physics
+		# world until the frame ends, so the next seed would scan this base's
+		# walls as well as its own.
+		remove_child(level)
 		level.queue_free()
-		await get_tree().process_frame
+		await get_tree().physics_frame
+		await get_tree().physics_frame
 
 	print("\n  across %d seeds: %.1f halls, %.1f tunnel cells, %.1f massive crates each"
 		% [SEEDS, float(halls_seen) / SEEDS, float(tunnel_cells) / SEEDS,

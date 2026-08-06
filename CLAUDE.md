@@ -1800,6 +1800,33 @@ before Main spawns players).
 - **COVER YOU CANNOT GET PAST IS NOT COVER**, measured: three 4.4 m stacks in a
   12 m hall took the nav grid's routable journeys from 24 of 24 down to 10 — the
   room had become a wall. One or two per cell.
+- **AND ONE OR TWO PER CELL IS NOT ENOUGH ON ITS OWN — EVERY CELL VERIFIES ITSELF**
+  (`_cell_is_passable`, applied to the massive crates AND to ordinary room cover).
+  A base whose two hangars cannot reach each other is a match that can never end,
+  and it happened on about **one seed in 120**. The cause was arithmetic:
+  `_clear_of_walls` holds cover 2.4 m off every wall, which is right for a
+  chest-high box and exactly wrong for a 5 m crate in an 11 m room — "off the
+  walls" leaves nowhere to stand but the CENTRE, which is where the doorways face
+  each other. Crates go against a wall now, and then the cell RASTERISES itself
+  (27x27 at `PASS_STEP`, padded by the nav grid's own clearance) and floods to
+  check every doorway still reaches every other. **The geometric rule was tried
+  first and is why the flood exists**: "keep a crate out of the lane in front of
+  each door" either forbids the only positions that exist — the hall then gets no
+  crates and stops being a hall — or leaves a diagonal it never considered.
+  Measured, it moved the failure from one seed in 120 to a DIFFERENT seed in 120.
+  Now 150 seeds, zero. **The check must cover ORDINARY cover too**: a plain room
+  can have a single doorway, and two small crates that each leave a lane can close
+  the one between them — with only the halls checked, one seed in 150 still built
+  a split base.
+- **A ONE-IN-120 GENERATOR FAULT NEEDS A WIDER SWEEP THAN A SUITE CAN AFFORD.**
+  `tests/outpost.tscn` walks 24 seeds because that is what fits; the fix was proved
+  by a throwaway 150-seed sweep, and that is the thing to write again if this ever
+  fails. **Two harness traps were hit on the way and both faked results**: a freed
+  map is still in the physics world until the frame ends, so awaiting one PROCESS
+  frame instead of two PHYSICS frames had each seed scanning the LAST base's walls
+  — the failing set then changed between identical runs, which is the tell. **A
+  failure set that is not stable across runs is a broken harness, not a flaky
+  generator**, and no amount of staring at the map will show it.
 - **AN INTERIOR NEEDS A LIGHTER ALBEDO THAN AN OUTDOOR MAP, WHICH IS THE OPPOSITE OF THE INSTINCT.**
   With no sun and no sky every surface is lit by ambient alone, and a dark albedo under ambient is
   black — the first pass of the Outpost was unplayably dark at the same wall colour the arenas use.
@@ -2744,6 +2771,30 @@ landmarks. **A sixth world is a row and one function.**
   Rendered at 1.15 / 1.6 / 2.0 against the darkest map (Crossfire at night) and the brightest (Overgrowth at
   noon): **1.6 is the only value where the night map's cover boxes stay readable AND the daylight map's pale
   cover keeps a face on it.**
+- **SHADOW ACNE WAS THE MOST VISIBLE RENDERING FAULT IN THE GAME AND IT LOOKED LIKE THREE OTHER THINGS.**
+  Every daylight map drew concentric ripples across the ground in front of the camera —
+  the shadow map's texels projected along a raking sun onto a flat 220 m plane, at
+  `shadow_normal_bias` 1.4. It is in every ground shot this suite has ever taken, it reads as a
+  rendering fault rather than a style, and it was blamed on procedural-noise aliasing and then on
+  8-bit fog banding before being measured. **Look at where an artifact is ABSENT**: the rings
+  stopped dead at the edge of a shadow, which no shader and no dither can do. 3.2 clears it, chosen
+  by A/B against the two cases that would show the cost — a raking-sun day map, and boxes on a flat
+  night floor where shadows still meet their boxes.
+- **THE SPLIT-TONE IS WHAT MAKES UNTEXTURED GEOMETRY READ AS ART-DIRECTED** (`Grade._split_tone`,
+  `adjustment_color_correction`). What makes these maps look like programmer art is not the absence
+  of texture — it is that each is a SINGLE HUE at a single value. Photographed side by side:
+  Boneyard is tan sky over tan hulls over tan ground, Silva is green over green over green, and the
+  only frame of the three that reads as a place is Crossfire, which has dark cover on a lit floor
+  and one saturated accent. A gradient IS a LUT to Godot, so cool darks and warm lights split a
+  monochrome frame into two hues **without touching a single map's palette, albedo or lighting** —
+  nothing else in the grade has that reach. Deliberately small (`SPLIT_STRENGTH` 0.06): past ~0.1 it
+  stops reading as air and starts reading as a wash somebody left on, and the night maps show it
+  first because they have the most shadow to tint. The MIDS are held neutral — a straight cool-to-warm
+  ramp tints armour and every mid-grey surface in the game, which is a cast rather than a grade.
+- **A LOOK TEST MUST APPLY THE SHIPPING VIEWPORT SETTINGS, NOT JUST `Grade`.** `Quality.apply_to_viewport`
+  is applied to the SubViewports Main builds; a look test renders into the ROOT viewport and gets
+  none of it, so it photographs a picture with different MSAA, scale and debanding from the one that
+  ships. Same rule as applying `Grade`, one object further out.
 - **Two traps in the grade, both found by looking**: sky ambient at 0.55 took half the fill off every night
   map and put the cover boxes into unreadable black — a *gameplay* bug, hence the 0.3 minority share; and
   glow weighted toward the WIDE levels (1.0 at level 3) turned a muzzle flash lighting the floor into a

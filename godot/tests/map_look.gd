@@ -20,6 +20,14 @@ const WANTED := ["CROSSFIRE", "OVERGROWTH", "FOUNDRY", "SILVA", "OUTPOST"]
 
 
 func _ready() -> void:
+	# THE SHIPPING VIEWPORT SETTINGS, or this photographs a picture the game never
+	# produces. `Quality.apply_to_viewport` is applied to the SubViewports Main
+	# builds, and a look test renders into the ROOT viewport, which gets none of
+	# it — so every ground shot in this suite has been showing untethered banding
+	# (the concentric rings across the foreground) that debanding removes in the
+	# actual game. Same rule as applying `Grade`: photograph what ships.
+	Quality.apply_to_viewport(get_viewport(), 1)
+	Quality.governor_enabled = false
 	var cam := Camera3D.new()
 	cam.fov = 70.0
 	add_child(cam)

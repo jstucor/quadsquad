@@ -20,13 +20,29 @@ float vnoise(vec2 p) {
 			mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), f.x), f.y);
 }
 
+// AN OCTAVE FADES TO ITS OWN MEAN ONCE ITS CELLS ARE SMALLER THAN A PIXEL.
+//
+// Procedural noise has no mip chain: every fragment evaluates the exact
+// function, so where the ground runs away from the camera two adjacent pixels
+// land far apart in the noise and the result is the concentric shimmer that made
+// the foreground of every ground shot look like a rendering fault. A texture
+// would be mipped and this is the analytic equivalent — `fwidth` says how much
+// uv one pixel covers, and an octave finer than that carries no information any
+// more, only noise. Fading it toward 0.5 (the mean of `vnoise`) leaves the
+// colour it was averaging to, which is exactly what a mip level would give.
+float octave(vec2 uv, float freq, float footprint) {
+	float fade = 1.0 - smoothstep(0.35, 1.1, footprint * freq);
+	return mix(0.5, vnoise(uv * freq), fade);
+}
+
 void fragment() {
 	vec2 uv = UV * tiles;
+	float fp = max(fwidth(uv.x), fwidth(uv.y));
 	// Two octaves: broad moss/dirt drift plus fine leaf-litter break-up.
-	float n = vnoise(uv) * 0.65 + vnoise(uv * 3.3) * 0.35;
+	float n = octave(uv, 1.0, fp) * 0.65 + octave(uv, 3.3, fp) * 0.35;
 	vec3 col = mix(dirt_col, moss_col, smoothstep(0.34, 0.70, n));
 	// Sparse dark undergrowth so the clearing doesn't read as a flat lawn.
-	col = mix(col, deep_col, smoothstep(0.78, 0.95, vnoise(uv * 0.7)));
+	col = mix(col, deep_col, smoothstep(0.78, 0.95, octave(uv, 0.7, fp)));
 	ALBEDO = col;
 	METALLIC = 0.0;
 	ROUGHNESS = 0.95;

@@ -30,6 +30,12 @@ const EXPOSURE := 1.6
 const WHITE := 8.0            # how far above white the roll-off reaches
 const CONTRAST := 1.10        # AgX is deliberately flat and wants grading after
 const SATURATION := 1.12
+## THE SPLIT-TONE. How far the darks go cool and the lights go warm, as a share
+## of full scale. See the note at `adjustment_color_correction` for why this is
+## the highest-leverage thing in the file; 0.06 is a grade and 0.15 is a filter.
+const SPLIT_STRENGTH := 0.06
+const SPLIT_SHADOW := Color(0.36, 0.52, 1.0)   # the blue of a sky-lit shadow
+const SPLIT_LIGHT := Color(1.0, 0.84, 0.58)    # ...and of direct sun
 ## How much of the ambient comes from the SKY rather than from the authored
 ## ambient colour. Deliberately a MINORITY share: the sky is here to add
 ## DIRECTION to the ambient, not to supply it. Several maps are lit by a
@@ -140,6 +146,29 @@ static func apply(env: Environment, exposure := EXPOSURE,
 	env.adjustment_enabled = true
 	env.adjustment_contrast = CONTRAST
 	env.adjustment_saturation = SATURATION
+	# 5b. SPLIT-TONING: COOL SHADOWS, WARM LIGHTS, and it is the difference
+	#     between "untextured" and "art directed".
+	#
+	#     What makes these maps read as programmer art is not the absence of
+	#     texture — it is that each one is a SINGLE HUE at a single value.
+	#     Photographed side by side (`map_look`): Boneyard is tan sky over tan
+	#     hulls over tan ground, Silva is green canopy over green cover over
+	#     green floor, and the only frame of the three that reads as a place is
+	#     Crossfire, which has dark cover on a lit floor and one saturated blue
+	#     accent. Value contrast and a hue split are what it has and the others
+	#     do not.
+	#
+	#     A LUT is how film has answered this for a century, and Godot's
+	#     `adjustment_color_correction` takes a gradient as one. So a frame's
+	#     darks pick up the sky's blue and its lights go warm, which SPLITS a
+	#     monochrome scene into two hues without touching a single map's palette,
+	#     its albedo or its lighting — nothing else in this file has that reach.
+	#
+	#     Deliberately SMALL (`SPLIT_STRENGTH`). This is a grade, not a filter:
+	#     past about 0.1 it stops reading as air and starts reading as a colour
+	#     wash somebody left on, and the night maps are the ones that show it
+	#     first because they have the most shadow to tint.
+	env.adjustment_color_correction = _split_tone()
 
 	# 6-8. THE FORWARD+ HALF. None of this exists under GL Compatibility, and
 	#      dropping the Raspberry Pi target is what bought it. These three are
@@ -218,7 +247,21 @@ static func light(l: DirectionalLight3D) -> void:
 	# Normal bias rather than depth bias: depth bias detaches a shadow from the
 	# thing casting it (peter-panning), which on boxes standing on a flat floor
 	# is exactly the artifact you notice.
-	l.shadow_normal_bias = 1.4
+	#
+	# 3.2 RATHER THAN 1.4, AND IT IS THE MOST VISIBLE RENDERING FIX IN THE GAME.
+	# At 1.4 every daylight map drew a set of concentric ripples across the
+	# ground in front of the camera — shadow acne, from the shadow map's texels
+	# projected along a raking sun onto a 220 m flat plane. It reads as a
+	# rendering fault rather than as a style, it was in every ground shot this
+	# suite has ever taken, and it was mistaken twice on the way to being fixed:
+	# once for noise aliasing in the ground shader, once for 8-bit fog banding.
+	# **Look at where an artifact is ABSENT** — these rings stopped dead at the
+	# edge of a shadow, which no shader and no dither would do, and only the
+	# shadow map can explain.
+	# Chosen by A/B on the two cases that would show the cost: a raking-sun day
+	# map (clean at 3.2) and boxes on a flat night floor (shadows still meet
+	# their boxes, so nothing has detached).
+	l.shadow_normal_bias = 3.2
 	l.shadow_bias = 0.03
 
 
@@ -231,3 +274,46 @@ static func apply_to(root: Node, exposure := EXPOSURE,
 			apply(child.environment, exposure, fog_density)
 		elif child is DirectionalLight3D:
 			light(child)
+
+
+## The split-tone LUT, built ONCE and shared by every environment in the game.
+##
+## Cached in a static because `apply_to` runs per map load and this is a texture
+## upload — house rule 1 one level up from a material. It never depends on the
+## map, so there is nothing to key a cache on.
+##
+## A GradientTexture1D IS a colour-correction LUT to Godot: the shader looks the
+## screen value up along it, so a ramp running cool -> neutral -> warm is exactly
+## a shadow/highlight split. Five stops rather than three because the MIDS have
+## to be held at neutral — a straight cool-to-warm ramp tints skin, armour and
+## every mid-grey surface in the game, which is a colour cast rather than a
+## grade.
+static var _split: GradientTexture1D = null
+
+
+static func _split_tone() -> GradientTexture1D:
+	if _split != null:
+		return _split
+	var g := Gradient.new()
+	g.offsets = PackedFloat32Array([0.0, 0.25, 0.5, 0.75, 1.0])
+	g.colors = PackedColorArray([
+		_mix(Color.BLACK, SPLIT_SHADOW, SPLIT_STRENGTH),
+		_mix(Color(0.25, 0.25, 0.25), SPLIT_SHADOW, SPLIT_STRENGTH * 0.6),
+		Color(0.5, 0.5, 0.5),
+		_mix(Color(0.75, 0.75, 0.75), SPLIT_LIGHT, SPLIT_STRENGTH * 0.6),
+		_mix(Color.WHITE, SPLIT_LIGHT, SPLIT_STRENGTH),
+	])
+	_split = GradientTexture1D.new()
+	_split.gradient = g
+	_split.width = 64
+	return _split
+
+
+## Toward `tint` by `amount`, keeping the value the ramp had. Tinting a LUT stop
+## by lerping straight at a colour also DARKENS it, which would quietly pull the
+## whole curve down and act as an exposure change nobody asked for.
+static func _mix(base: Color, tint: Color, amount: float) -> Color:
+	var v := maxf(maxf(base.r, base.g), base.b)
+	var t := tint * maxf(v, 0.001)
+	return Color(lerpf(base.r, t.r, amount), lerpf(base.g, t.g, amount),
+		lerpf(base.b, t.b, amount), 1.0)

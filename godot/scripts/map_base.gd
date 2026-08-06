@@ -697,7 +697,7 @@ func _place_cover() -> void:
 				if h.has_point(Vector2i(x, z)):
 					in_hall = true
 			if in_hall:
-				_stack_massive(centre)
+				_stack_massive(centre, x, z)
 				continue
 			var in_hangar := false
 			for h in _hangars:
@@ -708,17 +708,34 @@ func _place_cover() -> void:
 			# an interior where every room is furnished identically reads as a
 			# generated one.
 			var count := 2 if in_hangar else _rng.randi_range(0, 2)
+			# THE SAME GUARANTEE AS THE HALLS, and it belongs here too. These
+			# crates are chest height and half the size, so one alone cannot shut
+			# a 7 m doorway — but a plain room can have a SINGLE doorway, and two
+			# crates that each leave a lane can still close the one between them.
+			# Measured: with only the halls checked, one seed in 150 still built
+			# a base whose two hangars could not reach each other.
+			var here: Array = []
+			var doors := _cell_doors(x, z)
 			for i in count:
-				var spread := CELL * (0.34 if in_hangar else 0.24)
-				var at := centre + Vector3(
-					_rng.randf_range(-spread, spread), 0.0,
-					_rng.randf_range(-spread, spread))
 				var box := Vector3(
 					_rng.randf_range(1.6, 3.0), _rng.randf_range(1.0, 1.5),
 					_rng.randf_range(1.6, 3.0)) if in_hangar else Vector3(
 					_rng.randf_range(1.0, 1.8), _rng.randf_range(0.9, 1.3),
 					_rng.randf_range(1.0, 1.8))
-				cover_boxes.append({"pos": at, "size": box})
+				var spread := CELL * (0.34 if in_hangar else 0.24)
+				var off := Vector3.ZERO
+				var ok := false
+				for _try in MASSIVE_TRIES:
+					off = Vector3(_rng.randf_range(-spread, spread), 0.0,
+						_rng.randf_range(-spread, spread))
+					here.append({"off": off, "size": box})
+					if _cell_is_passable(doors, here):
+						ok = true
+						break
+					here.pop_back()
+				if not ok:
+					continue
+				cover_boxes.append({"pos": centre + off, "size": box})
 
 
 ## MASSIVE CRATES, and they are a different KIND of cover rather than a bigger
@@ -750,6 +767,43 @@ const MASSIVE_BASE := Vector3(4.4, 2.6, 3.4)
 ## wide: the grid grows a crate by 1.4 m as well, so a box that merely LOOKS
 ## clear of a doorway can still close it.
 const COVER_CLEAR := 2.4
+## How close a MASSIVE crate may sit to the wall it is stacked against, how wide
+## a lane every doorway keeps in front of it, and how many placements to try
+## before giving up on a crate entirely. The lane is generous on purpose: the nav
+## grid pads an obstacle by CLEARANCE plus half a cell, so a gap that looks
+## walkable in the geometry can still be stamped shut.
+const WALL_GAP := 0.5
+const MASSIVE_TRIES := 16
+## The passability raster: how fine, and how far it pads a crate. `PASS_CLEAR` is
+## the nav grid's own padding — CLEARANCE plus half a cell — because a lane this
+## check calls walkable and the grid then stamps shut is the same bug again.
+##
+## MEASURED RATHER THAN ASSUMED, and the first value was wrong in the expensive
+## direction. The header above says this map's grid runs at 1.8 m cells; printing
+## it says 0.90, which is `CELL_MIN` — so the padding is 0.5 + 0.45 and not
+## 0.5 + 0.9. At the assumed figure the check rejected placements that were
+## perfectly walkable and the halls came out with one crate in them instead of
+## the two the map promises.
+const PASS_STEP := 0.45
+const PASS_CLEAR := 1.05
+
+
+## A spot for a big crate HARD AGAINST one of the four walls, with a small gap so
+## it reads as stacked rather than merged into the wall. Randomised along that
+## wall, so a hall with two of them does not look laid out.
+func _against_wall(box: Vector3) -> Vector3:
+	var inner := CELL * 0.5 - WALL * 0.5
+	var side: int = _rng.randi_range(0, 3)
+	var along := _rng.randf_range(-1.0, 1.0)
+	match side:
+		0: return Vector3(-(inner - box.x * 0.5 - WALL_GAP), 0.0,
+			along * maxf(inner - box.z * 0.5 - WALL_GAP, 0.0))
+		1: return Vector3(inner - box.x * 0.5 - WALL_GAP, 0.0,
+			along * maxf(inner - box.z * 0.5 - WALL_GAP, 0.0))
+		2: return Vector3(along * maxf(inner - box.x * 0.5 - WALL_GAP, 0.0), 0.0,
+			-(inner - box.z * 0.5 - WALL_GAP))
+	return Vector3(along * maxf(inner - box.x * 0.5 - WALL_GAP, 0.0), 0.0,
+		inner - box.z * 0.5 - WALL_GAP)
 
 
 func _clear_of_walls(box: Vector3) -> Vector3:
@@ -759,16 +813,137 @@ func _clear_of_walls(box: Vector3) -> Vector3:
 		_rng.randf_range(-room_z, room_z))
 
 
-func _stack_massive(centre: Vector3) -> void:
+## Which directions this cell has an open doorway in. The generator already knows
+## — it opened them — and `_stack_massive` is the one thing that can undo one.
+func _cell_doors(x: int, z: int) -> Array:
+	var out: Array = []
+	for dir: Vector2i in [Vector2i.RIGHT, Vector2i.DOWN]:
+		if _open.has(_key(x, z, dir)):
+			out.append(dir)
+	# ...and the two stored against the neighbour, since an edge lives on its
+	# LEFT/UPPER cell (see `_open_between`).
+	if _open.has(_key(x - 1, z, Vector2i.RIGHT)):
+		out.append(Vector2i.LEFT)
+	if _open.has(_key(x, z - 1, Vector2i.DOWN)):
+		out.append(Vector2i.UP)
+	return out
+
+
+## CAN YOU STILL WALK FROM EVERY DOORWAY OF THIS CELL TO EVERY OTHER, with these
+## crates in it? Asked by rasterising the cell and flooding it, rather than by a
+## geometric rule about where a crate may sit.
+##
+## THE GEOMETRIC VERSION WAS TRIED FIRST AND IS WHY THIS EXISTS. "Keep a crate
+## out of the lane in front of each doorway" sounds equivalent and is not: these
+## crates are up to 5 m across in an 11 m room, so the rule either forbids the
+## only positions that exist (the cell then gets no crate at all, and the halls
+## stop being halls) or leaves a diagonal gap it never considered. Measured, it
+## moved the failure from one seed in 120 to a DIFFERENT seed in 120 — the rate
+## did not improve, the roll just moved.
+##
+## Flooding is the honest question and it is cheap: a 12 m cell at `PASS_STEP` is
+## a 27 x 27 bitmap, built for the two or three cells that hold crates.
+##
+## `CLEARANCE` matches the nav grid's own padding. A gap the geometry says is
+## walkable but the grid stamps shut is the same bug wearing a different hat.
+func _cell_is_passable(doors: Array, boxes: Array) -> bool:
+	if doors.size() < 2:
+		return true
+	var inner := CELL * 0.5 - WALL * 0.5
+	var n := int(ceilf(inner * 2.0 / PASS_STEP))
+	var solid := []
+	solid.resize(n * n)
+	for iy in n:
+		for ix in n:
+			var p := Vector2(-inner + (ix + 0.5) * PASS_STEP,
+				-inner + (iy + 0.5) * PASS_STEP)
+			var blocked := false
+			for b: Dictionary in boxes:
+				var off: Vector3 = b["off"]
+				var size: Vector3 = b["size"]
+				# Padded by the same clearance the nav grid pads an obstacle by.
+				if absf(p.x - off.x) <= size.x * 0.5 + PASS_CLEAR \
+						and absf(p.y - off.z) <= size.z * 0.5 + PASS_CLEAR:
+					blocked = true
+					break
+			solid[iy * n + ix] = blocked
+	# Flood from the first doorway's mouth and require the rest to be reached.
+	var start := _door_cell(doors[0], inner, n)
+	if start < 0 or solid[start]:
+		return false
+	var seen := {start: true}
+	var queue: Array[int] = [start]
+	while not queue.is_empty():
+		var at: int = queue.pop_back()
+		var ax := at % n
+		var ay := at / n
+		for step: Vector2i in [Vector2i.RIGHT, Vector2i.LEFT, Vector2i.UP, Vector2i.DOWN]:
+			var bx := ax + step.x
+			var by := ay + step.y
+			if bx < 0 or by < 0 or bx >= n or by >= n:
+				continue
+			var idx := by * n + bx
+			if seen.has(idx) or solid[idx]:
+				continue
+			seen[idx] = true
+			queue.append(idx)
+	for i in range(1, doors.size()):
+		var d := _door_cell(doors[i], inner, n)
+		if d < 0 or not seen.has(d):
+			return false
+	return true
+
+
+## The raster index just inside the doorway on `dir`'s wall.
+func _door_cell(dir: Vector2i, inner: float, n: int) -> int:
+	var mid := n / 2
+	if dir == Vector2i.LEFT:
+		return mid * n + 0
+	if dir == Vector2i.RIGHT:
+		return mid * n + (n - 1)
+	if dir == Vector2i.UP:
+		return 0 * n + mid
+	return (n - 1) * n + mid
+
+
+func _stack_massive(centre: Vector3, cx: int, cz: int) -> void:
 	# ONE OR TWO PER CELL, not three. At three, a 12 m room held 4.4 m stacks with
 	# no line through it — measured on the nav grid as routable journeys falling
 	# from 24 of 24 to 10, which is the room becoming a wall. Cover you cannot get
 	# past is not cover.
+	var doors := _cell_doors(cx, cz)
+	# What is already standing in this cell, so the passability check sees the
+	# crates TOGETHER — two that each leave a lane can still close one between
+	# them, which is the case a per-crate rule cannot see at all.
+	var placed: Array = []
 	for i in _rng.randi_range(1, 2):
 		var base := MASSIVE_BASE * Vector3(
 			_rng.randf_range(0.8, 1.15), _rng.randf_range(0.85, 1.2),
 			_rng.randf_range(0.8, 1.15))
-		var at := centre + _clear_of_walls(base)
+		# A MASSIVE CRATE GOES AGAINST A WALL, NOT INTO THE MIDDLE, and that is
+		# arithmetic rather than taste. `_clear_of_walls` holds cover 2.4 m off
+		# every wall, which is right for a chest-high box in an ordinary room and
+		# is exactly wrong here: these are up to 5 m across in an 11 m room, so
+		# "off the walls" leaves nowhere for them to stand but the CENTRE — which
+		# is where the doorways face each other. Measured on seed 97 of
+		# `tests/outpost.tscn`'s sweep: the two hangars could not reach each
+		# other at all, so a match on that base could never end.
+		#
+		# Hugged to a wall a 5 m crate leaves a 5 m lane past it, and the retry
+		# below keeps it out of the doorways' own approach. Both halves are
+		# needed: hugging the wall the door is in would plug the door.
+		var off := Vector3.ZERO
+		var ok := false
+		for _try in MASSIVE_TRIES:
+			off = _against_wall(base)
+			placed.append({"off": off, "size": base})
+			if _cell_is_passable(doors, placed):
+				ok = true
+				break
+			placed.pop_back()
+		if not ok:
+			continue   # nowhere left in this cell that keeps it walkable
+		var at := centre + off
 		cover_boxes.append({"pos": at, "size": base})
 		if _rng.randf() < 0.7:
 			# The one on top, set back over an edge so there is a step up onto it.
