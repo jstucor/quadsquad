@@ -29,7 +29,22 @@ const GREEN := Color(0.30, 1.0, 0.22)
 ## builds, and slow enough that a gunner can actually track something.
 const ORBIT_RADIUS := 62.0
 const ORBIT_HEIGHT := 46.0
-const ORBIT_SPEED := 0.30      # radians/s — a lap takes about twenty seconds
+## SLOW, and slower than it first flew. At 0.30 rad/s the hull crossed the ground
+## at 18.6 m/s and came all the way round inside the twenty seconds you are up
+## there, which is a fast pass rather than a gunship holding station over a
+## fight — the whole point of the machine is that it LOITERS while somebody in
+## the ball works. At 0.18 it makes about two thirds of a lap in the same window
+## at 11.2 m/s, which keeps the same piece of battlefield under the guns for long
+## enough to shoot it.
+##
+## AND IT COSTS THE GUNNER NOTHING, MEASURED RATHER THAN ASSUMED. The obvious
+## claim is that a slower hull must be a steadier sight picture; it is not, and
+## the numbers say so — the aim point's residual walk on a centred stick is
+## 1.4 m/s at the old speed and 1.5 m/s at this one, which is the same reading
+## twice. That is the tracking model working: the ball holds a POINT on the
+## ground rather than an angle, so the hull's rotation is already cancelled and
+## only its translation is left. Which is also why slowing it was safe.
+const ORBIT_SPEED := 0.18      # radians/s — a lap takes about thirty-five seconds
 ## Banked INTO the turn, hard. A gunship flying a circle dead level reads as a
 ## model on a stick; the bank is most of what sells the circuit, and it also
 ## tips the ball turret's own view down toward the ground it is shooting at.

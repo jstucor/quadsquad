@@ -502,6 +502,16 @@ once. The per-system sections below assume them rather than repeating them.
   them applies to something that arrives in the air and leaves on a timer. What it DOES reuse is the
   seating — `enter_vehicle`/`exit_vehicle` already hide the body, kill its collision and slave it to a
   seat, which is the hard part.
+- **IT LOITERS, IT DOES NOT MAKE A PASS** (`Gunship.ORBIT_SPEED`, 0.18 rad/s). At 0.30 the hull
+  crossed the ground at 18.6 m/s and came all the way round inside the twenty seconds you are up
+  there — a fast pass, when the whole point of the machine is that it hangs over a fight while
+  somebody in the ball works. At 0.18 it makes about two thirds of a lap at 11.2 m/s and keeps the
+  same piece of battlefield under the guns long enough to shoot it.
+  **Slowing it does NOT steady the sight picture, which is worth knowing because it sounds like it
+  must**: the aim point's residual walk on a centred stick measures 1.4 m/s at the old speed and
+  1.5 at the new one — the same reading twice. That is the tracking model working (the ball holds
+  a POINT, so the hull's rotation is already cancelled and only its translation is left), and it
+  is also why the speed was safe to change at all.
 - **THE TURRET IS ON THE INSIDE OF THE TURN.** Not a detail: it is the entire reason a circling gunship
   works, because the guns stay pointed at the middle and the gunner is looking at the battle for the
   whole lap instead of half of it. **`Player.enter_vehicle` ASKS for the seat (`seat()`) rather than
