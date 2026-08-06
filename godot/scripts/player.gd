@@ -745,6 +745,12 @@ func take_damage(amount: float, attacker: Node = null, headshot := false) -> voi
 	# both of you should be told so.
 	if _fury_left > 0.0:
 		amount *= FURY_RESIST
+	# BULWARK is the same shape of discount for a body that has given up its
+	# legs, and RALLY is somebody ELSE'S — asked per bullet rather than pushed
+	# per frame, which is the whole reason a team aura is affordable here.
+	if _bulwark_left > 0.0:
+		amount *= BULWARK_RESIST
+	amount *= GameState.rally_resist(self)
 	if _over_pool > 0.0:
 		var eaten: float = minf(_over_pool, amount)
 		_over_pool -= eaten
@@ -1268,6 +1274,13 @@ func _apply_loadout() -> void:
 		signature_changed.emit()
 	_entry_left = 0.0
 	vehicle_owns_view = false
+	# AND EVERY SUSTAINED WINDOW IS SHUT. Same argument as `_no_regen` and
+	# `third_person` above — this is what a fresh DEPLOY calls, so a body must
+	# never stand up still carrying the last life's ability. Two of these outlive
+	# a death in a way nothing on screen would show: a RALLY left registered goes
+	# on protecting a squad from a corpse, and an UNSCANNABLE flag left set makes
+	# a body permanently unmarkable, both for the rest of the match.
+	_clear_sustained()
 	# A FRESH BODY IS AT REST. Momentum is carried in `_move_vel` now, and without
 	# this a respawn inherits whatever the last life was doing when it died.
 	_move_vel = Vector3.ZERO
@@ -1725,6 +1738,11 @@ func _enter_buy_screen(floor_secs: float, eliminated: bool) -> void:
 	# can ever see — the body is about to be hidden anyway.
 	if _cloak_left > 0.0:
 		_end_cloak()
+	# ...and the same for every sustained window, for the same reason one notch
+	# further out: a RALLY registered on a dead body keeps protecting its squad
+	# from the grave, and it is `_apply_loadout` that would otherwise be the only
+	# thing to clear it — which does not run until the player chooses to deploy.
+	_clear_sustained()
 	if map_open:
 		map_open = false  # the buy screen owns the view now
 		map_toggled.emit(false)
@@ -2367,7 +2385,7 @@ func _physics_process(delta: float) -> void:
 	_update_slide(delta)
 	var move := _move_input()
 	var crouching := _crouch_held()
-	var sprinting := _sprint_held() and not crouching
+	var sprinting := _sprint_held() and not crouching and _bulwark_left <= 0.0
 	_update_stance_spread(move, crouching)
 	# The SPRINT CARRY, in first person. Cancelled by the trigger: the weapon has
 	# to come back up the instant you decide to shoot, or the first round of every
@@ -2378,6 +2396,8 @@ func _physics_process(delta: float) -> void:
 	var speed := (SPRINT_SPEED if sprinting else WALK_SPEED) * _speed_mult
 	if _fury_left > 0.0:
 		speed *= FURY_SPEED
+	if _stim_left > 0.0:
+		speed *= STIM_SPEED
 	if _rotary_out:
 		speed *= ROTARY_SPEED_MULT  # the cannon is heavy; you walk with it out
 	if crouching:
@@ -2780,6 +2800,7 @@ func sliding() -> bool:
 func _may_slide() -> bool:
 	return not sliding() and _slide_cd <= 0.0 and is_on_floor() \
 		and not _dead and _vehicle == null and _sprint_held() \
+		and _bulwark_left <= 0.0 \
 		and _move_input().length() > 0.1 \
 		and Vector2(_move_vel.x, _move_vel.z).length() >= SLIDE_ENTRY_SPEED
 
@@ -3073,6 +3094,57 @@ func _use_gadget(slot: int) -> void:
 			Audio.play("deploy", -2.0)
 			gear_changed.emit()
 			return
+		Loadout.Gadget.COOLANT:
+			# The VENT is the half of this you feel: it is the only thing in the
+			# game that answers a LOCKOUT, and a lockout is the moment a heavy
+			# gun stops being a gun. Both hands — see `_push_heat_mult`.
+			if weapon:
+				weapon.vent()
+			if weapon_off:
+				weapon_off.vent()
+			_coolant_left = COOLANT_TIME
+			_push_heat_mult(COOLANT_HEAT_MULT)
+			_start_gadget_cd(slot, cd)
+			Audio.play("deploy", -3.0)
+			gear_changed.emit()
+			return
+		Loadout.Gadget.BULWARK:
+			_bulwark_left = BULWARK_TIME
+			# Ending a slide in progress is not cosmetic: the legs ARE the
+			# price, so a body that braced mid-slide would take the discount and
+			# keep the thing it was supposed to cost. The SPRINT needs no such
+			# line — it is derived from the button every frame, and the two
+			# places that derive it both refuse while this is up.
+			if sliding():
+				_end_slide()
+			_start_gadget_cd(slot, cd)
+			Audio.play("deploy", -2.0)
+			gear_changed.emit()
+			return
+		Loadout.Gadget.STIM:
+			_stim_left = STIM_TIME
+			_start_gadget_cd(slot, cd)
+			Audio.play("pickup", -2.0)
+			gear_changed.emit()
+			return
+		Loadout.Gadget.SCRAMBLER:
+			# CLEARS an existing mark as well as refusing new ones. Half the
+			# value of this button is being pressed BECAUSE you have just been
+			# darted, and a version that only stopped the NEXT mark would do
+			# nothing at exactly the moment it is reached for.
+			_scrambler_left = SCRAMBLER_TIME
+			GameState.set_unscannable(self, true)
+			_start_gadget_cd(slot, cd)
+			Audio.play("deploy", -5.0)
+			gear_changed.emit()
+			return
+		Loadout.Gadget.RALLY:
+			_rally_left = RALLY_TIME
+			GameState.set_rally(self, team, RALLY_RADIUS, RALLY_RESIST)
+			_start_gadget_cd(slot, cd)
+			Audio.play("deploy", -1.0)
+			gear_changed.emit()
+			return
 		Loadout.Gadget.GRENADE_FRAG, Loadout.Gadget.GRENADE_STICKY, \
 		Loadout.Gadget.GRENADE_SMOKE:
 			# Grenades are gadgets now: throw the type this one maps to, then a
@@ -3214,10 +3286,59 @@ const FURY_SPEED := 1.22
 const FURY_RESIST := 0.75    # damage taken while it lasts
 const FURY_MELEE := 1.35     # ...and what a swing does
 
+## THE FOUR NEW WINDOWS, and what makes each a different DECISION rather than a
+## different number. Every one of these is deliberately NOT about your own hit
+## points, because four of the five that existed already were.
+##
+## COOLANT is the one that acts on the GUN. Heat is this game's ammunition —
+## there is no reload anywhere in it — so "keep firing" had no representation in
+## the catalogue at all, and the heaviest guns are exactly the ones whose pool
+## runs out mid-fight. Venting on the press is most of the value; the halved
+## gain is what makes it a window rather than a button.
+##
+## BULWARK takes your LEGS, which is the same shape of trade as the deflector
+## taking your trigger, and the reason it is worth having both is that they are
+## opposite: one buys a reposition you cannot shoot during, the other buys a
+## stand you cannot leave. It is the objective-mode ability.
+##
+## STIM heals you WHILE you are being shot, which is the one thing this game's
+## regeneration deliberately refuses to do (see `_update_regen`: breaking
+## contact is how you recover). It is not a bigger heal than BIOFOAM, it is a
+## heal on a clock that does not care about `REGEN_DELAY` — so it wins the
+## fights that BIOFOAM's cooldown is too slow for and loses the ones a burst
+## decides.
+##
+## SCRAMBLER answers a whole CATEGORY rather than a weapon: scan darts, pulse
+## scans, the AUGUR, the four-kill recon streak. Being un-markable is worth
+## nothing at all in a quiet minute and is worth the round in a bad one, which
+## is exactly the shape a sustained ability should have. It does NOT touch line
+## of sight — a scrambler is not a cloak, and anybody looking at you still sees
+## you.
+const COOLANT_TIME := 7.0
+const COOLANT_HEAT_MULT := 0.5
+const BULWARK_TIME := 9.0
+const BULWARK_RESIST := 0.6
+const STIM_TIME := 8.0
+const STIM_SPEED := 1.15
+const STIM_REGEN := 14.0     # hp/s, and it ignores REGEN_DELAY entirely
+const SCRAMBLER_TIME := 10.0
+## RALLY is the only one that reaches anybody else, so it is the only one with a
+## RADIUS. Applied to the ally taking the hit rather than broadcast on a timer:
+## a field that is asked about once per bullet costs nothing, where one that
+## pushes a buff onto everybody nearby every frame is house rule 1 all over.
+const RALLY_TIME := 10.0
+const RALLY_RADIUS := 12.0
+const RALLY_RESIST := 0.8
+
 var _over_pool := 0.0
 var _over_left := 0.0
 var _fury_left := 0.0
 var _deflector_left := 0.0
+var _coolant_left := 0.0
+var _bulwark_left := 0.0
+var _stim_left := 0.0
+var _scrambler_left := 0.0
+var _rally_left := 0.0
 
 
 func _update_sustained(delta: float) -> void:
@@ -3234,6 +3355,74 @@ func _update_sustained(delta: float) -> void:
 		_fury_left = maxf(0.0, _fury_left - delta)
 		if _fury_left <= 0.0:
 			gear_changed.emit()
+	if _coolant_left > 0.0:
+		_coolant_left = maxf(0.0, _coolant_left - delta)
+		# RE-PUSHED EVERY TICK rather than set once, and it is two float writes.
+		# `Weapon.set_class` clears the multiplier on every rebuild — a swap, a
+		# rotary toggle, a pickup — so a window set once would keep counting down
+		# on the HUD while having silently stopped doing anything.
+		_push_heat_mult(COOLANT_HEAT_MULT)
+		if _coolant_left <= 0.0:
+			_push_heat_mult(1.0)
+			gear_changed.emit()
+	if _bulwark_left > 0.0:
+		_bulwark_left = maxf(0.0, _bulwark_left - delta)
+		if _bulwark_left <= 0.0:
+			gear_changed.emit()
+	if _stim_left > 0.0:
+		_stim_left = maxf(0.0, _stim_left - delta)
+		# The heal is the ability, so it runs HERE and not in `_update_regen` —
+		# that function's whole job is to refuse while `REGEN_DELAY` is unspent,
+		# and teaching it an exception would put the exception in the path every
+		# ordinary body walks sixty times a second.
+		if health < max_health and not _no_regen:
+			health = minf(health + STIM_REGEN * delta, max_health)
+			health_changed.emit(health)
+		if _stim_left <= 0.0:
+			gear_changed.emit()
+	if _scrambler_left > 0.0:
+		_scrambler_left = maxf(0.0, _scrambler_left - delta)
+		# Held rather than set once: a mark that lands DURING the window has to
+		# be refused too, and `mark_scanned` is called from four places.
+		GameState.set_unscannable(self, true)
+		if _scrambler_left <= 0.0:
+			GameState.set_unscannable(self, false)
+			gear_changed.emit()
+	if _rally_left > 0.0:
+		_rally_left = maxf(0.0, _rally_left - delta)
+		if _rally_left <= 0.0:
+			GameState.clear_rally(self)
+			gear_changed.emit()
+
+
+## Shut every sustained window and give back everything registered with an
+## autoload. Called by `_apply_loadout` (which is both a deploy and a respawn)
+## and on death — the two that leak are the ones registered ELSEWHERE, because a
+## countdown on this node dies with the body and an entry in a GameState
+## dictionary does not.
+func _clear_sustained() -> void:
+	_over_pool = 0.0
+	_over_left = 0.0
+	_fury_left = 0.0
+	_deflector_left = 0.0
+	_coolant_left = 0.0
+	_bulwark_left = 0.0
+	_stim_left = 0.0
+	_scrambler_left = 0.0
+	_rally_left = 0.0
+	_push_heat_mult(1.0)
+	GameState.set_unscannable(self, false)
+	GameState.clear_rally(self)
+
+
+## COOLANT reaches BOTH hands. `_refresh_offhand` can put a second gun in play at
+## any time, so the multiplier is pushed rather than read — a dual-wielding body
+## whose off-hand never got the memo would vent one gun and cook the other.
+func _push_heat_mult(mult: float) -> void:
+	if weapon:
+		weapon.heat_mult = mult
+	if weapon_off:
+		weapon_off.heat_mult = mult
 
 
 ## What the HUD gauge reads while one is UP, 0..1. The gauge shows a sustained
@@ -3245,6 +3434,44 @@ func overshield_left() -> float:
 
 func fury_left() -> float:
 	return _fury_left
+
+
+## WHAT A SUSTAINED ABILITY HAS LEFT, AND HOW LONG ITS WINDOW IS, asked by
+## ACTION. One pair of functions rather than a `left()` per ability and a
+## ternary chain in the gauge that grows with the catalogue — that chain is
+## exactly how a seventh sustained ability ships with no gauge at all, reading
+## as an ability that does not work.
+func sustained_left(action: int) -> float:
+	match action:
+		Loadout.Gadget.OVERSHIELD: return _over_left
+		Loadout.Gadget.FURY: return _fury_left
+		Loadout.Gadget.DEFLECTOR: return _deflector_left
+		Loadout.Gadget.COOLANT: return _coolant_left
+		Loadout.Gadget.BULWARK: return _bulwark_left
+		Loadout.Gadget.STIM: return _stim_left
+		Loadout.Gadget.SCRAMBLER: return _scrambler_left
+		Loadout.Gadget.RALLY: return _rally_left
+	return 0.0
+
+
+func sustained_time(action: int) -> float:
+	match action:
+		Loadout.Gadget.OVERSHIELD: return OVERSHIELD_TIME
+		Loadout.Gadget.FURY: return FURY_TIME
+		Loadout.Gadget.DEFLECTOR: return DEFLECTOR_TIME
+		Loadout.Gadget.COOLANT: return COOLANT_TIME
+		Loadout.Gadget.BULWARK: return BULWARK_TIME
+		Loadout.Gadget.STIM: return STIM_TIME
+		Loadout.Gadget.SCRAMBLER: return SCRAMBLER_TIME
+		Loadout.Gadget.RALLY: return RALLY_TIME
+	return 1.0
+
+
+## True while a window that CHANGES WHAT YOU MAY DO is open. Read by the HUD so
+## a player can see why the sprint they are asking for is not happening — an
+## ability that silently refuses an input reads as the controller being broken.
+func bulwark_up() -> bool:
+	return _bulwark_left > 0.0
 
 
 func fury_up() -> bool:
@@ -3714,7 +3941,14 @@ func _ads_held() -> bool:
 ## Actually running: the sprint control down, not crouched, and the movement
 ## stick pushed — so holding sprint while standing still is NOT running and does
 ## not deny the sights. Used to disallow ADS mid-run.
+## BULWARK IS REFUSED HERE AND NOT AT THE STICK, which is the one place that
+## makes the whole ability honest: `_is_running` is what the speed, the sights,
+## the sprint carry, the stow timer and the slide all ask, so braced plating
+## takes your legs everywhere at once rather than in whichever of those five a
+## later edit remembered.
 func _is_running() -> bool:
+	if _bulwark_left > 0.0:
+		return false
 	return _sprint_held() and not _crouch_held() and _move_input().length() > 0.1
 
 

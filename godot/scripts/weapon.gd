@@ -1080,6 +1080,11 @@ var shooter: CollisionObject3D  # the owning player; set by Player
 var mods := {}                  # the upgrades this gun was bought with
 
 var _profile: Dictionary = PROFILES[Class.SOLDIER]
+## What a shot costs the heat pool, as a MULTIPLIER on the profile's own figure.
+## Written from outside (the COOLANT sustained ability) rather than folded into
+## `_upgraded_profile` like a fitted mod, because it is a WINDOW and not a
+## purchase — a mod is true for the life, this is true for seven seconds.
+var heat_mult := 1.0
 var _cooldown := 0.0
 var _heat := 0.0
 var _overheated := false
@@ -1180,6 +1185,14 @@ func set_class(c: Class, upgrades := {}) -> void:
 	# Swapping vents heat and cancels any in-flight burst.
 	_heat = 0.0
 	_overheated = false
+	# ...and drops the COOLANT discount, because a rebuilt weapon knows nothing
+	# about a window somebody else is counting down. The owner re-pushes it every
+	# tick while it is up (`Player._update_sustained`), so a swap mid-window
+	# keeps working and this line only ever clears a stale one. The window
+	# belongs to the BODY, not to the gun that was in its hands when it opened —
+	# the alternative is an ability the HUD shows running while a weapon swap has
+	# silently switched it off.
+	heat_mult = 1.0
 	_burst_left = 0
 	_bloom = 0.0
 	_spin = 0.0
@@ -1241,6 +1254,16 @@ func _upgraded_profile(base: Dictionary, upgrades: Dictionary) -> Dictionary:
 		p["cam_recoil"] = float(p["cam_recoil"]) * FOREGRIP_RECOIL_MULT
 		p["kick_back"] = float(p.get("kick_back", 0.0)) * FOREGRIP_RECOIL_MULT
 	return p
+
+
+## Dump the whole heat pool and clear a lockout, right now. The COOLANT ability's
+## other half — and it is the half you feel, because a lockout is the one state
+## in this game where a gun stops being a gun and there was nothing anywhere in
+## the catalogue that could answer one.
+func vent() -> void:
+	_heat = 0.0
+	_overheated = false
+	heat_changed.emit(_heat, _overheated)
 
 
 func display_name() -> String:
@@ -1686,7 +1709,7 @@ func _fire_shot() -> void:
 			float(_profile.get("muzzle_y", -0.12)),
 			float(_profile.get("muzzle_z", -0.45)))
 		tracer_muzzle = global_transform * flash_local
-	_heat = minf(_heat + _profile["heat_per_shot"], 1.0)
+	_heat = minf(_heat + _profile["heat_per_shot"] * heat_mult, 1.0)
 	if _heat >= 1.0:
 		_overheated = true
 	heat_changed.emit(_heat, _overheated)

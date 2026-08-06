@@ -91,16 +91,18 @@ func _read() -> void:
 		Loadout.Gadget.CABLE:
 			_fill = 1.0 - clampf(_player.cable_cooldown() / Player.CABLE_COOLDOWN,
 				0.0, 1.0)
-		Loadout.Gadget.OVERSHIELD, Loadout.Gadget.FURY:
+		Loadout.Gadget.OVERSHIELD, Loadout.Gadget.FURY, Loadout.Gadget.DEFLECTOR, \
+		Loadout.Gadget.COOLANT, Loadout.Gadget.BULWARK, Loadout.Gadget.STIM, \
+		Loadout.Gadget.SCRAMBLER, Loadout.Gadget.RALLY:
 			# A SUSTAINED ability reads its WINDOW while the window is open and
 			# its recharge after — one gauge doing both jobs, draining and then
 			# refilling, which is exactly what the player is watching for.
-			var left: float = _player.overshield_left() \
-				if _icon == Loadout.Gadget.OVERSHIELD else _player.fury_left()
+			# ASKED BY ACTION rather than branched per ability: this was a
+			# two-way ternary when there were two of them, and a ternary chain
+			# is how the seventh ships with no gauge and reads as broken.
+			var left: float = _player.sustained_left(_icon)
 			if left > 0.0:
-				var full: float = Player.OVERSHIELD_TIME \
-					if _icon == Loadout.Gadget.OVERSHIELD else Player.FURY_TIME
-				_fill = clampf(left / full, 0.0, 1.0)
+				_fill = clampf(left / _player.sustained_time(_icon), 0.0, 1.0)
 				_live = true
 			else:
 				_fill = _cooldown_fill()
@@ -306,6 +308,76 @@ func _draw_icon(mid: Vector2, s: float, ink: Color) -> void:
 				var h: float = s * (0.5 + 0.28 * (1 - absi(k - 1)))
 				draw_line(Vector2(x, mid.y + s * 0.7), Vector2(x, mid.y - h),
 					ink, 3.0)
+		Loadout.Gadget.BIOFOAM:
+			# A CANISTER WITH A CROSS ON IT. Neither of these two had an icon at
+			# all — they fell through to the bare dot — which nobody had seen
+			# because neither was reachable from any kit's list until slot 3 was
+			# widened. The cross is the heal and the syringe is the STIM: the one
+			# that mends you now against the one that mends you while you are
+			# being shot, and at 46 px the difference has to be the SHAPE.
+			draw_rect(Rect2(mid + Vector2(-s * 0.45, -s * 0.7),
+				Vector2(s * 0.9, s * 1.4)), ink, false, 3.0)
+			draw_line(mid + Vector2(-s * 0.22, 0.0), mid + Vector2(s * 0.22, 0.0), ink, 3.0)
+			draw_line(mid + Vector2(0.0, -s * 0.22), mid + Vector2(0.0, s * 0.22), ink, 3.0)
+		Loadout.Gadget.DEFLECTOR:
+			# A CLOSED bubble, where the overshield's is two open arcs — this one
+			# seals you in, and the barred muzzle under it is the trade the whole
+			# ability is: the trigger is dead while it holds.
+			draw_arc(mid, s * 0.85, 0.0, TAU, 22, ink, 2.5)
+			draw_circle(mid + Vector2(0, s * 0.05), s * 0.2, ink)
+			draw_line(mid + Vector2(-s * 0.5, s * 0.55), mid + Vector2(s * 0.5, s * 0.55),
+				ink, 3.0)
+		Loadout.Gadget.COOLANT:
+			# A BARREL VENTING: the gun's line with three risers coming off it.
+			# The only icon on the sheet about the WEAPON rather than the body,
+			# which is most of what tells it apart at 46 px.
+			draw_line(mid + Vector2(-s * 0.75, s * 0.45),
+				mid + Vector2(s * 0.75, s * 0.45), ink, 3.0)
+			for k in 3:
+				var x: float = mid.x - s * 0.5 + k * s * 0.5
+				draw_polyline(PackedVector2Array([
+					Vector2(x, mid.y + s * 0.25), Vector2(x - s * 0.16, mid.y - s * 0.2),
+					Vector2(x + s * 0.16, mid.y - s * 0.5)]), ink, 2.5)
+		Loadout.Gadget.BULWARK:
+			# A BRACED SLAB: a heavy plate on two feet. Deliberately the widest,
+			# flattest shape here — it is the one ability that plants you.
+			draw_rect(Rect2(mid + Vector2(-s * 0.7, -s * 0.6),
+				Vector2(s * 1.4, s * 0.95)), ink, false, 3.0)
+			for k in 2:
+				var x: float = mid.x - s * 0.42 + k * s * 0.84
+				draw_line(Vector2(x, mid.y + s * 0.35), Vector2(x, mid.y + s * 0.85),
+					ink, 3.0)
+		Loadout.Gadget.STIM:
+			# A SYRINGE ON A PULSE. The cross would read as the biofoam, so what
+			# separates it is the heartbeat line under it — this one heals while
+			# it is happening to you.
+			draw_line(mid + Vector2(-s * 0.55, -s * 0.75),
+				mid + Vector2(s * 0.3, s * 0.1), ink, 3.0)
+			draw_line(mid + Vector2(-s * 0.6, -s * 0.3),
+				mid + Vector2(-s * 0.1, -s * 0.8), ink, 2.5)
+			draw_polyline(PackedVector2Array([
+				mid + Vector2(-s * 0.8, s * 0.62), mid + Vector2(-s * 0.3, s * 0.62),
+				mid + Vector2(-s * 0.1, s * 0.25), mid + Vector2(s * 0.15, s * 0.9),
+				mid + Vector2(s * 0.4, s * 0.62), mid + Vector2(s * 0.8, s * 0.62)]),
+				ink, 2.5)
+		Loadout.Gadget.SCRAMBLER:
+			# A SWEEP WITH A BAR THROUGH IT. The scan dart's own icon is a ping,
+			# so the negation is what has to read — this is the only struck-out
+			# icon on the sheet.
+			for k in 2:
+				draw_arc(mid + Vector2(0, s * 0.5), s * (0.35 + k * 0.35),
+					PI * 1.15, PI * 1.85, 12, Color(ink, 1.0 - k * 0.3), 2.5)
+			draw_circle(mid + Vector2(0, s * 0.5), s * 0.14, ink)
+			draw_line(mid + Vector2(-s * 0.8, s * 0.8), mid + Vector2(s * 0.8, -s * 0.8),
+				ink, 3.0)
+		Loadout.Gadget.RALLY:
+			# THREE FIGURES UNDER ONE ARC, and it is the only icon showing more
+			# than one body — which is the whole thing this ability does.
+			draw_arc(mid + Vector2(0, s * 0.35), s * 0.9, PI, TAU, 16, ink, 2.5)
+			for k in 3:
+				var x: float = mid.x - s * 0.45 + k * s * 0.45
+				draw_circle(Vector2(x, mid.y + s * 0.25), s * 0.16,
+					Color(ink, 1.0 if k == 1 else 0.65))
 		Loadout.Gadget.DASH:
 			for k in 2:
 				var x: float = mid.x - s * 0.5 + k * s * 0.6

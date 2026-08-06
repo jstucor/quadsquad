@@ -1061,6 +1061,46 @@ once. The per-system sections below assume them rather than repeating them.
   both directions, because a barrier fittable in both would put one ability on two buttons.
   Every class has at least one thing to put up; an empty third slot is a class that was
   forgotten, not one that chose nothing.
+- **A SLOT WITH TWO OPTIONS IS NOT A CHOICE, AND FOURTEEN CLASSES HAD TWO.** Every kit
+  listed NONE plus exactly two, drawn from FOUR actions between them (overshield, fury,
+  cloak, barrier) — and all four were the same idea: survive the next ten seconds. So the
+  slot with the most interesting DECISION in the game had the least to decide. Worse, four
+  abilities that were fully built, priced, given cooldowns and USED BY FACTION PRESETS —
+  BIOFOAM, DEFLECTOR, RALLY, DEPLOY_COVER — appeared in no kit's list at all, so no player
+  could ever buy one. Same class of fault as the third slot's original one: implemented,
+  reachable by the AI, invisible in the shop.
+- **THE FOUR NEW VERBS ARE DELIBERATELY NOT ABOUT YOUR OWN HIT POINTS**, because the four
+  that existed all were. `COOLANT` acts on the GUN (heat is this game's ammunition — there
+  is no reload anywhere in it — and nothing in the catalogue touched it; the VENT is the
+  half you feel, since a lockout was the one state nothing could answer). `BULWARK` takes
+  your LEGS the way the deflector takes your trigger, and the pair are worth having
+  together because they are opposite: one buys a reposition you cannot shoot during, the
+  other a stand you cannot leave. `STIM` heals you WHILE you are being shot, which is the
+  one thing `_update_regen` exists to refuse. `SCRAMBLER` answers a whole CATEGORY — darts,
+  pulses, the AUGUR, the recon streak — and is worth nothing in a quiet minute and the
+  round in a bad one, which is the right shape for a window. **It is not a cloak**: it
+  hides you from the MAP and never from EYES, which is what stops the two being one
+  ability. Eleven distinct actions now reach the slot, against four.
+- **`RALLY` IS ITS OWN VERB NOW, and it is the only ability in the game that helps somebody
+  else.** It was `"like": Gadget.FURY` — an alias, which made it the one row whose NAME
+  promised something the mechanism did not do. **The aura is ASKED PER BULLET, never pushed
+  per frame** (`GameState.rally_resist`, called from `take_damage`): the obvious version
+  walks every combatant every frame writing a multiplier onto the ones in range, which is
+  house rule 5 from the wrong end. The best field wins rather than stacking — two officers
+  should not make a squad unkillable.
+- **A SUSTAINED ABILITY REGISTERED IN AN AUTOLOAD DOES NOT DIE WITH ITS BODY.** `_rally_left`
+  and `_scrambler_left` are countdowns on the Player and clean themselves up; the entries in
+  `GameState.rallies` and `GameState.unscannable` do not, so a death leaves a corpse
+  protecting its squad and a body permanently unmarkable, both for the rest of the match and
+  both silent. `_clear_sustained()` is called by `_die` AND by `_apply_loadout` — the same
+  two-place rule `_no_regen` and `third_person` already follow, and for the same reason:
+  `_apply_loadout` is what a fresh DEPLOY calls.
+- **THE GAUGE ASKS BY ACTION, NOT BY ABILITY** (`Player.sustained_left` / `sustained_time`).
+  It was a two-way ternary while there were two of them; a ternary chain that grows with the
+  catalogue is exactly how the seventh ships with no gauge and reads as an ability that does
+  not work. **`COOLANT`'s multiplier is re-pushed every tick** rather than set once, because
+  `Weapon.set_class` clears it on every rebuild (a swap, a rotary toggle, a pickup) — set
+  once, the window would keep counting down on the HUD having silently stopped.
 - Controls: slot 0 = `gadget` (pad X), slot 1 = `grenade` (keyboard G, pad LB), slot 2 =
   `sustain` (keyboard R, pad Y). If slot 1 is empty and the kit `can_dash`, that control is
   the dash; slot 3 has no such fallback. **Anything reading a gadget must ask ALL THREE**
@@ -2442,6 +2482,18 @@ parked (see KILL STREAK REWARDS) and they are the two that stressed the shared c
   vision where a HUD is actually read. **Spent takes the player's colour rather than grey** because on a
   four-way split every player already reads their own quadrant by that colour, so a charging ability
   reads as *theirs* rather than as a disabled control.
+  - **THE GAUGES ARE LAID OUT LIKE THE BUTTONS THAT PRESS THEM** (`Main.GEAR_SLOT_POS`), a diamond
+    in the bottom-right rather than a row: **TOP** is slot 3 (pad Y, the top face button), **LEFT**
+    is slot 2 (pad LB), **RIGHT** is slot 1, and **BOTTOM** is the saber guard. A row is four
+    identical discs in a line, so the only thing telling them apart is the ICON — and the icon is
+    the part you have to READ, which is the exact thing this widget replaced a line of text to
+    avoid. In a diamond the POSITION carries it, and it is a position the player already knows
+    because it is the shape under their right thumb. **The DASH takes slot 2's place** rather than a
+    fifth of its own, because it IS that control when slot 2 is empty. **An empty point stays
+    empty** — closing the gap would move the other three, and a layout that moves is one you have
+    to read again. Spread is deliberately **0.86 of a gauge width** and not a full one: at full
+    width the cluster is 138 px tall, which is 38% of the height of a quarter-screen viewport, and
+    that is the case this project's layout faults always show up in first.
   - **The fill is a VERTICAL WIPE, not a pie slice.** A radial sweep reads as a clock ("how long"); a bar
     reads as "how much", the honest question for fuel, a guard pool and a cooldown alike. Clipped to the
     circle by drawing the disc and masking the top with the background colour — no stencil, no shader.
@@ -2454,7 +2506,13 @@ parked (see KILL STREAK REWARDS) and they are the two that stressed the shared c
     at 46 px an icon is a silhouette whose only job is to be told apart from the other one you carry.
     `tests/hud_look.tscn` renders a contact sheet of every icon at three charge levels, which is the only
     way to judge a set drawn blind — it caught KINETIC SHOVE and KINETIC HAUL rendering identically (the icon
-    has to MIRROR, not just change an arc radius nobody can see).
+    has to MIRROR, not just change an arc radius nobody can see). **The sheet's own two failures are
+    worth more than that one**: SLOT 3 HAD NEVER BEEN ON IT, so the icons a player stares at while
+    deciding whether to press the button were the set nobody had compared — BIOFOAM and DEFLECTOR
+    turned out to have no icon at all and were drawing as a bare dot. And the grid was
+    `columns = SHEET.size()`, so the moment it grew the newest icons ran off the right edge and were
+    silently not in the picture. It wraps at `ICON_COLUMNS` now: **a contact sheet that stops showing
+    you the icons you just wrote is worse than no contact sheet.**
   - **Redraw only when the picture changes.** The value is quantised to 64 steps, so a six-second
     cooldown redraws about ten times a second and a full one never.
 - **An overlay on `process_frame` re-records its canvas item every frame even when it draws nothing.**

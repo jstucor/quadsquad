@@ -1429,7 +1429,31 @@ func is_cloaked(body: Node3D) -> bool:
 var scanned := {}
 
 
+## BODIES A SCRAMBLER IS PROTECTING. A set, in the same shape and for the same
+## reason as `cloaked`: the marking paths are four separate systems (the dart,
+## the pulse, the AUGUR, the recon streak) and a rule written into each of them
+## is a rule that will be written into three of them next time.
+##
+## IT IS NOT A CLOAK, and the split is the design. A cloak hides you from EYES;
+## this hides you from the MAP. Anybody with line of sight still sees you the
+## whole time, so it beats the ability category it is aimed at and buys nothing
+## at all in a straight fight — which is what stops the pair being one ability.
+var unscannable := {}
+
+
+func set_unscannable(body: Node3D, on: bool) -> void:
+	if on:
+		unscannable[body] = true
+		# CLEARS AN EXISTING MARK, not just future ones. Half the value of this
+		# button is being pressed BECAUSE a dart just landed on you.
+		scanned.erase(body)
+	else:
+		unscannable.erase(body)
+
+
 func mark_scanned(body: Node3D, team: int, duration: float) -> void:
+	if unscannable.has(body):
+		return
 	scanned[body] = {"team": team, "until": Time.get_ticks_msec() + int(duration * 1000.0)}
 
 
@@ -1441,6 +1465,48 @@ func is_scanned_for(body: Node3D, team: int) -> bool:
 		scanned.erase(body)
 		return false
 	return e["team"] == team
+
+
+## RALLY FIELDS on the field right now: `{source: {team, radius, resist}}`.
+##
+## ASKED PER BULLET, NEVER PUSHED PER FRAME. The obvious implementation walks
+## every combatant every frame and writes a multiplier onto the ones inside the
+## radius, which is house rule 5 from the wrong end — N bodies asking the same
+## question sixty times a second for an answer that only matters at the instant
+## somebody is hit. `take_damage` already knows the victim and its position, so
+## the whole aura costs one short loop per round that lands.
+var rallies := {}
+
+
+func set_rally(source: Node3D, team: int, radius: float, resist: float) -> void:
+	rallies[source] = {"team": team, "radius": radius, "resist": resist}
+
+
+func clear_rally(source: Node3D) -> void:
+	rallies.erase(source)
+
+
+## The damage multiplier `body` is standing in, 1.0 for none. The BEST field
+## wins rather than stacking: two officers should not make a squad unkillable,
+## and multiplying them is how a support ability becomes the only pick.
+func rally_resist(body: Node3D) -> float:
+	if rallies.is_empty():
+		return 1.0
+	var best := 1.0
+	var at: Vector3 = body.global_position
+	for source in rallies.keys():
+		if not is_instance_valid(source):
+			rallies.erase(source)
+			continue
+		var f: Dictionary = rallies[source]
+		# YOUR OWN SIDE ONLY, and the source counts as inside its own field —
+		# an ability that protects everybody nearby would be at its best when
+		# the enemy is closest, which is the opposite of what it is for.
+		if int(f["team"]) != int(body.get("team")):
+			continue
+		if at.distance_to(source.global_position) <= float(f["radius"]):
+			best = minf(best, float(f["resist"]))
+	return best
 
 
 ## Smoke clouds currently on the field. They have no collider on purpose (that

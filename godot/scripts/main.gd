@@ -1421,15 +1421,51 @@ func _add_damage_flash(hud: Control, player: Player) -> void:
 ##
 ## SQUAD stays as text: it is a count of bought AI, not an ability, and it has no
 ## charge state to draw.
+## THE GAUGES ARE LAID OUT LIKE THE BUTTONS THAT PRESS THEM — a diamond, not a
+## row. A row is four identical discs in a line, so the only thing telling you
+## which is which is the icon, and the icon is the part you have to READ; the
+## whole reason this widget replaced a line of text was that reading is what
+## nobody does mid-fight. In a diamond the POSITION carries it, and the position
+## is one a player already knows because it is the shape under their right thumb.
+##
+##   TOP     slot 3, the sustained ability   (pad Y, the top face button)
+##   LEFT    slot 2                          (pad LB)
+##   RIGHT   slot 1                          (pad X)
+##   BOTTOM  the saber guard
+##
+## The DASH takes the LEFT position rather than a fifth of its own, because it is
+## the same control: it exists only when slot 2 is empty and the kit can dash.
+## An empty position is simply left empty — closing the gap would move the other
+## three, and a layout that moves is a layout you have to read again.
+## How far each point sits from the centre, and how much room the whole cluster
+## takes. TIGHTER THAN A FULL GAUGE WIDTH on purpose: at a full width the diamond
+## is 138 px tall, which is 38% of the HEIGHT of a quarter-screen viewport — the
+## case this project's layout faults always show up in first. At 0.86 the points
+## still read as four separate discs and the cluster gives back 24 px.
+const GEAR_SPREAD := AbilityGauge.DIAM * 0.86
+const GEAR_SPAN := AbilityGauge.DIAM + GEAR_SPREAD * 2.0
+
+## Slot -> where it sits, in gauge widths from the diamond's centre. +Y is DOWN.
+const GEAR_SLOT_POS := {
+	0: Vector2(1.0, 0.0),    # slot 1, the gadget button — RIGHT
+	1: Vector2(-1.0, 0.0),   # slot 2, the left shoulder — LEFT
+	2: Vector2(0.0, -1.0),   # slot 3, the top face button — TOP
+}
+
+
 func _add_gear_readout(hud: Control, player: Player, color: Color) -> void:
-	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 8)
-	row.alignment = BoxContainer.ALIGNMENT_END
+	var row := Control.new()
 	row.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
-	row.offset_left = -260.0
-	row.offset_top = -46.0 - AbilityGauge.DIAM
+	# Three gauges wide and three tall, so the diamond's points sit clear of each
+	# other with the middle left empty for the reticle-free corner.
+	# CLEARS THE WEAPON READOUT UNDERNEATH IT. The name label and the heat bar
+	# own the bottom 44 px of this corner, and the diamond's lowest point is the
+	# saber guard — which is drawn exactly when a blade is in hand and so was
+	# landing on the weapon's own name.
+	row.offset_left = -14.0 - GEAR_SPAN
+	row.offset_top = -52.0 - GEAR_SPAN
 	row.offset_right = -14.0
-	row.offset_bottom = -46.0
+	row.offset_bottom = -52.0
 	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	hud.add_child(row)
 
@@ -1439,10 +1475,18 @@ func _add_gear_readout(hud: Control, player: Player, color: Color) -> void:
 	squad.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
 	squad.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	squad.offset_left = -220.0
-	squad.offset_top = -64.0 - AbilityGauge.DIAM
+	squad.offset_top = -60.0 - AbilityGauge.DIAM * 3.0
 	squad.offset_right = -14.0
-	squad.offset_bottom = -46.0 - AbilityGauge.DIAM
+	squad.offset_bottom = -42.0 - AbilityGauge.DIAM * 3.0
 	hud.add_child(squad)
+
+	# Where the diamond's centre sits inside `row`, in gauge widths from its own
+	# top-left. The points are one gauge out from here in each direction.
+	var mid := Vector2(GEAR_SPAN, GEAR_SPAN) * 0.5
+	var place := func(g: AbilityGauge, dir: Vector2) -> void:
+		row.add_child(g)
+		g.position = mid + dir * GEAR_SPREAD \
+			- Vector2(AbilityGauge.DIAM, AbilityGauge.DIAM) * 0.5
 
 	var rebuild := func() -> void:
 		for child in row.get_children():
@@ -1452,16 +1496,18 @@ func _add_gear_readout(hud: Control, player: Player, color: Color) -> void:
 			if Loadout.gadget_action(player.gadget_in(slot)) == Loadout.Gadget.NONE:
 				continue
 			var g := AbilityGauge.new()
-			row.add_child(g)
 			g.setup(player, color, AbilityGauge.KIND_GADGET, slot)
+			place.call(g, GEAR_SLOT_POS[slot])
 		if player.loadout.can_dash():
+			# The dash IS slot 2's control when slot 2 is empty, so it stands
+			# where slot 2 stands rather than somewhere of its own.
 			var d := AbilityGauge.new()
-			row.add_child(d)
 			d.setup(player, color, AbilityGauge.KIND_DASH)
+			place.call(d, GEAR_SLOT_POS[1])
 		if player.weapon.is_melee():
 			var b := AbilityGauge.new()
-			row.add_child(b)
 			b.setup(player, color, AbilityGauge.KIND_GUARD)
+			place.call(b, Vector2(0.0, 1.0))
 		squad.text = "" if player.squad.is_empty() \
 			else "SQUAD x%d" % player.squad.size()
 	player.squad_changed.connect(func(_alive: int) -> void: rebuild.call())

@@ -173,9 +173,148 @@ func _ready() -> void:
 		and trooper.gadget2 != Loadout.Gadget.OVERSHIELD,
 		"...and is on slot 3 alone, not duplicated onto slots 1 or 2")
 
+	await _test_new_sustained()
+
 	print("\n==== %s ====" % ("GADGETS WORK" if _fails.is_empty()
 		else "%d FAILURE(S):\n  %s" % [_fails.size(), "\n  ".join(_fails)]))
 	get_tree().quit(0 if _fails.is_empty() else 1)
+
+
+## THE WIDENED THIRD SLOT. Every one of these is asserted through the EFFECT and
+## never through the countdown, because a window that opens and does nothing is
+## exactly what a sustained ability looks like when it breaks — the gauge fills,
+## the sound plays, the number counts down, and the rule it was supposed to bend
+## was never wired to anything.
+##
+## The two at the end are the LEAKS, and they are the reason this section is
+## worth its length: a RALLY is registered in a GameState dictionary rather than
+## on the body, so a death that does not clear it leaves a corpse protecting its
+## squad for the rest of the match, and nothing anywhere would report it.
+func _test_new_sustained() -> void:
+	print("\n== the widened third slot ==")
+	# EVERY CLASS HAS A REAL MENU. The whole complaint this answers is that
+	# fourteen classes were choosing between two of the same four answers.
+	var thin: Array[String] = []
+	var actions := {}
+	for k in Loadout.KITS.size():
+		var list: Array = Loadout.KITS[k].get("sustain", [])
+		if list.size() < 4:
+			thin.append("%s has %d" % [String(Loadout.KITS[k]["name"]), list.size()])
+		for g in list:
+			if g != Loadout.Gadget.NONE:
+				actions[Loadout.gadget_action(g)] = true
+	_expect(thin.is_empty(), "every class has at least three abilities to choose between"
+		+ ("" if thin.is_empty() else " — %s" % ", ".join(thin)))
+	_expect(actions.size() >= 8,
+		"...and the roster reaches %d distinct sustained ACTIONS, not four" % actions.size())
+
+	# COOLANT — the one that acts on the GUN.
+	var gunner := await _spawn(_sustain_build(Loadout.Kit.URSAN, Loadout.Gadget.COOLANT),
+		Vector3(30.0, 0.0, 0.0), 0)
+	gunner.weapon._heat = 0.95
+	gunner.weapon._overheated = true
+	gunner._use_gadget(2)
+	await _frames(1)
+	_expect(gunner.weapon.heat() <= 0.01 and not gunner.weapon._overheated,
+		"COOLANT vents a locked-out gun (%.2f heat, locked %s)"
+			% [gunner.weapon.heat(), gunner.weapon._overheated])
+	_expect(is_equal_approx(gunner.weapon.heat_mult, Player.COOLANT_HEAT_MULT),
+		"...and halves what the next shots cost the pool")
+	# THE SWAP CASE, which is the one that regresses silently: `set_class` clears
+	# the multiplier on every rebuild, so a window set once would keep counting
+	# down on the HUD having stopped doing anything.
+	gunner.weapon.set_class(Weapon.Class.SOLDIER, gunner.loadout.primary_mods())
+	await _frames(2)
+	_expect(is_equal_approx(gunner.weapon.heat_mult, Player.COOLANT_HEAT_MULT),
+		"...and the window survives a weapon swap, which rebuilds the gun")
+
+	# BULWARK — the one that takes your LEGS. Both halves asserted, because an
+	# exemption written one notch too wide is a free damage discount.
+	var braced := await _spawn(_sustain_build(Loadout.Kit.URSAN, Loadout.Gadget.BULWARK),
+		Vector3(40.0, 0.0, 0.0), 0)
+	braced._use_gadget(2)
+	await _frames(1)
+	var before := braced.health
+	braced.take_damage(100.0, null)
+	var took := before - braced.health
+	_expect(took < 100.0 * 0.9, "BULWARK takes the edge off a hit (%.0f of 100)" % took)
+	_expect(not braced._is_running() and not braced._may_slide(),
+		"...and it really does take the legs: no sprint, no slide")
+
+	# STIM — healing under fire, which is the one thing regeneration refuses.
+	var stimmed := await _spawn(_sustain_build(Loadout.Kit.LEGION, Loadout.Gadget.STIM),
+		Vector3(50.0, 0.0, 0.0), 0)
+	stimmed.health = 40.0
+	stimmed._since_damage = 0.0     # just been hit: ordinary regen is refusing
+	stimmed._use_gadget(2)
+	await _frames(30)
+	_expect(stimmed.health > 40.0,
+		"STIM heals while the regen delay is still unspent (%.0f hp)" % stimmed.health)
+
+	# SCRAMBLER — it answers the MARKING category, and it clears a mark that has
+	# already landed, which is the moment it is actually reached for.
+	var ghost := await _spawn(_sustain_build(Loadout.Kit.SAURIAN, Loadout.Gadget.SCRAMBLER),
+		Vector3(60.0, 0.0, 0.0), 0)
+	GameState.mark_scanned(ghost, 1, 10.0)
+	_expect(GameState.is_scanned_for(ghost, 1), "a dart marks an ordinary body")
+	ghost._use_gadget(2)
+	await _frames(1)
+	_expect(not GameState.is_scanned_for(ghost, 1), "SCRAMBLER clears a mark already on you")
+	GameState.mark_scanned(ghost, 1, 10.0)
+	_expect(not GameState.is_scanned_for(ghost, 1), "...and refuses the next one too")
+
+	# RALLY — the only ability that reaches somebody else.
+	var officer := await _spawn(_sustain_build(Loadout.Kit.LEGION, Loadout.Gadget.RALLY),
+		Vector3(70.0, 0.0, 0.0), 0)
+	var mate := await _spawn(Loadout.starter(), Vector3(74.0, 0.0, 0.0), 0)
+	var foe := await _spawn(Loadout.starter(), Vector3(74.0, 0.0, 2.0), 1)
+	officer._use_gadget(2)
+	await _frames(1)
+	var mate_before := mate.health
+	mate.take_damage(100.0, null)
+	var mate_took := mate_before - mate.health
+	_expect(mate_took < 100.0,
+		"RALLY protects a TEAMMATE standing in it (%.0f of 100)" % mate_took)
+	var foe_before := foe.health
+	foe.take_damage(100.0, null)
+	_expect(is_equal_approx(foe_before - foe.health, 100.0),
+		"...and does nothing for an enemy at the same distance")
+	# ...and it has a RADIUS. A field with no edge is a team-wide passive.
+	var far := await _spawn(Loadout.starter(),
+		Vector3(70.0 + Player.RALLY_RADIUS + 6.0, 0.0, 0.0), 0)
+	var far_before := far.health
+	far.take_damage(100.0, null)
+	_expect(is_equal_approx(far_before - far.health, 100.0),
+		"...and nothing for a teammate outside the radius")
+
+	# THE LEAKS. Both live in a GameState dictionary rather than on the body, so
+	# a countdown ending is NOT what cleans them up.
+	officer._die(null)
+	await _frames(1)
+	_expect(not GameState.rallies.has(officer),
+		"a body that dies takes its RALLY with it, rather than protecting a squad from the grave")
+	ghost._die(null)
+	await _frames(1)
+	_expect(not GameState.unscannable.has(ghost),
+		"...and a dead SCRAMBLER stops making a body permanently unmarkable")
+
+	# NOTE ON THE `ObjectDB instances were leaked` WARNING THIS RUN PRINTS: it is
+	# the AUDIO POOL, not anything here. Measured with `--verbose`: every leaked
+	# instance is an `AudioStreamWAV` or an `AudioStreamPlaybackWAV` still held by
+	# a pooled voice when the process exits, and this section plays six more
+	# sounds than the file used to. Freeing the bodies does not move it (tried:
+	# 12 before, 14 after), which is what says it is not them. `soak.tscn` is
+	# still the test that would catch a real one.
+
+
+## A build carrying `ability` in slot 3. Set directly rather than stepped: what
+## is being tested is the ABILITY, and `adopt_kit` deciding it is illegal for
+## this class would make that a silent no-op wearing a passing test.
+func _sustain_build(kit: int, ability: int) -> Loadout:
+	var l := Loadout.new()
+	l.adopt_kit(kit)
+	l.gadget3 = ability
+	return l
 
 
 func _count(prefix: String) -> int:

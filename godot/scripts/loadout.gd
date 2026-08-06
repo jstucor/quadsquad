@@ -543,7 +543,25 @@ enum Gadget { NONE, JETPACK, CABLE, SHIELD, ROTARY, TURRET, MORTAR,
 	# DEFLECTOR, which is the Aegis Drone's and the Skiri's shield: an overshield
 	# you cannot shoot out of.
 	BIOFOAM, DEFLECTOR, RALLY, SHOCK_TRAP, DEPLOY_COVER, WINGS, HELMET_SCAN,
-	THERMAL_CHARGE, PULSE_SCAN }
+	THERMAL_CHARGE, PULSE_SCAN,
+	# --- THE THIRD SLOT, WIDENED ----------------------------------------------
+	# Four new VERBS and one promotion, because every one of the fourteen classes
+	# was choosing between two of the same four answers — put up a pool, get
+	# angry, go invisible, or stand behind a wall. All four are about surviving
+	# the next ten seconds, so the slot had one idea in it and four costumes.
+	#
+	# What these add is a decision that is not about your own hit points:
+	# COOLANT is about your GUN (heat is this game's ammunition and nothing in
+	# the catalogue touched it), BULWARK trades your LEGS the way the deflector
+	# trades your trigger, STIM heals you while you are still being shot at
+	# rather than after, SCRAMBLER answers the whole marking category, and RALLY
+	# stops being a fury under another name and becomes the one ability in the
+	# game that helps SOMEBODY ELSE.
+	COOLANT, BULWARK, STIM, SCRAMBLER,
+	# ...and the settings' own words for them. Free, via `like` — see
+	# `gadget_action`. A machine spirit and a coolant surge are one mechanism.
+	OVERCLOCK, ADRENAL_SHOT, ABLATIVE_PLATE, STEALTH_FIELD, REGEN_FIELD,
+	MACHINE_SPIRIT, DRAUGHT, PHALANX_PLATE, SHROUD_FIELD, BATTLE_LITANY }
 const GADGETS: Array[Dictionary] = [
 	# NONE belongs to every universe: an empty slot is an empty slot.
 	{"name": "NONE", "cost": 0, "blurb": "No gadget", "universe": ANY_UNIVERSE},
@@ -692,8 +710,12 @@ const GADGETS: Array[Dictionary] = [
 		"blurb": "Slam a canister of foam into yourself. Instant heal, then a long wait"},
 	{"name": "DEFLECTOR SHIELD", "cost": 60, "universe": ANY_UNIVERSE,
 		"blurb": "Raise a bubble that eats everything. You cannot fire out of it. 6s"},
-	{"name": "RALLY", "cost": 40, "universe": ANY_UNIVERSE, "like": Gadget.FURY,
-		"blurb": "Call the advance: faster, tougher, and a heavier swing. 8s"},
+	# RALLY IS ITS OWN VERB NOW, not a FURY wearing a different word. It was an
+	# alias, which made it the only ability in the catalogue whose NAME promised
+	# something the mechanism did not do — a rally that buffs nobody but you is a
+	# fury. It is the one ability in the game that helps somebody else.
+	{"name": "RALLY", "cost": 40, "universe": ANY_UNIVERSE,
+		"blurb": "A field on you: every ally inside it takes 20% less. 10s"},
 	{"name": "SHOCK TRAP", "cost": 35, "universe": Universe.COMPACT,
 		"like": Gadget.SCAN_DART,
 		"blurb": "A dart that marks everyone near where it sticks, through walls"},
@@ -710,6 +732,39 @@ const GADGETS: Array[Dictionary] = [
 		"blurb": "The classic. Bounces, sticks to nothing, and levels a doorway"},
 	{"name": "PULSE SCAN", "cost": 30, "universe": ANY_UNIVERSE, "like": Gadget.SCAN_DART,
 		"blurb": "A sweep off your own position that marks everyone near you"},
+	# --- THE THIRD SLOT, WIDENED ---------------------------------------------
+	# The four new verbs are ANY_UNIVERSE on purpose: they are plain engineering
+	# words, and a setting that wants its own name for one says so below rather
+	# than being left without the mechanism.
+	{"name": "COOLANT SURGE", "cost": 40, "universe": ANY_UNIVERSE,
+		"blurb": "Vent all heat now, and half heat per shot for 7s"},
+	{"name": "BULWARK PLATING", "cost": 50, "universe": ANY_UNIVERSE,
+		"blurb": "Take 40% less for 9s — but you cannot run or slide"},
+	{"name": "COMBAT STIM", "cost": 35, "universe": ANY_UNIVERSE,
+		"blurb": "Faster, and you keep healing while under fire. 8s"},
+	{"name": "SENSOR SCRAMBLER", "cost": 45, "universe": ANY_UNIVERSE,
+		"blurb": "Scans, darts and recon cannot mark you for 10s"},
+	# ...the same five in each setting's own words.
+	{"name": "OVERCLOCK", "cost": 40, "universe": Universe.DEEP_RANGE, "like": Gadget.COOLANT,
+		"blurb": "Vent all heat now, and half heat per shot for 7s"},
+	{"name": "ADRENAL SHOT", "cost": 35, "universe": Universe.DEEP_RANGE, "like": Gadget.STIM,
+		"blurb": "Faster, and you keep healing while under fire. 8s"},
+	{"name": "ABLATIVE PLATING", "cost": 50, "universe": Universe.DEEP_RANGE, "like": Gadget.BULWARK,
+		"blurb": "Take 40% less for 9s — but you cannot run or slide"},
+	{"name": "STEALTH FIELD", "cost": 45, "universe": Universe.DEEP_RANGE, "like": Gadget.SCRAMBLER,
+		"blurb": "Scans, darts and recon cannot mark you for 10s"},
+	{"name": "REGEN FIELD", "cost": 40, "universe": Universe.DEEP_RANGE, "like": Gadget.RALLY,
+		"blurb": "A field on you: every ally inside it takes 20% less. 10s"},
+	{"name": "MACHINE SPIRIT", "cost": 40, "universe": Universe.IRONHYMN, "like": Gadget.COOLANT,
+		"blurb": "Vent all heat now, and half heat per shot for 7s"},
+	{"name": "COMBAT DRAUGHT", "cost": 35, "universe": Universe.IRONHYMN, "like": Gadget.STIM,
+		"blurb": "Faster, and you keep healing while under fire. 8s"},
+	{"name": "PHALANX PLATING", "cost": 50, "universe": Universe.IRONHYMN, "like": Gadget.BULWARK,
+		"blurb": "Take 40% less for 9s — but you cannot run or slide"},
+	{"name": "SHROUD FIELD", "cost": 45, "universe": Universe.IRONHYMN, "like": Gadget.SCRAMBLER,
+		"blurb": "Scans, darts and recon cannot mark you for 10s"},
+	{"name": "BATTLE LITANY", "cost": 40, "universe": Universe.IRONHYMN, "like": Gadget.RALLY,
+		"blurb": "A field on you: every ally inside it takes 20% less. 10s"},
 ]
 
 
@@ -758,6 +813,16 @@ const GADGET_COOLDOWNS := {
 	# somebody shooting you.
 	Gadget.BIOFOAM: 26.0,
 	Gadget.DEFLECTOR: 24.0,
+	# THE WIDENED SLOT. Priced against what the window is worth rather than
+	# uniformly: COOLANT comes back soonest because what it buys is more of a
+	# thing you were already doing, and SCRAMBLER waits longest because ten
+	# seconds nobody can mark you is ten seconds of somebody else's slot 1 and
+	# somebody else's four-kill streak doing nothing at all.
+	Gadget.COOLANT: 18.0,
+	Gadget.STIM: 20.0,
+	Gadget.BULWARK: 22.0,
+	Gadget.RALLY: 24.0,
+	Gadget.SCRAMBLER: 26.0,
 }
 
 ## The GrenadeType a grenade gadget throws, or -1 if the gadget is not a grenade.
@@ -778,7 +843,8 @@ const KITS: Array[Dictionary] = [
 			Gadget.GRENADE_FRAG, Gadget.GRENADE_STICKY],
 		"gadget_slots": 3,
 		# The THIRD slot: what this class puts UP and keeps.
-		"sustain": [Gadget.NONE, Gadget.OVERSHIELD, Gadget.FURY],
+		"sustain": [Gadget.NONE, Gadget.OVERSHIELD, Gadget.FURY, Gadget.COOLANT, Gadget.RALLY,
+			Gadget.BIOFOAM],
 		"secondary_mods": [SecondaryMod.NONE, SecondaryMod.SCOPE, SecondaryMod.COOLING],
 		"armor": [0, 1, 2, 3],
 		"default_armor": 1,
@@ -793,7 +859,7 @@ const KITS: Array[Dictionary] = [
 			Gadget.GRENADE_FRAG, Gadget.GRENADE_STICKY],
 		"gadget_slots": 3,
 		# The THIRD slot: what this class puts UP and keeps.
-		"sustain": [Gadget.NONE, Gadget.CLOAK, Gadget.OVERSHIELD],
+		"sustain": [Gadget.NONE, Gadget.CLOAK, Gadget.OVERSHIELD, Gadget.STIM, Gadget.SCRAMBLER],
 		"secondary_mods": [SecondaryMod.NONE, SecondaryMod.SCOPE, SecondaryMod.COOLING,
 			SecondaryMod.DUAL],
 		# No heavy plate: the kit's whole identity is moving, and the jetpack
@@ -815,7 +881,7 @@ const KITS: Array[Dictionary] = [
 			Gadget.GRENADE_STICKY],
 		"gadget_slots": 3,
 		# The THIRD slot: what this class puts UP and keeps.
-		"sustain": [Gadget.NONE, Gadget.FURY, Gadget.CLOAK],
+		"sustain": [Gadget.NONE, Gadget.FURY, Gadget.CLOAK, Gadget.DEFLECTOR, Gadget.STIM],
 		"secondary_mods": [SecondaryMod.NONE, SecondaryMod.SCOPE, SecondaryMod.COOLING],
 		"armor": [0, 1],
 		"default_armor": 0,
@@ -847,7 +913,7 @@ const KITS: Array[Dictionary] = [
 			Gadget.NONE, Gadget.GRENADE_FRAG, Gadget.GRENADE_STICKY],
 		"gadget_slots": 3,
 		# The THIRD slot: what this class puts UP and keeps.
-		"sustain": [Gadget.NONE, Gadget.FURY, Gadget.SHIELD],
+		"sustain": [Gadget.NONE, Gadget.FURY, Gadget.SHIELD, Gadget.BULWARK, Gadget.COOLANT],
 		# NO SCOPE on the sidearm. A scope means zero spread while aimed
 		# (Weapon.current_spread_deg), which on a PELLET weapon collapses all
 		# three quarrels onto one point — 78 damage at any range, for 20 tokens.
@@ -877,7 +943,7 @@ const KITS: Array[Dictionary] = [
 			Gadget.GRENADE_SMOKE],
 		"gadget_slots": 3,
 		# The THIRD slot: what this class puts UP and keeps.
-		"sustain": [Gadget.NONE, Gadget.CLOAK, Gadget.FURY],
+		"sustain": [Gadget.NONE, Gadget.CLOAK, Gadget.FURY, Gadget.SCRAMBLER, Gadget.STIM],
 		"secondary_mods": [SecondaryMod.NONE, SecondaryMod.SCOPE, SecondaryMod.COOLING],
 		"armor": [0, 1, 2],
 		"default_armor": 0,
@@ -910,7 +976,8 @@ const KITS: Array[Dictionary] = [
 			Gadget.FRAG_GRENADE_UNSC, Gadget.PLASMA_GRENADE],
 		"gadget_slots": 3,
 		# The THIRD slot: what this class puts UP and keeps.
-		"sustain": [Gadget.NONE, Gadget.OVERSHIELD, Gadget.BUBBLE_SHIELD],
+		"sustain": [Gadget.NONE, Gadget.OVERSHIELD, Gadget.BUBBLE_SHIELD, Gadget.OVERCLOCK,
+			Gadget.ABLATIVE_PLATE],
 		"secondary_mods": [SecondaryMod.NONE, SecondaryMod.SCOPE, SecondaryMod.COOLING],
 		"armor": [1, 2, 3],
 		"default_armor": 2,
@@ -931,7 +998,8 @@ const KITS: Array[Dictionary] = [
 			Gadget.TARGET_DESIGNATOR, Gadget.FRAG_GRENADE_UNSC],
 		"gadget_slots": 3,
 		# The THIRD slot: what this class puts UP and keeps.
-		"sustain": [Gadget.NONE, Gadget.ACTIVE_CAMO, Gadget.OVERSHIELD],
+		"sustain": [Gadget.NONE, Gadget.ACTIVE_CAMO, Gadget.OVERSHIELD, Gadget.ADRENAL_SHOT,
+			Gadget.STEALTH_FIELD],
 		"secondary_mods": [SecondaryMod.NONE, SecondaryMod.SCOPE, SecondaryMod.COOLING],
 		"armor": [0, 1, 2],
 		"default_armor": 0,
@@ -952,7 +1020,8 @@ const KITS: Array[Dictionary] = [
 			Gadget.PLASMA_CANNON, Gadget.PLASMA_GRENADE],
 		"gadget_slots": 3,
 		# The THIRD slot: what this class puts UP and keeps.
-		"sustain": [Gadget.NONE, Gadget.ACTIVE_CAMO, Gadget.OVERSHIELD],
+		"sustain": [Gadget.NONE, Gadget.ACTIVE_CAMO, Gadget.OVERSHIELD, Gadget.REGEN_FIELD,
+			Gadget.ADRENAL_SHOT],
 		"secondary_mods": [SecondaryMod.NONE, SecondaryMod.SCOPE, SecondaryMod.COOLING],
 		"armor": [0, 1, 2],
 		"default_armor": 1,
@@ -977,7 +1046,8 @@ const KITS: Array[Dictionary] = [
 			Gadget.THRUSTER_PACK],
 		"gadget_slots": 3,
 		# The THIRD slot: what this class puts UP and keeps.
-		"sustain": [Gadget.NONE, Gadget.OVERSHIELD, Gadget.FURY],
+		"sustain": [Gadget.NONE, Gadget.OVERSHIELD, Gadget.FURY, Gadget.REGEN_FIELD,
+			Gadget.ABLATIVE_PLATE],
 		"secondary_mods": [SecondaryMod.NONE, SecondaryMod.COOLING],
 		"armor": [0, 1],
 		"default_armor": 0,
@@ -999,7 +1069,8 @@ const KITS: Array[Dictionary] = [
 			Gadget.NONE, Gadget.PLASMA_CANNON, Gadget.PLASMA_GRENADE],
 		"gadget_slots": 3,
 		# The THIRD slot: what this class puts UP and keeps.
-		"sustain": [Gadget.NONE, Gadget.FURY, Gadget.OVERSHIELD],
+		"sustain": [Gadget.NONE, Gadget.FURY, Gadget.OVERSHIELD, Gadget.OVERCLOCK,
+			Gadget.ABLATIVE_PLATE],
 		"secondary_mods": [SecondaryMod.NONE, SecondaryMod.COOLING],
 		"armor": [2, 3],
 		"default_armor": 2,
@@ -1027,7 +1098,8 @@ const KITS: Array[Dictionary] = [
 			Gadget.ASSAULT_CANNON, Gadget.BREACH_CHARGE, Gadget.FUSION_CHARGE],
 		"gadget_slots": 3,
 		# The THIRD slot: what this class puts UP and keeps.
-		"sustain": [Gadget.NONE, Gadget.IRON_HALO, Gadget.OVERSHIELD],
+		"sustain": [Gadget.NONE, Gadget.IRON_HALO, Gadget.OVERSHIELD, Gadget.MACHINE_SPIRIT,
+			Gadget.PHALANX_PLATE],
 		"secondary_mods": [SecondaryMod.NONE, SecondaryMod.SCOPE, SecondaryMod.COOLING],
 		# Power armour or terminator plate. There is no lightly-armoured Order.
 		"armor": [2, 3],
@@ -1050,7 +1122,8 @@ const KITS: Array[Dictionary] = [
 			Gadget.NONE, Gadget.JUMP_PACK, Gadget.BREACH_CHARGE, Gadget.FUSION_CHARGE],
 		"gadget_slots": 3,
 		# The THIRD slot: what this class puts UP and keeps.
-		"sustain": [Gadget.NONE, Gadget.CRIMSON_RAGE, Gadget.IRON_HALO],
+		"sustain": [Gadget.NONE, Gadget.CRIMSON_RAGE, Gadget.IRON_HALO, Gadget.DRAUGHT,
+			Gadget.BATTLE_LITANY],
 		"secondary_mods": [SecondaryMod.NONE, SecondaryMod.SCOPE, SecondaryMod.COOLING],
 		"armor": [1, 2, 3],
 		"default_armor": 2,
@@ -1074,7 +1147,8 @@ const KITS: Array[Dictionary] = [
 			Gadget.SENTRY_CONSTRUCT],
 		"gadget_slots": 3,
 		# The THIRD slot: what this class puts UP and keeps.
-		"sustain": [Gadget.NONE, Gadget.PHASE_SHIFT, Gadget.OVERSHIELD],
+		"sustain": [Gadget.NONE, Gadget.PHASE_SHIFT, Gadget.OVERSHIELD, Gadget.SHROUD_FIELD,
+			Gadget.PHALANX_PLATE],
 		"secondary_mods": [SecondaryMod.NONE, SecondaryMod.SCOPE, SecondaryMod.COOLING],
 		"armor": [1, 2, 3],
 		"default_armor": 2,
@@ -1098,7 +1172,8 @@ const KITS: Array[Dictionary] = [
 			Gadget.SMOKE_LAUNCHER],
 		"gadget_slots": 3,
 		# The THIRD slot: what this class puts UP and keeps.
-		"sustain": [Gadget.NONE, Gadget.WARCRY, Gadget.KUSTOM_FORCE_FIELD],
+		"sustain": [Gadget.NONE, Gadget.WARCRY, Gadget.KUSTOM_FORCE_FIELD, Gadget.DRAUGHT,
+			Gadget.MACHINE_SPIRIT],
 		"secondary_mods": [SecondaryMod.NONE, SecondaryMod.COOLING],
 		"armor": [1, 2, 3],
 		"default_armor": 2,
@@ -1605,7 +1680,14 @@ const FACTION_BUILDS: Array[Dictionary] = [
 		"style": CharacterModel.Style.SENTINEL},
 	{"name": "VANGUARD ADEPT", "kit": Kit.SENTINEL, "primary": Weapon.Class.POWER_SWORD,
 		"sidearm": Weapon.Class.BOLT_PISTOL, "armor": 2,
-		"gadget": Gadget.ASSAULT_CANNON, "gadget2": Gadget.BREACH_CHARGE,
+		# A JUMP PACK RATHER THAN A CHARGE, and the reason is a rule change one
+		# table away: this class fights at 3.9 m and its only way of reaching
+		# anybody was RALLY, which used to be a FURY alias and so carried FURY's
+		# speed. Promoting RALLY to a support aura took that away and left a
+		# melee vanguard that anybody with a trigger could kite to death —
+		# caught by `roster_feel`, which asks exactly that question. A jump pack
+		# is also what the unit is: a vanguard is the one that arrives.
+		"gadget": Gadget.ASSAULT_CANNON, "gadget2": Gadget.JUMP_PACK,
 		"gadget3": Gadget.RALLY, "unit_speed": 1.05, "unit_health": 1.25,
 		"unit_jump": 1.10, "unit_stature": 1.12,
 		"style": CharacterModel.Style.SENTINEL},

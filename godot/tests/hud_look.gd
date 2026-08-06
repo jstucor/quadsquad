@@ -35,6 +35,11 @@ func _ready() -> void:
 	_me.pending.adopt_kit(Loadout.Kit.HUNTER)
 	_me.pending.gadget = Loadout.Gadget.JETPACK
 	_me.pending.gadget2 = Loadout.Gadget.CABLE
+	# ...AND A SUSTAINED ONE, so the gauges photograph as the DIAMOND they are
+	# laid out as. With slot 3 empty the cluster is two discs side by side, which
+	# is the one arrangement that looks exactly like the row it replaced — a shot
+	# that cannot fail is a shot that proves nothing.
+	_me.pending.gadget3 = Loadout.Gadget.SCRAMBLER
 	_me._respawn()
 	GameState.match_live = true
 	await _frames(12)
@@ -76,6 +81,11 @@ func _ready() -> void:
 	get_tree().quit()
 
 
+## Columns before the sheet wraps. 1280 px of window at 64 px a gauge plus its
+## separation, with a margin — chosen so the sheet stays one screen at the
+## resolution the doc-comment above tells you to run it at.
+const ICON_COLUMNS := 17
+
 const SHEET := [
 	Loadout.Gadget.JETPACK, Loadout.Gadget.CABLE, Loadout.Gadget.CLOAK,
 	Loadout.Gadget.SHIELD, Loadout.Gadget.TURRET, Loadout.Gadget.MORTAR,
@@ -84,6 +94,14 @@ const SHEET := [
 	Loadout.Gadget.KINETIC_LEAP, Loadout.Gadget.ARC_STORM,
 	Loadout.Gadget.DASH, Loadout.Gadget.GRENADE_FRAG,
 	Loadout.Gadget.GRENADE_STICKY, Loadout.Gadget.GRENADE_SMOKE,
+	# THE WHOLE OF SLOT 3, which had never been on this sheet — so the one set of
+	# icons a player stares at while deciding whether to press the button was the
+	# set nobody had ever compared side by side. That is exactly the gap the
+	# sheet exists to close: FORCE PUSH and FORCE PULL rendering identically was
+	# found here and nowhere else.
+	Loadout.Gadget.OVERSHIELD, Loadout.Gadget.FURY, Loadout.Gadget.BIOFOAM,
+	Loadout.Gadget.DEFLECTOR, Loadout.Gadget.COOLANT, Loadout.Gadget.BULWARK,
+	Loadout.Gadget.STIM, Loadout.Gadget.SCRAMBLER, Loadout.Gadget.RALLY,
 ]
 
 
@@ -93,7 +111,13 @@ func _icon_sheet() -> void:
 	back.set_anchors_preset(Control.PRESET_FULL_RECT)
 	add_child(back)
 	var grid := GridContainer.new()
-	grid.columns = SHEET.size()
+	# WRAPPED AT A FIXED WIDTH rather than one row per state. At `SHEET.size()`
+	# columns the sheet grew past the right edge the moment the slot-3 icons went
+	# in, and what fell off the end was silently the newest ones — a contact
+	# sheet that stops showing you the icons you just wrote is worse than none.
+	# Each icon's three charge states now sit in the same COLUMN of three
+	# consecutive blocks, which is still the comparison this shot is for.
+	grid.columns = ICON_COLUMNS
 	grid.position = Vector2(40, 60)
 	grid.add_theme_constant_override("h_separation", 16)
 	grid.add_theme_constant_override("v_separation", 16)
