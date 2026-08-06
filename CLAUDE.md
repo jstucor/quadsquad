@@ -3062,7 +3062,12 @@ See HOUSE RULES 1–5 and 17 first — those are the rules; this section is the 
   skinning, junk bone tails), `trooper_parts.gd` and `tools/animate_trooper.py`. Dropped because subtle motion
   on that rigid-chunk mesh looked uncanny.
 - **It took a `git worktree` at HEAD to prove the bolt-material defect was new rather than pre-existing.**
-  Worth doing before spending time on any "is this mine?" question.
+  Worth doing before spending time on any "is this mine?" question. **But a bisect in one must
+  PRINT the commit it is actually on**: `git checkout -q $c 2>/dev/null` swallows the failure when
+  an untracked file is in the way, so the tree silently stays where it was and every commit
+  "passes" — which reads as the fault being in the working copy rather than in the history, and
+  sends you hunting a phantom. `git checkout -f` plus `git clean -fd`, and echo `rev-parse` each
+  round. Found when nine commits in a row passed and their own HEAD failed.
 
 ## Tests
 
