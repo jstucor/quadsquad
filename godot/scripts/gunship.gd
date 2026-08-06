@@ -123,6 +123,23 @@ var _mats := {}
 ## when it ends — the position is taken NOW, because by the end of the run the
 ## ground they were standing on may have a firefight on it and their old body has
 ## been hidden for the whole ride anyway.
+## A CALL-IN TAKES YOU OFF THE FIELD, and anything that punishes a body for WHERE
+## IT IS has to know the difference.
+##
+## The storm burns bodies that failed to move. A gunner seated at a fire-control
+## station 210 m up did not fail to move — the game put them there, on a timer,
+## with no way to walk back — and the station hangs 68 m from the mark it is
+## aiming at (`VIEW_HEIGHT * tan(VIEW_TILT)`), so it is essentially always
+## outside a closed ring. Measured in ROYALE: the seven-kill reward cost 22 hp in
+## its first six seconds at the OPENING damage rate, and that rate climbs every
+## phase — so later in a match the reward simply killed the player who earned it.
+##
+## It is deliberately NOT "am I mounted": a SPEEDER is on the field, you chose to
+## be in it, and you can drive it back inside the ring. That has to keep burning.
+func is_call_in() -> bool:
+	return true
+
+
 func begin(by: Node3D, for_team: int, seconds: float) -> void:
 	_gunner = by
 	team = for_team

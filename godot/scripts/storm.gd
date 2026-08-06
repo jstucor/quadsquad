@@ -122,6 +122,13 @@ func _burn(delta: float) -> void:
 	for c in GameState.combatants:
 		if not is_instance_valid(c) or not c.is_alive():
 			continue
+		# ...unless the game has taken them OFF the field. The ring punishes a
+		# body for not moving; somebody seated in a call-in 210 m up did not fail
+		# to move, they were put there on a timer and cannot walk back. A SPEEDER
+		# is not this — it is on the field and can be driven inside the ring, so
+		# it still burns. See `Player.off_the_field`.
+		if c.has_method("off_the_field") and c.off_the_field():
+			continue
 		var flat := Vector2(c.global_position.x - centre.x, c.global_position.z - centre.z)
 		if flat.length() > radius:
 			c.take_damage(hurt, null, false)

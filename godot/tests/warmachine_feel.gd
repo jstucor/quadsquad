@@ -14,10 +14,19 @@ extends Node3D
 ## The gunner is a STUB and not a real Player on purpose: what is being measured
 ## is what the turret does with a HELD stick, so the input has to be exactly zero
 ## and a real Player polls a device that is not there.
+##
+## THAT STUB IS ALSO WHY A REAL PLAYER GETS ONE SECTION OF ITS OWN. A stub has no
+## `_physics_process`, so every rule a real body lives under went unexercised —
+## and one of them killed this reward outright: the station seats you 210 m up,
+## which is past `Player.BOUNDS_MAX_Y`, so the out-of-the-map check shot the
+## player who called it on the frame it started. Measuring the shells with a stub
+## proved the barrage worked perfectly for somebody who was already dead.
 
 const GUNSHIP := preload("res://scripts/gunship.gd")
 const ORBITAL := preload("res://scripts/orbital_strike.gd")
 const BOT := preload("res://scenes/actors/bot.tscn")
+const PLAYER := preload("res://scenes/actors/player.tscn")
+const STORM := preload("res://scripts/storm.gd")
 
 ## The fire-control window, taken from the reward row rather than restated, so a
 ## change to the table cannot leave this test measuring a length the game does
@@ -43,6 +52,7 @@ func _ready() -> void:
 	await _gunship_ttk()
 	await _orbital_damage()
 	await _orbital_spread()
+	await _orbital_gunner_lives()
 
 	print("")
 	for line in _done:
@@ -53,7 +63,7 @@ func _ready() -> void:
 	# verified nothing — which is precisely what happened when `_hold_mark_on`
 	# was handed a freed station.
 	for want in ["inside", "drift", "roll", "boresight", "cone", "gunship ttk",
-			"orbital", "orbital spread"]:
+			"orbital", "orbital spread", "orbital gunner"]:
 		if not _done.has(want):
 			_fails.append("the `%s` section did not run to the end — something in it errored and the rest of its checks were skipped" % want)
 	if _fails.is_empty():
@@ -342,6 +352,96 @@ func _gunship_cone() -> void:
 ## bots have just run away from — 88 damage over eighteen seconds, which says
 ## nothing about the weapon and everything about the bots. So the mark is HELD ON
 ## THE GROUP, which is what the player holding it would be doing.
+## 6. DOES THE PLAYER WHO CALLED IT SURVIVE CALLING IT?
+##
+## The bug this was written for: the reward seats you at a fire-control station
+## 210 m up, `Player`'s out-of-the-map check fires above 60 m, and it killed you
+## on the frame the strike began — `_gunner_ok()` then saw a dead gunner and
+## closed the station, so a seven-kill streak bought a death and about a second
+## of sky. A real Player, because a stub has none of the rules that did it.
+func _orbital_gunner_lives() -> void:
+	print("\n-- ORBITAL STRIKE: the player who called it --")
+	var player: Node3D = PLAYER.instantiate()
+	player.player_index = 0
+	player.input_device = 99          # a device with nothing on it: no stray input
+	add_child(player)
+	await get_tree().process_frame
+	var ground := Vector3(6.0, 1.0, -4.0)
+	player.global_position = ground
+	player.reset_physics_interpolation()
+	await get_tree().physics_frame
+
+	var strike: Node3D = ORBITAL.new()
+	add_child(strike)
+	strike.global_position = ground
+	strike.begin(player, 0, 2.0)
+	# Half a second of real physics frames, which is far longer than the one
+	# frame the bounds check needed to kill them.
+	for i in 30:
+		await get_tree().physics_frame
+	print("  gunner at %.0f m, alive %s, mounted %s" % [
+		player.global_position.y, player.is_alive(), player.in_vehicle()])
+	_ok(player.is_alive(),
+		"the player who called the strike is still alive while riding the station")
+	_ok(player.global_position.y > 100.0,
+		"...and is genuinely up there (%.0f m), not quietly left on the ground"
+			% player.global_position.y)
+	_ok(player.in_vehicle(), "...seated at the station rather than left on the ground")
+
+	# THE STORM, WHICH IS WHAT ACTUALLY KILLED THIS REWARD. It burns a body for
+	# WHERE IT IS, by flat XZ distance and regardless of height — and the station
+	# hangs 68 m from the mark, so a seated gunner is always "outside the ring",
+	# 210 m up, with no way to walk back in. Measured before the fix: 100 hp down
+	# to 78 in six seconds at the OPENING damage rate, which climbs every phase.
+	var storm: Node3D = STORM.new()
+	add_child(storm)
+	storm.setup(1234)
+	# A closed ring around where the player was standing, held still — forcing
+	# `radius` while it is closing is pointless, it is lerped every frame.
+	storm._closing = false
+	storm._left = 999.0
+	storm.centre = ground
+	storm.radius = 45.0
+	# ...and an ordinary body left outside it, because a fix that spares everybody
+	# leaves royale with no ring at all. This is the half that would fail if the
+	# exemption were written as "anything mounted" or, worse, as "skip the burn".
+	var stranded: Node3D = BOT.instantiate()
+	add_child(stranded)
+	await get_tree().process_frame
+	stranded.setup(null, 1, 2)
+	stranded.global_position = ground + Vector3(120.0, 0.6, 0.0)
+	stranded.reset_physics_interpolation()
+	var gunner_hp: float = player.health
+	var stranded_hp: float = stranded.health
+	for i in 120:
+		await get_tree().physics_frame
+	print("  in the ring's teeth: gunner %.0f -> %.0f hp, a body outside it %.0f -> %.0f" % [
+		gunner_hp, player.health, stranded_hp, stranded.health])
+	_ok(is_equal_approx(player.health, gunner_hp),
+		"the storm does not burn a gunner the game has taken off the field")
+	_ok(stranded.health < stranded_hp,
+		"...and still burns a body that is merely standing outside the ring")
+	stranded.queue_free()
+	storm.queue_free()
+	await get_tree().process_frame
+
+	# ...and comes back down to where they were standing, still alive.
+	for i in 150:
+		await get_tree().physics_frame
+		if not is_instance_valid(strike):
+			break
+	await get_tree().physics_frame
+	print("  after the window: %.1f m up, alive %s, %.1f m from where they stood" % [
+		player.global_position.y, player.is_alive(),
+		player.global_position.distance_to(ground)])
+	_ok(player.is_alive(), "and survives the ride back down")
+	_ok(player.global_position.y < 60.0,
+		"...landing back inside the map rather than being left over the ceiling")
+	player.queue_free()
+	await get_tree().process_frame
+	_done.append("orbital gunner")
+
+
 func _orbital_damage() -> void:
 	print("\n-- ORBITAL STRIKE: what a bunched squad loses --")
 	var caller := Gunner.new()

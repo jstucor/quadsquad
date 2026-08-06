@@ -2023,6 +2023,19 @@ func in_vehicle() -> bool:
 	return _vehicle != null
 
 
+## AM I OFF THE FIELD? True while riding a CALL-IN — the orbital station or the
+## gunship's ball turret — as opposed to sitting in a speeder, which is on the
+## field and can be driven anywhere.
+##
+## It exists for the storm, which burns a body for WHERE IT IS: a gunner the game
+## has put 210 m up on a timer has not failed to move, and cannot. Duck-typed
+## like every other question this project asks of a mount (house rule 15), so a
+## future call-in answers it by stating one method and nothing here changes.
+func off_the_field() -> bool:
+	return _vehicle != null and _vehicle.has_method("is_call_in") \
+		and bool(_vehicle.is_call_in())
+
+
 ## DRIVE THIS BODY WITH A DIFFERENT CONTROLLER.
 ##
 ## The couch case this exists for is not "the pad reconnected" — Godot usually
