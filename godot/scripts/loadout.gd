@@ -2565,10 +2565,18 @@ func adopt_kit(new_kit: int) -> void:
 		fresh.weapon = weapon_index(only[0])
 	else:
 		fresh.weapon = NO_PRIMARY
-	# ...and the same for the sidearm, or a Wookiee would adopt its kit still
-	# holding the pistol on row 0 — an illegal build that the buy screen would
-	# then refuse to step off, because every direction from it is disallowed.
-	fresh.secondary = fresh._first_allowed(Row.SECONDARY, SECONDARIES.size())
+	# ...and the same for the sidearm: the class opens holding the one it OWNS,
+	# else the first row it is allowed at all — a kit left on an illegal row 0 is
+	# one the buy screen cannot step off, since every direction from it is
+	# refused. Both halves are load-bearing and the first only became so when
+	# CUSTOM opened the whole armoury: `_first_allowed` answers row 0 the moment
+	# every ordinary sidearm is legal, so it walked straight past the bowcaster
+	# and handed the Wookiee Han Solo's pistol. A `"kit"` entry is MECHANISM
+	# rather than balance (see `_allows_entry`) — it is what the class IS, so it
+	# is what the class deploys with until the player says otherwise.
+	fresh.secondary = fresh._own_secondary()
+	if fresh.secondary < 0:
+		fresh.secondary = fresh._first_allowed(Row.SECONDARY, SECONDARIES.size())
 	fresh.gadget = Gadget.NONE
 	fresh.gadget2 = Gadget.NONE
 	# The sustained slot resets with the other two. Kept explicit rather than
@@ -2751,10 +2759,17 @@ func step(row: int, dir: int) -> bool:
 	return true
 
 
-## Walk `current` one step in `dir`, skipping anything this kit may not take, and
-## stopping where it started if there is nothing further along. Stepping ONE at a
-## time and refusing would strand the cursor on the first disallowed entry, so
-## the skip has to happen here rather than in step().
+## The sidearm this kit OWNS, or -1 if it owns none. See `adopt_kit` for why a
+## class opens holding it. Checked through `allows` as well as by the key, so an
+## entry that is somebody else's and merely names a kit can never be seeded.
+func _own_secondary() -> int:
+	for i in SECONDARIES.size():
+		var entry: Dictionary = SECONDARIES[i]
+		if entry.get("kit", -1) == kit and allows(Row.SECONDARY, i):
+			return i
+	return -1
+
+
 ## The lowest entry on a row this kit may hold, or 0 if it may hold none — the
 ## starting point adopt_kit drops a fresh build on.
 func _first_allowed(row: int, size: int) -> int:
@@ -2764,6 +2779,10 @@ func _first_allowed(row: int, size: int) -> int:
 	return 0
 
 
+## Walk `current` one step in `dir`, skipping anything this kit may not take, and
+## stopping where it started if there is nothing further along. Stepping ONE at a
+## time and refusing would strand the cursor on the first disallowed entry, so
+## the skip has to happen here rather than in step().
 func _walk(row: int, current: int, dir: int, size: int) -> int:
 	var i := current + dir
 	while i >= 0 and i < size:

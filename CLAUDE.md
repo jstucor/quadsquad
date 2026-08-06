@@ -207,8 +207,15 @@ once. The per-system sections below assume them rather than repeating them.
 - **Primary and sidearm have SEPARATE modification slots.** SIGHT/COOLING/GRIP fit the
   primary (`primary_mods()`); the sidearm gets one pick from `SECONDARY_MODS`.
   `mods_for(on_secondary)` picks the set and everything calling `Weapon.set_class` must
-  go through it. `adopt_kit` seeds the sidearm with `_first_allowed` — a kit left holding
-  an illegal row 0 is one the cursor cannot step off, since every direction is refused.
+  go through it. **`adopt_kit` seeds the sidearm with the one the kit OWNS
+  (`_own_secondary`), falling through to `_first_allowed`.** The fallthrough is why the
+  seed exists at all — a kit left holding an illegal row 0 is one the cursor cannot step
+  off, since every direction is refused — but on its own it stopped being enough the
+  moment CUSTOM opened the whole armoury: with every ordinary sidearm legal, "the first
+  allowed row" is row 0, so it walked past the bowcaster and deployed the Wookiee with
+  Han Solo's pistol. A `"kit"` entry is MECHANISM rather than balance, so it is what that
+  class opens holding until the player says otherwise. Only the bowcaster carries the key
+  today, which is exactly why the regression was invisible everywhere else.
 - **Weapon upgrades never mutate `Weapon.PROFILES`**: `set_class(c, mods)` folds flags
   into a private `_upgraded_profile`.
 - **`Row.KIT` sits at index 0 and the `row_*` functions fall through to `_upgrade_index`

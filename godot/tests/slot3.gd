@@ -10,7 +10,11 @@ extends SceneTree
 ## config always breaks: a control that MOVED keeps its old binding, because a
 ## saved value wins over a default. Nothing about the code was wrong.
 
-const PLAYER := preload("res://scenes/actors/player.tscn")
+# NOTHING HERE MAY PRELOAD A SCENE. `--script` runs with no autoloads, so the
+# moment this file named player.tscn, every script that reaches for GameState or
+# Audio failed to compile and took this test down with them — an error storm
+# whose first line is about corpse.gd and whose real subject is this constant.
+# The four things below are all answerable from the catalogue and the bindings.
 
 
 func _init() -> void:

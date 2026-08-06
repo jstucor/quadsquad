@@ -327,6 +327,15 @@ static func pad_label(device: int, id: String) -> String:
 	return UNBOUND_LABEL if parts.is_empty() else " / ".join(parts)
 
 
+## What a control sits on for the KEYBOARD player, as stored: `{"key": kc}`,
+## `{"mouse": idx}`, or empty when unbound. The pad half already had
+## `bindings_for`; this is the other half, and it exists so a test can ask
+## whether two controls share one key without reaching into the private table.
+static func keyboard_binding(id: String) -> Dictionary:
+	ensure_loaded()
+	return _keys.get(id, {})
+
+
 static func key_label(id: String) -> String:
 	var bind: Dictionary = _keys.get(id, {})
 	if bind.has("key"):
