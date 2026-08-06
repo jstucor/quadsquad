@@ -2049,6 +2049,14 @@ parked (see KILL STREAK REWARDS) and they are the two that stressed the shared c
   afterwards. `team_size` stays an ordinary property every reader asks unchanged — its setter
   writes through to the current mode's row and the `mode` setter reads that row back, so nothing
   outside `game_state.gd` knows the table exists.
+- **THE TOP BAR OF THE PANEL PICKS WHOSE SETTINGS THESE ARE**, and everything under it is that
+  mode's settings followed by the ones every mode shares. It was a row that opened a SECOND panel
+  — settings within settings — which is one press too many for the rows people change most, and
+  it hid the thing the panel exists for behind a door. `<  DEATHMATCH  >` scrolls on left/right
+  (its own left/right focus neighbours are itself, so the highlight stays put while the bar moves
+  under it) and cycles on A. **It selects what you are EDITING, not what you are playing**: the
+  settings are stored per mode, so setting Conquest up while queuing a deathmatch is the whole
+  point of them being per mode at all.
 - **THE MATCH SETTINGS ARE BEHIND A BUTTON, and what pays for that is the SUMMARY LINE.** They were
   the middle column, and a dozen dropdowns touched once an evening should not stand permanently
   between the two things the screen is for — but the moment a setting is hidden, "is friendly fire
@@ -2058,8 +2066,15 @@ parked (see KILL STREAK REWARDS) and they are the two that stressed the shared c
   because it is opened in the middle of building a round and a scene change would lose which step
   the builder was on; focus moves INTO it (on a pad the highlight is the only cursor there is) and
   its ring is closed on itself, so the stick cannot walk out into the screen behind.
-- **CHOOSING THE SIDES IS WHAT ADDS THE ROUND**, which is why it is last. Every other setting has a
-  sensible default; who is fighting does not, and it is the thing people actually argue about.
+- **WHO IS FIGHTING IS ASKED ONCE, IMMEDIATELY BEFORE EVERY ROUND** (`faction_select.gd`), and it
+  is the one thing a playlist entry deliberately does NOT decide. Everything else in an entry is a
+  rule you set and forget — the map, the mode, how long a body lasts. Who everybody IS is not that:
+  it is the decision at a couch people argue over, swap, and want to make with the last round still
+  in mind. Queuing it meant deciding on a Tuesday who you would be in round three, and it made a
+  saved queue quietly brittle — a playlist built last week fielded last week's armies however
+  anybody felt tonight. So the builder is two steps (MAP, then MODE, which queues the round) and
+  every round — the first out of the queue and every one after, via `Main._next_map` — passes
+  through the faction screen. It opens FOCUSED ON FIGHT, so "same as last time" is one press.
 - **A FACTION SET IS DERIVED FROM `Loadout.factions()`, NEVER WRITTEN OUT** — the classic pairings in
   roster order (which in Star Wars is exactly the Clone Wars and then the Galactic Civil War), an
   ALL-SIDES set per universe, one cross-setting curiosity per pair of settings, and FREE FOR ALL.

@@ -36,6 +36,7 @@ const MENU_SCENE := "res://scenes/menu.tscn"
 ## screen that built the queue, so the accounts stay signed in and the next
 ## night's rounds are one press from the last one's.
 const PLAYLIST_SCENE := "res://scenes/playlist.tscn"
+const FACTION_SCENE := "res://scenes/faction_select.tscn"
 const LOBBY_SCENE := "res://scenes/lobby.tscn"
 const AI_RESPAWN_DELAY := 4.0  # team AI come back, unlike a player's bought squad
 const MATCH_START_COUNTDOWN := 3  # seconds of GET READY once everyone has deployed
@@ -567,7 +568,11 @@ func _next_map() -> void:
 	# having it again between every round is the thing a playlist exists to stop.
 	if GameState.playlist_active():
 		if GameState.playlist_advance():
-			get_tree().reload_current_scene()
+			# THROUGH THE FACTION SCREEN, not straight into the next round. Who
+			# everybody is is asked once before every round (see
+			# `faction_select.gd`) — including the second and third round of a
+			# queue, which is exactly when people swap sides.
+			get_tree().change_scene_to_file(FACTION_SCENE)
 		else:
 			get_tree().change_scene_to_file(PLAYLIST_SCENE)
 		return

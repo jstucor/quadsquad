@@ -798,6 +798,20 @@ func clear_seats() -> void:
 var settings_return := "res://scenes/front.tscn"
 
 
+## A MODE'S OWN ROSTER SIZE, read and written WITHOUT selecting that mode — which
+## is what lets the settings panel edit Conquest while a deathmatch is being
+## queued. Writing the mode you are actually in goes through `team_size` as well,
+## or the live value and its stored row would disagree until the next mode change.
+func mode_size(for_mode: int) -> int:
+	return int(mode_team_size.get(for_mode, MODE_TEAM_SIZES.get(for_mode, 2)))
+
+
+func set_mode_size(for_mode: int, value: int) -> void:
+	mode_team_size[for_mode] = value
+	if for_mode == mode:
+		team_size = value
+
+
 ## Fold this match's per-viewport table into the signed-in accounts, and store
 ## each player's controller configuration back onto theirs.
 ##

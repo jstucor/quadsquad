@@ -587,24 +587,27 @@ func _playlist_screen() -> void:
 	_ok(screen.get_viewport().gui_get_focus_owner() != null
 			and screen._mid_focus.has(screen.get_viewport().gui_get_focus_owner()),
 		"...and the highlight moves inside it, which on a pad is the only cursor")
-	# SETTINGS WITHIN SETTINGS: the mode's own are one press further in, and
-	# closing them steps back to the settings rather than out to the screen.
-	_ok(not screen._mode_overlay.visible, "the mode's own settings start closed")
-	screen._open_mode_settings()
+	# THE TOP BAR PICKS WHOSE SETTINGS THESE ARE. It opens on the mode being
+	# queued, scrolls through the others, and does NOT change the round — which is
+	# the whole point of the settings being stored per mode.
+	_ok(screen._editing_mode == GameState.mode,
+		"the settings open on the mode the round is in")
+	_ok(screen._mode_btn.text.contains(str(GameState.MODE_NAMES[GameState.mode])),
+		"...and the top bar says which: `%s`" % screen._mode_btn.text)
+	var was_mode: int = GameState.mode
+	screen._step_editing_mode(1)
 	await get_tree().process_frame
-	_ok(screen._mode_overlay.visible and screen._overlay.visible,
-		"opening them leaves the settings panel up behind")
-	_ok(screen._mode_heading.text.contains(
-			str(GameState.MODE_NAMES[GameState.mode])),
-		"...under a heading naming the mode: `%s`" % screen._mode_heading.text)
-	_ok(screen._mode_focus.size() >= 2,
-		"...with the mode's own rows in it (%d)" % screen._mode_focus.size())
-	screen._close_mode_settings()
-	await get_tree().process_frame
-	_ok(not screen._mode_overlay.visible and screen._overlay.visible,
-		"closing them steps back to the settings, not out of both")
-	_ok(screen.get_viewport().gui_get_focus_owner() == screen._mode_btn,
-		"...and onto the row that opened them")
+	_ok(screen._editing_mode != was_mode, "it scrolls to another mode's settings")
+	_ok(GameState.mode == was_mode,
+		"...without changing the round being built, which is a different question")
+	# ...and editing that mode writes THAT mode's row, not the live one.
+	var other: int = screen._editing_mode
+	var before: int = GameState.mode_size(was_mode)
+	GameState.set_mode_size(other, 8)
+	_ok(GameState.mode_size(other) == 8, "editing the scrolled-to mode takes")
+	_ok(GameState.mode_size(was_mode) == before,
+		"...and leaves the mode you are queuing alone")
+	screen._editing_mode = was_mode
 
 	screen._close_settings()
 	await get_tree().process_frame
@@ -623,24 +626,15 @@ func _playlist_screen() -> void:
 	_ok(GameState.map_index == 10, "...and the map is chosen")
 	(screen._left_focus[GameState.Mode.CONQUEST] as Button).emit_signal("pressed")
 	await get_tree().process_frame
-	_ok(screen._step == screen.Step.SIDES, "choosing a mode moves on to the sides")
 	_ok(GameState.class_mode == GameState.ClassMode.FACTION,
 		"...and Conquest seeded its faction rosters")
 
-	var sets: Array = screen._faction_sets()
-	_ok(sets.size() >= 4, "there are real faction sets to choose between (%d)" % sets.size())
-	_ok(str(sets[sets.size() - 1]["name"]) == "FREE FOR ALL",
-		"...and `nobody is on anybody's side` is one of the answers")
-	var wanted: Array = sets[0]["factions"]
-	(screen._left_focus[0] as Button).emit_signal("pressed")
-	await get_tree().process_frame
-
-	_ok(GameState.playlist.size() == 1, "choosing the sides is what queues the round")
+	# TWO STEPS, NOT THREE: who is fighting is asked once before every round on
+	# its own screen now, so choosing the MODE is what queues it.
+	_ok(GameState.playlist.size() == 1, "choosing the mode is what queues the round")
 	var entry: Dictionary = GameState.playlist[0]
 	_ok(int(entry["map_index"]) == 10 and int(entry["mode"]) == GameState.Mode.CONQUEST,
 		"the queued round is the one that was built")
-	_ok(int((entry["team_faction"] as Array)[0]) == int(wanted[0]),
-		"...fought by the sides that were picked")
 	_ok(screen._step == screen.Step.MAP, "and the builder is back at step one for the next")
 	_ok(not screen._start.disabled, "with something queued, it can be played")
 	_ok(not GameState.match_sides(entry).is_empty(),
@@ -657,12 +651,10 @@ func _playlist_screen() -> void:
 	# WHERE PLAYING GOES, asked without going there.
 	GameState.playlist.append(GameState.capture_match())
 	GameState.free_for_all = false
-	_ok(screen.play_destination().ends_with("team_select.tscn"),
-		"a sided match goes through team select")
-	GameState.free_for_all = true
-	_ok(screen.play_destination().ends_with("main.tscn"),
-		"a free-for-all has no sides to pick and drops straight in")
-	GameState.free_for_all = false
+	# EVERY round goes through the faction screen first — that is what "once
+	# before every game" means, and it is where team select is decided from.
+	_ok(screen.play_destination().ends_with("faction_select.tscn"),
+		"playing goes through the faction screen")
 	screen.queue_free()
 	await get_tree().process_frame
 	_sections.append("screen")

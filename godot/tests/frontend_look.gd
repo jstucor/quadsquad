@@ -23,6 +23,7 @@ extends Node
 
 const SIGN_IN := preload("res://scenes/sign_in.tscn")
 const PLAYLIST := preload("res://scenes/playlist.tscn")
+const FACTIONS := preload("res://scenes/faction_select.tscn")
 const ACCOUNTS_CFG := "user://accounts.cfg"
 const CONTROLS_CFG := "user://controls.cfg"
 ## The playlist screen SAVES as it changes and LOADS when it opens, so this test
@@ -43,6 +44,7 @@ func _ready() -> void:
 
 	await _sign_in_shots()
 	await _playlist_shots()
+	await _faction_shots()
 
 	_restore(ACCOUNTS_CFG, accounts_backup)
 	_restore(CONTROLS_CFG, controls_backup)
@@ -134,13 +136,12 @@ func _playlist_shots() -> void:
 	screen._open_settings()
 	await _frames(4)
 	await _grab("playlist_settings")
-	# ...and one level further in: the settings that belong to the MODE. Two
-	# modals deep is the state worth a picture, because it is the one where a
-	# panel could be mistaken for the panel behind it.
-	screen._open_mode_settings()
+	# ...and the top bar scrolled to ANOTHER mode's settings, which is the state
+	# that says the bar is a selector rather than a heading.
+	screen._step_editing_mode(1)
 	await _frames(4)
 	await _grab("playlist_mode_settings")
-	screen._close_mode_settings()
+	screen._step_editing_mode(-1)
 	await _frames(3)
 	screen._close_settings()
 	await _frames(3)
@@ -150,9 +151,6 @@ func _playlist_shots() -> void:
 	screen._show_step(screen.Step.MODE)
 	await _frames(3)
 	await _grab("playlist_mode")
-	screen._show_step(screen.Step.SIDES)
-	await _frames(3)
-	await _grab("playlist_sides")
 
 	# ...and a night's play queued, which is what the right column is FOR and the
 	# only state that shows whether it stays readable with something in it.
@@ -177,6 +175,20 @@ func _playlist_shots() -> void:
 	screen._show_step(screen.Step.MAP)
 	await _frames(4)
 	await _grab("playlist_queued")
+	screen.queue_free()
+	await _frames(2)
+
+
+## WHO IS FIGHTING, asked once before every round. Shot because it is the last
+## screen between the queue and the match and the only one whose job is a single
+## question — if it does not read at a glance it is a speed bump.
+func _faction_shots() -> void:
+	GameState.team_count = 2
+	GameState.free_for_all = false
+	var screen: Control = FACTIONS.instantiate()
+	add_child(screen)
+	await _frames(6)
+	await _grab("faction_select")
 	screen.queue_free()
 	await _frames(2)
 
