@@ -606,6 +606,17 @@ once. The per-system sections below assume them rather than repeating them.
   same decision as the rules Conquest plays by. Selecting a mode SEEDS the setting
   (`default_class_mode`) and the player overrides it. ROYALE always answers false: it is
   neither a shop nor a roster, it is scavenging. Bots follow the same switch.
+- **A MODE MAY SEED A SETTING NOBODY HAS TOUCHED; IT MAY NEVER OVERWRITE ONE SOMEBODY CHOSE**
+  (`GameState.seed_class_mode` / `choose_class_mode`, and the `class_mode_chosen` flag that
+  travels in `MATCH_KEYS`). Every mode picker used to write `default_class_mode` straight in,
+  which was harmless while the setting sat on screen beside the mode resetting it — you could
+  watch it move. On the playlist screen it was a silent bug and a bad one: choose FACTION
+  ROSTERS, close the settings panel, build a round, and the MODE step of that build put it back
+  to CUSTOM, so the round deployed off the buy screen. **Reported from play, and it is the
+  shape of fault a hidden setting creates**: nothing on screen was wrong, the two halves were
+  individually correct, and the only symptom appeared one scene later as the wrong deploy
+  screen. Its regression test walks the real screen IN THE ORDER A PLAYER DOES IT, because the
+  order is the bug.
 - **TWENTY A SIDE IN THE ORDINARY MODES** (`MAX_TEAM_SIZE`, offered as the `TEAM_SIZES` ladder rather than
   twenty integers a stick has to walk). It was six, and a 6v6 on 260 m of Boneyard is four people who never
   find each other. What had to change to allow it was NOT performance work — it was splitting `Bot.line`

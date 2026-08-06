@@ -817,7 +817,7 @@ var playlist_index := -1
 const MATCH_KEYS := [
 	"map_index", "mode", "planet", "time_of_day", "ttk", "class_mode",
 	"team_count", "free_for_all", "team_size", "ai_skill", "aim_assist",
-	"friendly_fire", "universe",
+	"friendly_fire", "universe", "class_mode_chosen",
 ]
 
 
@@ -1065,10 +1065,41 @@ func faction_classes() -> bool:
 	return mode != Mode.ROYALE and class_mode == ClassMode.FACTION
 
 
-## What a mode expects when you first select it. Only a seed: the menu writes it
-## into class_mode on a mode change and the player is free to change it after.
+## What a mode expects when you first select it.
 func default_class_mode(for_mode: int) -> int:
 	return ClassMode.FACTION if for_mode == Mode.CONQUEST else ClassMode.CUSTOM
+
+
+## A MODE MAY SEED A SETTING NOBODY HAS TOUCHED. IT MAY NEVER OVERWRITE ONE
+## SOMEBODY CHOSE.
+##
+## Every mode picker used to write `default_class_mode` straight into
+## `class_mode`, which was harmless while the setting sat on screen beside the
+## mode that was resetting it — you could see it move. On the playlist screen it
+## is a silent bug and a bad one: you open MATCH SETTINGS, choose FACTION
+## ROSTERS, close the panel, and then build the round — and the MODE step of that
+## build quietly puts it back to CUSTOM, so the round you queued deploys off the
+## buy screen. The setting is behind a button now, so there is nothing on screen
+## to show it being undone, and the only symptom is the wrong screen appearing
+## when you deploy, one scene later.
+##
+## The flag is part of the SETUP (it is in `MATCH_KEYS`), so a deliberate choice
+## survives being saved, queued and read back tomorrow — a choice that is
+## remembered until the next launch and then silently un-remembered is the same
+## bug one session further out.
+var class_mode_chosen := false
+
+
+## The player said so. Everything that offers the CHARACTERS row calls this.
+func choose_class_mode(value: int) -> void:
+	class_mode = value
+	class_mode_chosen = true
+
+
+## The mode says so — but only if nobody has. Every mode picker calls this.
+func seed_class_mode(for_mode: int) -> void:
+	if not class_mode_chosen:
+		class_mode = default_class_mode(for_mode)
 
 
 ## Is this the massive mode? Asked by everything that has to behave differently

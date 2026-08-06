@@ -260,10 +260,11 @@ func _pick_map(index: int) -> void:
 
 func _pick_mode(mode: int) -> void:
 	GameState.mode = mode
-	# A mode SEEDS where the gear comes from and how many sides there are; the
-	# settings column is free to say otherwise afterwards. Same seeding rule the
-	# old menu kept, in the one place a mode is now chosen.
-	GameState.class_mode = GameState.default_class_mode(mode)
+	# A mode SEEDS where the gear comes from — and only if nobody has said
+	# otherwise. Writing it straight in put a player's FACTION ROSTERS choice
+	# back to CUSTOM every time they built a round, invisibly, because the
+	# setting lives behind a button now. See `GameState.seed_class_mode`.
+	GameState.seed_class_mode(mode)
 	if mode == GameState.Mode.CONQUEST or GameState.massive():
 		GameState.free_for_all = false
 		GameState.team_count = 2
@@ -493,7 +494,8 @@ func _build_settings_panel() -> void:
 		GameState.ttk = i
 		_changed())
 	classes_dd.item_selected.connect(func(i: int) -> void:
-		GameState.class_mode = i
+		# CHOSEN, not merely set: from here on no mode may seed over it.
+		GameState.choose_class_mode(i)
 		_changed())
 	ff_dd.item_selected.connect(func(i: int) -> void:
 		GameState.friendly_fire = i == 1

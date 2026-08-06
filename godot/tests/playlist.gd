@@ -58,6 +58,7 @@ func _ready() -> void:
 	await _real_input()
 	_planet_maps()
 	_mode_settings()
+	await _class_source()
 	_persistence()
 	await _playlist_screen()
 	await _boot()
@@ -72,7 +73,7 @@ func _ready() -> void:
 	# rest of that section with it silently (house rule 6), so a test that only
 	# counted failures would report success having checked nothing.
 	var expected := ["seats", "sign-in", "input", "capture", "queue", "planets",
-		"mode-settings", "persistence", "screen", "boot", "career"]
+		"mode-settings", "class-source", "persistence", "screen", "boot", "career"]
 	for s in expected:
 		if not _sections.has(s):
 			_fails.append("section `%s` never finished — it aborted part way" % s)
@@ -438,6 +439,70 @@ func _mode_settings() -> void:
 	_ok(GameState.TEAM_SIZES.has(GameState.team_size),
 		"...and lands on a size the ladder actually offers (%d)" % GameState.team_size)
 	_sections.append("mode-settings")
+
+
+## WHERE THE GEAR COMES FROM, AND THE BUG THAT MADE THIS SECTION EXIST.
+##
+## Reported from play: choose FACTION ROSTERS, build a round, deploy — and get
+## the CUSTOM buy screen. The MODE step of building a round wrote
+## `default_class_mode` straight into the setting, so every round queued after
+## choosing put it back. It was invisible: the setting lives behind a button now,
+## so there was nothing on screen to watch being undone, and the only symptom was
+## the wrong screen appearing one scene later.
+##
+## Walked through the real screen, in the order a player does it, because that
+## ORDER is the bug — the setting and the thing that overwrote it were both
+## individually correct.
+func _class_source() -> void:
+	print("\n== where the gear comes from ==")
+	_forget_setup()
+	GameState.human_players = 2
+	GameState.class_mode_chosen = false
+	var screen: Control = PLAYLIST.instantiate()
+	add_child(screen)
+	await get_tree().process_frame
+
+	# A mode still SEEDS it while nobody has said otherwise — that part was right
+	# and has to stay right.
+	screen._pick_mode(GameState.Mode.CONQUEST)
+	_ok(GameState.faction_classes(), "Conquest still opens on its faction rosters")
+	screen._pick_mode(GameState.Mode.DEATHMATCH)
+	_ok(GameState.class_mode == GameState.ClassMode.CUSTOM,
+		"...and deathmatch still opens on the buy screen")
+
+	# Now the player says otherwise, exactly as the CHARACTERS row does.
+	GameState.choose_class_mode(GameState.ClassMode.FACTION)
+	_ok(GameState.faction_classes(), "choosing FACTION ROSTERS takes")
+
+	# ...and then builds a round. THIS is what used to undo it.
+	screen._show_step(screen.Step.MAP)
+	(screen._left_focus[0] as Button).emit_signal("pressed")
+	await get_tree().process_frame
+	(screen._left_focus[GameState.Mode.DEATHMATCH] as Button).emit_signal("pressed")
+	await get_tree().process_frame
+	_ok(GameState.faction_classes(),
+		"picking a mode while building a round does NOT put it back to custom")
+	(screen._left_focus[0] as Button).emit_signal("pressed")
+	await get_tree().process_frame
+	_ok(not GameState.playlist.is_empty(), "the round queued")
+	if not GameState.playlist.is_empty():
+		var entry: Dictionary = GameState.playlist[0]
+		_ok(int(entry["class_mode"]) == GameState.ClassMode.FACTION,
+			"...and it is QUEUED with the faction rosters, which is what deploys")
+
+	# And the choice survives the round trip through disk, or it is un-remembered
+	# on the next launch, which is the same bug one session further out.
+	GameState.save_setup()
+	GameState.class_mode = GameState.ClassMode.CUSTOM
+	GameState.class_mode_chosen = false
+	GameState.load_setup()
+	_ok(GameState.faction_classes() and GameState.class_mode_chosen,
+		"the choice is still there after a save and a load")
+	screen.queue_free()
+	await get_tree().process_frame
+	GameState.class_mode_chosen = false
+	_forget_setup()
+	_sections.append("class-source")
 
 
 ## THE SETUP SURVIVES THE SESSION. Everything behind the settings button plus the

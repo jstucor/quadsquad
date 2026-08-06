@@ -398,7 +398,7 @@ func _on_map_chosen(index: int) -> void:
 
 func _on_mode_chosen(index: int) -> void:
 	GameState.mode = ONLINE_MODES[index]
-	GameState.class_mode = GameState.default_class_mode(GameState.mode)
+	GameState.seed_class_mode(GameState.mode)
 	Audio.play("ui_move")
 	_build()
 

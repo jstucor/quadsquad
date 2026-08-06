@@ -317,7 +317,7 @@ func _build() -> void:
 		# A mode SEEDS the class source rather than owning it: Conquest opens on
 		# its faction rosters, everything else on the buy screen, and the CLASSES
 		# row below is free to say otherwise.
-		GameState.class_mode = GameState.default_class_mode(i)
+		GameState.seed_class_mode(i)
 		_refresh_all.call())
 	planet_dd.item_selected.connect(func(i: int) -> void:
 		# Item 0 is RANDOM, which is GameState.RANDOM_PLANET (-1).
@@ -337,7 +337,7 @@ func _build() -> void:
 		GameState.ttk = i
 		_refresh_all.call())
 	classes_dd.item_selected.connect(func(i: int) -> void:
-		GameState.class_mode = i
+		GameState.choose_class_mode(i)
 		_refresh_all.call())
 	victory_dd.item_selected.connect(func(i: int) -> void:
 		GameState.score_targets[GameState.mode] = _victory_values()[i]
