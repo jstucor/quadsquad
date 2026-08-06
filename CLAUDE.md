@@ -793,9 +793,30 @@ once. The per-system sections below assume them rather than repeating them.
   airborne, <1 crouched. The HUD bloom crosshair reads the same value so the penalty is
   legible. A scope's 0 stays 0. Bots leave it at 1 (they have their own aim-error model).
   Crouch also drops kick via `CROUCH_RECOIL_MULT`.
-- **A scope means zero spread while aimed, on any gun.** The rule is in
-  `current_spread_deg()` (`0.0 if has_scope()`), not a zeroed `ads_spread` in the table, so
-  it cannot be undone by a future profile pairing `"scope": true` with a spread.
+- **AIMING IS PINPOINT — every gun, every sight, every stance.** It was the SCOPE's promise
+  alone and everything else kept a small ADS cone, so aiming an iron-sighted rifle still threw
+  rounds inside a cone you could watch the reticle draw. What a sight picture tells a player is
+  "the round goes there"; a gun that answers "roughly there" reads as the game cheating, and no
+  amount of tuning the number fixes the disagreement — **the eye believes the sight picture**,
+  which is the same argument that made the viewmodel's kick DERIVED from the camera's rather
+  than authored beside it. The rule is in `current_spread_deg()` (`0.0 if aiming`), not a zeroed
+  `ads_spread` column, so no profile can opt out of it. `tests/weapon_feel.tscn` checks all 96
+  guns, in the worst stance, with a cone full of spray.
+- **WHAT AIMING STILL COSTS**, since the cone is no longer part of it: you move slower
+  (`ADS_SPEED_MULT`), you cannot aim at a run, coming out of a sprint takes the weapon's own
+  handling time — and RECOIL is untouched, so a held trigger still walks off the target. Hip
+  fire keeps its bloom, its stance multipliers and the grip mods that tighten it. A SCOPE now
+  buys magnification and a clean sight picture rather than accuracy nobody else has.
+- **AND THE RETICLE SAYS SO: aimed, it is a point and nothing else** (`Main._draw_bloom`
+  returns early while `aiming`). Ticks around a zero cone are drawing a spread the gun does not
+  have, and at the minimum radius they sat as four marks around the sight bead — which reads as
+  exactly the bloom that was just removed.
+- **`aimed_spread_deg()` IS DELIBERATELY NOT ZEROED WITH IT.** It is the AI's model of the gun:
+  `Bot._hit_reach` derives every stand-off from the tier's wobble plus that cone, so zeroing it
+  moves every ADS-capable bot's fighting range outward and collapses the difference between a
+  scoped rifle and an iron-sighted one. `tests/bot_range.tscn` caught precisely that. A rule
+  about what a PLAYER is promised must not turn into an AI rebalance as a side effect — two
+  changes, one of them unasked for and invisible.
 - **You cannot ADS while RUNNING** (`Player._is_running`: sprint held, not crouched, stick
   pushed). Standing still holding sprint still lets you aim.
 - **HANDLING IS ONE NUMBER PER GUN AND IT IS THE OTHER HALF OF WHAT A WEAPON COSTS**
@@ -1914,6 +1935,25 @@ parked (see KILL STREAK REWARDS) and they are the two that stressed the shared c
   MODE, then the SIDES — because it is a story rather than a grid: which planet, what are we
   playing, who are we. RIGHT is the queue itself and the button that plays it, a COLUMN and not a
   strip at the bottom because its job is to be readable while you are still building.
+- **SETTINGS WITHIN SETTINGS: A MODE'S OWN ARE ONE PRESS FURTHER IN.** How many players a side
+  fields and what the round is played to are not properties of the match, they are properties of
+  the MODE — and in a flat list nothing said so: TEAM SIZE meant four different things depending
+  on the row above it, and VICTORY changed its unit under you (kills, then seconds, then
+  reinforcements) with nothing to explain why. They live under a heading that names the mode now,
+  with the mode's own blurb under it, and the rows are REBUILT on open because a mode with
+  nothing to tune has to be able to show fewer of them. B closes the TOP-MOST panel only: two
+  modals deep, one press that closed both would drop a player out to the screen when they meant
+  to step back.
+- **AND THEY ARE STORED PER MODE, which is what makes the nesting true rather than decorative**
+  (`GameState.mode_team_size`, alongside the `score_targets` table that was already keyed this
+  way because kills, seconds and reinforcements are not one unit). Fifty a side is the whole
+  point of MASSIVE and absurd in Conquest; with one shared box the answer to "how many players"
+  was whatever the last mode you looked at needed. **This is also the documented MASSIVE trap
+  fixed at the root**: leaving that mode used to leave `team_size` at fifty, over the ordinary
+  ceiling and matching no item in the dropdown, and `menu.gd`'s `_fix_setup` had to walk it back
+  afterwards. `team_size` stays an ordinary property every reader asks unchanged — its setter
+  writes through to the current mode's row and the `mode` setter reads that row back, so nothing
+  outside `game_state.gd` knows the table exists.
 - **THE MATCH SETTINGS ARE BEHIND A BUTTON, and what pays for that is the SUMMARY LINE.** They were
   the middle column, and a dozen dropdowns touched once an evening should not stand permanently
   between the two things the screen is for — but the moment a setting is hidden, "is friendly fire

@@ -1425,8 +1425,20 @@ func max_range() -> float:
 ## can still hit is its own aim wobble plus the cone it will shoot through, and
 ## nothing else. `current_spread_deg` is the live number and stays the one the
 ## HUD and the shot itself read.
+## WHAT THIS GUN IS LIKE WHEN AIMED, WHICH IS THE AI'S MODEL AND NOT THE SHOT.
+##
+## It is deliberately NOT zero, even though `current_spread_deg` is pinpoint down
+## the sights now. A Bot derives its whole stand-off from this (`_hit_reach`:
+## a shot lands while the tier's wobble plus the gun's cone keeps it inside a
+## body at that range), so zeroing it here would silently move every ADS-capable
+## bot's fighting range outward and collapse the difference between a scoped
+## rifle and an iron-sighted one — `tests/bot_range.tscn` caught exactly that.
+##
+## Pinpoint aiming is a rule about what a PLAYER is promised by a sight picture.
+## Turning it into an AI rebalance as a side effect would be a second, unasked-for
+## change hiding inside the first, so the column still describes how tight each
+## gun is when aimed and the AI still tunes against it, unchanged.
 func aimed_spread_deg() -> float:
-	# A scope is pinpoint, the same absolute rule current_spread_deg keeps.
 	return 0.0 if has_scope() else _profile["ads_spread"]
 
 
@@ -1437,16 +1449,31 @@ func hip_spread_deg() -> float:
 ## The spread cone half-angle (deg) a shot would use right now — hip fire adds
 ## the accumulated bloom, aiming stays tight. Used by the bloom crosshair.
 ##
-## A scope is an absolute promise, not a modifier: while you are on the glass
-## the shot goes exactly where the reticle is, on whatever gun it is bolted to.
-## The rule lives here rather than as a zeroed `ads_spread` in the table so it
-## also covers guns that ship with optics, and so it cannot be quietly undone by
-## a future profile that sets a spread alongside "scope": true.
+## AIMING IS PINPOINT. On every gun, with every sight, in every stance: while the
+## sights are up the shot goes exactly where the reticle is and nowhere else.
+##
+## It used to be the SCOPE's promise alone, and everything else kept a small
+## `ads_spread` cone — so aiming an iron-sighted rifle still threw rounds inside
+## a cone you could see the reticle drawing, which is the one thing a sight
+## picture is supposed to rule out. What a player is told by looking down the
+## sights is "the round goes there"; a gun that then answers "roughly there"
+## reads as the game cheating, and no amount of tuning the number fixes the
+## disagreement — the eye believes the sight picture (the same argument the
+## viewmodel kick is derived rather than authored for).
+##
+## WHAT AIMING STILL COSTS, so this is a trade and not a free upgrade: you move
+## slower (`ADS_SPEED_MULT`), you cannot do it at a run, coming out of a sprint
+## takes the weapon's own handling time, and RECOIL is untouched — the cone is
+## gone, the climb is not, so a held trigger still walks off the target. Hip fire
+## keeps its bloom, its stance multipliers and the grip mods that tighten it.
+##
+## The rule lives HERE rather than as a zeroed `ads_spread` column, so it covers
+## every profile including future ones and cannot be quietly undone by a table
+## entry — the same reason the scope's version of it lived here.
 func current_spread_deg() -> float:
-	# A scope is pinpoint while aimed no matter the stance — that rule is
-	# absolute (see the class docs), so the multiplier below never touches its 0.
-	var base: float = 0.0 if (aiming and has_scope()) \
-		else (_profile["ads_spread"] if aiming else _profile["hip_spread"] + _bloom)
+	# Zero while aimed no matter the stance, so the multiplier below never has
+	# anything to widen.
+	var base: float = 0.0 if aiming else _profile["hip_spread"] + _bloom
 	# Stance widens the cone on the move and tightens it crouched. The HUD bloom
 	# crosshair reads this same value, so the reticle blooms as you run and
 	# settles as you stand — the accuracy penalty is legible, not hidden.

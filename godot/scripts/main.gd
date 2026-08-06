@@ -1772,12 +1772,20 @@ func _deploy_post_line(player: Player) -> String:
 func _draw_bloom(c: Control, player: Player) -> void:
 	if not c.visible or c.size.y <= 0.0:
 		return
+	# AIMED, IT IS A POINT AND NOTHING ELSE. The cone is zero down the sights
+	# (see `Weapon.current_spread_deg`), so ticks around it would be drawing a
+	# spread that does not exist — and at the minimum radius they sat as four
+	# marks around the sight bead, which reads as exactly the bloom the gun no
+	# longer has. What a sight picture has to say is "here", so it says it once.
+	var center := c.size * 0.5
+	if player.weapon.aiming:
+		c.draw_circle(center, 1.8, Color(1, 1, 1, 0.9))
+		return
 	var spread := deg_to_rad(player.weapon.current_spread_deg())
 	var fov := deg_to_rad(player.view_fov())
 	var half_h := c.size.y * 0.5
 	var radius := half_h * tan(spread) / maxf(tan(fov * 0.5), 0.001)
 	radius = clampf(radius, 4.0, half_h * 0.92)
-	var center := c.size * 0.5
 	var col := Color(1, 1, 1, 0.85)
 	var tick := 7.0
 	c.draw_line(center + Vector2(0, -radius), center + Vector2(0, -radius - tick), col, 2.0)

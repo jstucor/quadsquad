@@ -134,6 +134,14 @@ func _playlist_shots() -> void:
 	screen._open_settings()
 	await _frames(4)
 	await _grab("playlist_settings")
+	# ...and one level further in: the settings that belong to the MODE. Two
+	# modals deep is the state worth a picture, because it is the one where a
+	# panel could be mistaken for the panel behind it.
+	screen._open_mode_settings()
+	await _frames(4)
+	await _grab("playlist_mode_settings")
+	screen._close_mode_settings()
+	await _frames(3)
 	screen._close_settings()
 	await _frames(3)
 

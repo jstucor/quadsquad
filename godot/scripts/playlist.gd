@@ -91,6 +91,14 @@ var _settings_scroll: ScrollContainer
 var _overlay: Control
 var _settings_btn: Button
 var _close_btn: Button
+## ...and the panel one level further in, which is the MODE's own settings.
+var _mode_overlay: Control
+var _mode_btn: Button
+var _mode_done: Button
+var _mode_list: VBoxContainer
+var _mode_heading: Label
+var _mode_blurb_label: Label
+var _mode_focus: Array = []
 var _tint_dd: Array[OptionButton] = []
 var _refresh_settings: Callable
 ## The two focus columns, rebuilt whenever either changes, plus the settings
@@ -155,8 +163,10 @@ func _build() -> void:
 	column.add_child(row)
 	row.add_child(_build_column())
 	row.add_child(_queue_column())
-	# Built LAST and as a sibling of the columns, so it draws over them.
+	# Built LAST and as siblings of the columns, so they draw over them — and the
+	# mode panel after the settings panel, so it draws over that in turn.
 	_build_settings_panel()
+	_build_mode_panel()
 
 	column.add_child(_spacer(6))
 	_summary = _text("", 14, DIM)
@@ -425,19 +435,26 @@ func _build_settings_panel() -> void:
 	list.custom_minimum_size = Vector2(SETTINGS_W - 44, 0)
 	_settings_scroll.add_child(list)
 
-	var size_dd := _setting(list, "TEAM SIZE")
-	var skill_dd := _setting(list, "AI SKILL")
-	var assist_dd := _setting(list, "AIM ASSIST")
-	var ttk_dd := _setting(list, "TIME TO KILL")
-	var classes_dd := _setting(list, "CHARACTERS")
-	var victory_dd := _setting(list, "VICTORY")
-	var ff_dd := _setting(list, "FRIENDLY FIRE")
+	# THE MODE'S OWN SETTINGS ARE ONE LEVEL FURTHER IN, and the button says which
+	# mode it is about. See `_build_mode_panel`.
+	_mode_btn = _framed(Button.new())
+	_mode_btn.custom_minimum_size = Vector2(SETTINGS_W - 44, 34)
+	_mode_btn.pressed.connect(_open_mode_settings)
+	list.add_child(_mode_btn)
+	_mid_focus.append(_mode_btn)
+	list.add_child(_spacer(4))
+
+	var skill_dd := _setting(list, "AI SKILL", _mid_focus)
+	var assist_dd := _setting(list, "AIM ASSIST", _mid_focus)
+	var ttk_dd := _setting(list, "TIME TO KILL", _mid_focus)
+	var classes_dd := _setting(list, "CHARACTERS", _mid_focus)
+	var ff_dd := _setting(list, "FRIENDLY FIRE", _mid_focus)
 	# PLANET IS GONE FROM HERE. Every generated world is its own row in the MAP
 	# step now, so a second control deciding which one gets built would be a
 	# setting that silently contradicts the map you chose.
-	var time_dd := _setting(list, "TIME OF DAY")
+	var time_dd := _setting(list, "TIME OF DAY", _mid_focus)
 	for t in GameState.MAX_TEAMS:
-		_tint_dd.append(_setting(list, "SIDE %d COLOUR" % (t + 1)))
+		_tint_dd.append(_setting(list, "SIDE %d COLOUR" % (t + 1), _mid_focus))
 
 	box.add_child(_spacer(6))
 	_close_btn = _framed(Button.new())
@@ -447,18 +464,12 @@ func _build_settings_panel() -> void:
 	box.add_child(_close_btn)
 
 	_refresh_settings = func() -> void:
-		var sizes := _size_values()
-		_fill(size_dd, _labels(sizes, "%d PER TEAM"), maxi(sizes.find(GameState.team_size), 0))
-		size_dd.disabled = GameState.free_for_all
+		_mode_btn.text = "%s SETTINGS  >" % str(GameState.MODE_NAMES[GameState.mode])
 		_fill(skill_dd, _names_of(Loadout.SQUAD_SKILLS), GameState.ai_skill)
 		_fill(assist_dd, _dict_names(GameState.AIM_ASSIST_NAMES), GameState.aim_assist)
 		_fill(ttk_dd, _dict_names(GameState.TTK_NAMES), GameState.ttk)
 		_fill(classes_dd, _dict_names(GameState.CLASS_MODE_NAMES), GameState.class_mode)
 		classes_dd.disabled = GameState.mode == GameState.Mode.ROYALE
-		var vics := _victory_values()
-		_fill(victory_dd, _labels(vics, "%d " + _victory_unit()),
-			maxi(vics.find(GameState.score_limit()), 0))
-		victory_dd.disabled = GameState.mode == GameState.Mode.ROYALE
 		_fill(ff_dd, PackedStringArray(["OFF", "ON"]), 1 if GameState.friendly_fire else 0)
 		# Only a generated world has a night to fight it in. DISABLED rather than
 		# hidden: a row that vanishes is one nobody learns exists, and here it
@@ -469,12 +480,9 @@ func _build_settings_panel() -> void:
 			_fill(_tint_dd[t], _names_of(Loadout.TEAM_TINTS),
 				GameState.team_tint[t] if t < GameState.team_tint.size() else 0)
 			_tint_dd[t].disabled = t >= GameState.active_teams() or GameState.free_for_all
+		_refresh_mode_panel()
 		_refresh_summary()
 
-	size_dd.item_selected.connect(func(i: int) -> void:
-		var values := _size_values()
-		GameState.team_size = int(values[clampi(i, 0, values.size() - 1)])
-		_changed())
 	skill_dd.item_selected.connect(func(i: int) -> void:
 		GameState.ai_skill = i
 		_changed())
@@ -486,10 +494,6 @@ func _build_settings_panel() -> void:
 		_changed())
 	classes_dd.item_selected.connect(func(i: int) -> void:
 		GameState.class_mode = i
-		_changed())
-	victory_dd.item_selected.connect(func(i: int) -> void:
-		var values := _victory_values()
-		GameState.score_targets[GameState.mode] = int(values[clampi(i, 0, values.size() - 1)])
 		_changed())
 	ff_dd.item_selected.connect(func(i: int) -> void:
 		GameState.friendly_fire = i == 1
@@ -720,6 +724,132 @@ func play_destination() -> String:
 	return GAME_SCENE if GameState.free_for_all else TEAM_SELECT_SCENE
 
 
+
+# --- SETTINGS WITHIN SETTINGS: THE MODE'S OWN ---------------------------------
+#
+# SOME SETTINGS BELONG TO A MODE AND NOT TO THE MATCH, and until they were nested
+# they sat in the same flat list as the ones that belong to every match — so a
+# player reading TEAM SIZE had no way of knowing it means four different things
+# depending on the row above it, and VICTORY changed its unit under them (kills,
+# then seconds, then reinforcements) with nothing to say why.
+#
+# So the mode owns them: one press further in, under a heading that names the
+# mode and a line that says what the mode IS. And they are stored per mode
+# (`GameState.mode_team_size`, `score_targets`), which is the half that makes the
+# nesting true rather than decorative — fifty a side is the whole point of
+# MASSIVE and absurd in Conquest, and picking a mode now restores that mode's own
+# numbers instead of dragging the last one's along.
+#
+# The rows are REBUILT on open, not refilled: a mode with nothing to tune (royale
+# is last-side-standing, which is not a number) has to be able to show fewer of
+# them, and the heading has to be able to change.
+
+func _build_mode_panel() -> void:
+	_mode_overlay = Control.new()
+	_mode_overlay.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_mode_overlay.visible = false
+	add_child(_mode_overlay)
+	var dim := ColorRect.new()
+	dim.color = Color(0.02, 0.03, 0.04, 0.55)
+	dim.set_anchors_preset(Control.PRESET_FULL_RECT)
+	dim.mouse_filter = Control.MOUSE_FILTER_STOP
+	_mode_overlay.add_child(dim)
+
+	var centre := VBoxContainer.new()
+	centre.set_anchors_preset(Control.PRESET_CENTER)
+	centre.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	centre.grow_vertical = Control.GROW_DIRECTION_BOTH
+	centre.alignment = BoxContainer.ALIGNMENT_CENTER
+	_mode_overlay.add_child(centre)
+
+	var panel := _panel_box(SETTINGS_W)
+	panel.custom_minimum_size = Vector2(SETTINGS_W, 0)   # only as tall as it needs
+	centre.add_child(panel)
+	var box: VBoxContainer = panel.get_child(0)
+	_mode_heading = _left_text("", 15, ACCENT)
+	box.add_child(_mode_heading)
+	_mode_blurb_label = _left_text("", 12, FAINT)
+	_mode_blurb_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_mode_blurb_label.custom_minimum_size = Vector2(SETTINGS_W - 28, 0)
+	box.add_child(_mode_blurb_label)
+	box.add_child(_rule(SETTINGS_W - 28))
+	_mode_list = VBoxContainer.new()
+	_mode_list.add_theme_constant_override("separation", 5)
+	_mode_list.custom_minimum_size = Vector2(SETTINGS_W - 28, 0)
+	box.add_child(_mode_list)
+	box.add_child(_spacer(6))
+	_mode_done = _framed(Button.new())
+	_mode_done.text = "DONE"
+	_mode_done.custom_minimum_size = Vector2(SETTINGS_W - 28, 34)
+	_mode_done.pressed.connect(_close_mode_settings)
+	box.add_child(_mode_done)
+
+
+## Fill the mode panel for whatever mode is selected now.
+func _refresh_mode_panel() -> void:
+	if _mode_list == null:
+		return
+	for c in _mode_list.get_children():
+		_mode_list.remove_child(c)
+		c.queue_free()
+	_mode_focus.clear()
+	_mode_heading.text = "%s  ·  SETTINGS" % str(GameState.MODE_NAMES[GameState.mode])
+	_mode_blurb_label.text = GameState.mode_blurb()
+
+	# HOW MANY PLAYERS A SIDE FIELDS. Named for what it is in this mode rather
+	# than "TEAM SIZE" everywhere: a free-for-all has no teams to size, and
+	# MASSIVE is choosing the scale of a battle rather than the size of a squad.
+	var size_dd := _setting(_mode_list, "PLAYERS A SIDE", _mode_focus)
+	var sizes := _size_values()
+	_fill(size_dd, _labels(sizes, "%d PER SIDE"), maxi(sizes.find(GameState.team_size), 0))
+	size_dd.disabled = GameState.free_for_all
+	size_dd.item_selected.connect(func(i: int) -> void:
+		var values := _size_values()
+		GameState.team_size = int(values[clampi(i, 0, values.size() - 1)])
+		_changed())
+
+	# WHAT IT IS PLAYED TO, in the mode's own unit. Royale has none — last side
+	# standing is not a number — so the row is DISABLED rather than missing, the
+	# same rule every other row in this front end follows.
+	var victory_dd := _setting(_mode_list, "VICTORY", _mode_focus)
+	var vics := _victory_values()
+	_fill(victory_dd, _labels(vics, "%d " + _victory_unit()),
+		maxi(vics.find(GameState.score_limit()), 0))
+	victory_dd.disabled = GameState.mode == GameState.Mode.ROYALE
+	victory_dd.item_selected.connect(func(i: int) -> void:
+		var values := _victory_values()
+		GameState.score_targets[GameState.mode] = int(values[clampi(i, 0, values.size() - 1)])
+		_changed())
+
+	if _mode_overlay != null and _mode_overlay.visible:
+		_wire_ring(_mode_focus + [_mode_done])
+
+
+func _open_mode_settings() -> void:
+	if _mode_overlay == null:
+		return
+	Audio.play("ui_accept")
+	_refresh_mode_panel()
+	_mode_overlay.visible = true
+	_wire_ring(_mode_focus + [_mode_done])
+	if not _mode_focus.is_empty():
+		(_mode_focus[0] as Control).grab_focus()
+
+
+## Back to the settings it opened from, NOT out to the screen. A nested panel
+## that closes both levels on one press is a player who has to walk back in to
+## change the next thing.
+func _close_mode_settings() -> void:
+	if _mode_overlay == null or not _mode_overlay.visible:
+		return
+	Audio.play("ui_back")
+	_mode_overlay.visible = false
+	GameState.save_setup()
+	_wire_ring(_mid_focus + [_close_btn])
+	if _mode_btn != null:
+		_mode_btn.grab_focus()
+
+
 ## Open the settings. Focus moves INTO the panel — a modal whose controls cannot
 ## be reached is a modal that has trapped the player, and on a pad the highlight
 ## is the only cursor there is.
@@ -750,7 +880,15 @@ func _close_settings() -> void:
 ## `_input`: an OptionButton's own popup is up on top of this and answers
 ## ui_cancel first, so closing the popup must not also close the panel.
 func _unhandled_input(event: InputEvent) -> void:
-	if _overlay != null and _overlay.visible and event.is_action_pressed("ui_cancel"):
+	if not event.is_action_pressed("ui_cancel"):
+		return
+	# THE TOP-MOST PANEL ONLY. Two modals deep, one press has to close one of
+	# them — closing both would drop a player back out to the screen when they
+	# meant to step back to the settings they came from.
+	if _mode_overlay != null and _mode_overlay.visible:
+		_close_mode_settings()
+		get_viewport().set_input_as_handled()
+	elif _overlay != null and _overlay.visible:
 		_close_settings()
 		get_viewport().set_input_as_handled()
 
@@ -909,7 +1047,12 @@ func _paint_row(b: Button, on: bool) -> void:
 ## because the column is narrow and there are a dozen of them — a caption ABOVE
 ## each control (the old menu's shape) would make this column twice as tall as
 ## the two beside it.
-func _setting(into: Control, caption: String) -> OptionButton:
+## `focus` is which ring the row joins — the settings panel's, or the mode
+## panel's when it is building its own. STATED rather than defaulted: an empty
+## array is a perfectly ordinary ring that has not been filled yet, so using
+## emptiness as "use the other one" silently put the mode panel's first rows into
+## the settings panel's ring and left the mode panel with nothing to focus.
+func _setting(into: Control, caption: String, focus: Array) -> OptionButton:
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 6)
 	into.add_child(row)
@@ -929,7 +1072,7 @@ func _setting(into: Control, caption: String) -> OptionButton:
 	b.focus_entered.connect(_reveal.bind(b))
 	row.add_child(b)
 	_settings_rows.append(b)
-	_mid_focus.append(b)
+	focus.append(b)
 	return b
 
 

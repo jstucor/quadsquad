@@ -66,6 +66,50 @@ func _ready() -> void:
 	var tight := p.weapon.current_spread_deg()
 	_expect(wide > tight, "the multiplier actually widens the fired cone")
 
+	# --- AIMING IS PINPOINT, ON EVERY GUN AND EVERY SIGHT ------------------
+	#
+	# It used to be the SCOPE's promise alone and everything else kept a small
+	# ADS cone, so a sight picture said "the round goes there" and the gun
+	# answered "roughly there". Checked across the whole catalogue rather than on
+	# one weapon, because the rule lives in `current_spread_deg` precisely so no
+	# profile can opt out of it — and checked IN A STANCE that widens the cone,
+	# since the stance multiplier is applied after it and would happily multiply
+	# a non-zero number back up.
+	print("\n== aiming is pinpoint ==")
+	var loose := 0
+	var loose_names := PackedStringArray()
+	for c in Weapon.PROFILES.size():
+		var w := _weapon(c, {})
+		await _frames(1)
+		w.aiming = true
+		w.stance_spread_mult = moving        # the worst stance there is
+		w._bloom = 3.0                       # ...and a cone full of spray
+		if w.current_spread_deg() > 0.0:
+			loose += 1
+			if loose_names.size() < 6:
+				loose_names.append(str(Weapon.Class.keys()[c]))
+		w.queue_free()
+	print("  %d of %d weapons throw a cone while aimed%s" % [
+		loose, Weapon.PROFILES.size(),
+		"" if loose_names.is_empty() else " (%s)" % ", ".join(loose_names)])
+	_expect(loose == 0, "every gun in the catalogue is pinpoint down the sights")
+	# ...and the AI's model of the gun is deliberately NOT zeroed with it. A Bot
+	# derives its stand-off from `aimed_spread_deg`, so zeroing that here would
+	# turn a player-facing accuracy rule into an unasked-for AI rebalance —
+	# `bot_range` is where that showed up and this is where it is pinned.
+	var ironed := _weapon(Weapon.Class.SOLDIER, {})
+	await _frames(1)
+	_expect(ironed.aimed_spread_deg() > 0.0,
+		"...but the AI still tunes against the gun's authored aimed cone")
+	ironed.queue_free()
+	# ...and hip fire still is not, or the trade has been given away.
+	var hipped := _weapon(Weapon.Class.SOLDIER, {})
+	await _frames(1)
+	hipped.aiming = false
+	_expect(hipped.current_spread_deg() > 0.0,
+		"...while hip fire still throws a cone, which is what aiming buys")
+	hipped.queue_free()
+
 	# --- droideka twin repeaters ------------------------------------------
 	print("\n== droideka twin repeaters ==")
 	var twin := _weapon(Weapon.Class.DROIDEKA_TWIN, {})

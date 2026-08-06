@@ -494,7 +494,41 @@ func release_all_holds() -> void:
 	if tree != null:
 		tree.paused = false
 
-var mode := Mode.DEATHMATCH
+## --- SETTINGS THAT BELONG TO A MODE, NOT TO THE MATCH -------------------------
+##
+## A ROSTER SIZE IS NOT ONE SETTING, IT IS ONE PER MODE. Fifty a side is the
+## whole point of MASSIVE and absurd in Conquest; four is a good deathmatch and
+## empty on 260 m of Boneyard. With a single `team_size` the answer to "how many
+## players" was whatever the last mode you looked at needed, and the game already
+## carried a patch for the worst case of that — leaving MASSIVE left the size at
+## fifty, over the ordinary ceiling, and `menu.gd`'s `_fix_setup` had to walk it
+## back onto the ladder. That is a per-mode setting being stored in one box.
+##
+## So each mode keeps its own, and picking a mode RESTORES that mode's numbers
+## rather than dragging the last one's along. `score_targets` was already keyed
+## this way (it has to be — kills, seconds and reinforcements are not the same
+## unit), and this is the same idea applied to the other half of the pair.
+##
+## `team_size` stays an ordinary property that everything reads unchanged: the
+## setter writes through to the current mode's row, and the `mode` setter reads
+## that mode's row back. Nothing outside this file knows the table exists.
+## The DEFAULTS are each mode's existing one — this splits where a size is
+## STORED, it does not re-balance anything. MASSIVE is the only row that ever
+## wanted a different number and the only one that has one.
+const MODE_TEAM_SIZES := {
+	Mode.DEATHMATCH: 2, Mode.ZONES: 2, Mode.ROYALE: 2,
+	Mode.CONQUEST: 2, Mode.MASSIVE: MASSIVE_DEFAULT,
+}
+var mode_team_size := MODE_TEAM_SIZES.duplicate()
+
+var mode := Mode.DEATHMATCH:
+	set(value):
+		mode = clampi(value, 0, MODE_NAMES.size() - 1)
+		# ...and the size this mode was last played at. Assigned to the BACKING
+		# field, not through `team_size`'s setter, or reading a mode would write
+		# to it — harmless here and confusing the first time it matters.
+		team_size = int(mode_team_size.get(mode, MODE_TEAM_SIZES[Mode.DEATHMATCH]))
+
 ## Where the capture area currently is, and whether there is one at all. Bots
 ## read these to decide where to push in ZONES.
 var zone_point := Vector3.ZERO
@@ -563,7 +597,14 @@ var class_mode := ClassMode.CUSTOM:
 		Loadout.custom_pool = v == ClassMode.CUSTOM
 
 var human_players := 4
-var team_size := 2
+## HOW MANY BODIES A SIDE FIELDS, and it is stored PER MODE (see MODE_TEAM_SIZES).
+## Every reader in the game — `ai_needed`, `crowded`, the bots, the HUD — asks
+## this exactly as it always did; the setter is what keeps the mode's own row in
+## step, so nothing else has to know the distinction exists.
+var team_size := 2:
+	set(value):
+		team_size = value
+		mode_team_size[mode] = value
 var ai_skill := 1
 ## How many sides when it is not a free-for-all, and whether it is one.
 var team_count := 2
@@ -868,6 +909,11 @@ func save_setup() -> void:
 	var cfg := ConfigFile.new()
 	cfg.set_value("setup", "match", capture_match())
 	cfg.set_value("setup", "playlist", playlist)
+	# The PER-MODE settings as a whole table, not just the current mode's row:
+	# what a player set up for Conquest is still theirs after an evening of
+	# deathmatch, and `capture_match` only carries the mode being played.
+	cfg.set_value("setup", "mode_team_size", mode_team_size)
+	cfg.set_value("setup", "score_targets", score_targets)
 	cfg.save(SETUP_PATH)
 
 
@@ -888,6 +934,17 @@ func load_setup() -> void:
 	var cfg := ConfigFile.new()
 	if cfg.load(SETUP_PATH) != OK:
 		return   # never played on this machine
+	# The per-mode tables FIRST, so applying the match below (which sets `mode`,
+	# and so reads that mode's row) sees last night's numbers rather than the
+	# defaults. Merged key by key: a table written before a mode existed must not
+	# take that mode's row away with it.
+	for pair: Array in [[cfg.get_value("setup", "mode_team_size", {}), mode_team_size],
+			[cfg.get_value("setup", "score_targets", {}), score_targets]]:
+		if not (pair[0] is Dictionary):
+			continue
+		for key in (pair[0] as Dictionary):
+			if (pair[1] as Dictionary).has(int(key)):
+				(pair[1] as Dictionary)[int(key)] = int((pair[0] as Dictionary)[key])
 	var stored = cfg.get_value("setup", "match", {})
 	if stored is Dictionary and not stored.is_empty():
 		apply_match(stored)

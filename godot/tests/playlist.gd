@@ -57,6 +57,7 @@ func _ready() -> void:
 	_queue()
 	await _real_input()
 	_planet_maps()
+	_mode_settings()
 	_persistence()
 	await _playlist_screen()
 	await _boot()
@@ -71,7 +72,7 @@ func _ready() -> void:
 	# rest of that section with it silently (house rule 6), so a test that only
 	# counted failures would report success having checked nothing.
 	var expected := ["seats", "sign-in", "input", "capture", "queue", "planets",
-		"persistence", "screen", "boot", "career"]
+		"mode-settings", "persistence", "screen", "boot", "career"]
 	for s in expected:
 		if not _sections.has(s):
 			_fails.append("section `%s` never finished — it aborted part way" % s)
@@ -402,6 +403,43 @@ func _planet_maps() -> void:
 	_sections.append("planets")
 
 
+## SETTINGS THAT BELONG TO A MODE ARE STORED PER MODE, which is the half that
+## makes nesting them under the mode true rather than decorative. Fifty a side is
+## the whole point of MASSIVE and absurd in Conquest; with one shared box the
+## answer to "how many players" was whatever the last mode you looked at needed,
+## and the game already carried a patch for the worst case of it.
+func _mode_settings() -> void:
+	print("\n== a setting that belongs to a mode ==")
+	GameState.mode = GameState.Mode.DEATHMATCH
+	GameState.team_size = 4
+	GameState.score_targets[GameState.Mode.DEATHMATCH] = 50
+	GameState.mode = GameState.Mode.CONQUEST
+	GameState.team_size = 12
+	GameState.score_targets[GameState.Mode.CONQUEST] = 400
+	_ok(GameState.team_size == 12, "conquest keeps its own roster size")
+
+	GameState.mode = GameState.Mode.DEATHMATCH
+	_ok(GameState.team_size == 4,
+		"...and going back to deathmatch restores ITS size, not the last one used")
+	_ok(GameState.score_limit() == 50, "the victory threshold follows the same way")
+	GameState.mode = GameState.Mode.CONQUEST
+	_ok(GameState.team_size == 12 and GameState.score_limit() == 400,
+		"and back again, both of conquest's numbers are still there")
+
+	# THE ONE THIS FIXES OUTRIGHT. Leaving MASSIVE used to leave `team_size` at
+	# fifty — over the ordinary ceiling, with no dropdown item matching it — and
+	# `menu.gd` had to walk it back onto the ladder afterwards.
+	GameState.mode = GameState.Mode.MASSIVE
+	_ok(GameState.team_size == GameState.MASSIVE_DEFAULT,
+		"massive opens at fifty a side, which is the whole point of it")
+	GameState.mode = GameState.Mode.DEATHMATCH
+	_ok(GameState.team_size <= GameState.MAX_TEAM_SIZE,
+		"leaving massive cannot leave an ordinary mode over its own ceiling")
+	_ok(GameState.TEAM_SIZES.has(GameState.team_size),
+		"...and lands on a size the ladder actually offers (%d)" % GameState.team_size)
+	_sections.append("mode-settings")
+
+
 ## THE SETUP SURVIVES THE SESSION. Everything behind the settings button plus the
 ## queue itself, written as it changes and read back at launch.
 func _persistence() -> void:
@@ -484,6 +522,25 @@ func _playlist_screen() -> void:
 	_ok(screen.get_viewport().gui_get_focus_owner() != null
 			and screen._mid_focus.has(screen.get_viewport().gui_get_focus_owner()),
 		"...and the highlight moves inside it, which on a pad is the only cursor")
+	# SETTINGS WITHIN SETTINGS: the mode's own are one press further in, and
+	# closing them steps back to the settings rather than out to the screen.
+	_ok(not screen._mode_overlay.visible, "the mode's own settings start closed")
+	screen._open_mode_settings()
+	await get_tree().process_frame
+	_ok(screen._mode_overlay.visible and screen._overlay.visible,
+		"opening them leaves the settings panel up behind")
+	_ok(screen._mode_heading.text.contains(
+			str(GameState.MODE_NAMES[GameState.mode])),
+		"...under a heading naming the mode: `%s`" % screen._mode_heading.text)
+	_ok(screen._mode_focus.size() >= 2,
+		"...with the mode's own rows in it (%d)" % screen._mode_focus.size())
+	screen._close_mode_settings()
+	await get_tree().process_frame
+	_ok(not screen._mode_overlay.visible and screen._overlay.visible,
+		"closing them steps back to the settings, not out of both")
+	_ok(screen.get_viewport().gui_get_focus_owner() == screen._mode_btn,
+		"...and onto the row that opened them")
+
 	screen._close_settings()
 	await get_tree().process_frame
 	_ok(not screen._overlay.visible, "DONE closes it")
